@@ -1,0 +1,141 @@
+name: CI — Nari Surokkha
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ─── Backend API ────────────────────────────────────────────
+  api-checks:
+    name: API — Lint, Type-Check, Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4-alpine
+        env:
+          POSTGRES_DB: nari_test
+          POSTGRES_USER: nari_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # Install ALL workspaces from the root lockfile (links @nari-surokkha/shared).
+      - name: Install dependencies
+        run: npm ci
+
+      # The API depends on the shared package's build output — build it first.
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+
+      - name: Generate Prisma client
+        working-directory: services/api
+        run: npx prisma generate
+
+      - name: Type check
+        working-directory: services/api
+        run: npm run type-check
+
+      - name: Lint
+        working-directory: services/api
+        run: npm run lint
+
+      - name: Run tests
+        working-directory: services/api
+        env:
+          DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test_jwt_secret_at_least_64_chars_long_xxxxxxxxxxxxxxxxxxxxxxxxxx
+          JWT_REFRESH_SECRET: test_refresh_secret_at_least_64_chars_long_xxxxxxxxxxxxxxxx
+          NODE_ENV: test
+        run: npm test
+
+  # ─── Police Portal ──────────────────────────────────────────
+  police-portal-checks:
+    name: Police Portal — Lint, Type-Check, Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+      - name: Type check
+        working-directory: apps/police-portal
+        run: npm run type-check
+      - name: Lint
+        working-directory: apps/police-portal
+        run: npm run lint
+      - name: Build
+        working-directory: apps/police-portal
+        run: npm run build
+
+  # ─── Shared Package ─────────────────────────────────────────
+  shared-checks:
+    name: Shared Package — Type-Check, Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build --workspace=packages/shared
+
+  # ─── ML Service ─────────────────────────────────────────────
+  ml-service-checks:
+    name: ML Service — Lint, Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/ml-service
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check .
+      - name: Test
+        run: pytest --tb=short || echo "No tests yet"

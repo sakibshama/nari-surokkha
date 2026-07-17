@@ -1,0 +1,78 @@
+# Production compose. All secrets MUST be provided via the environment or a
+# secrets manager — there are intentionally NO insecure inline defaults here.
+# Required env: DB_USER, DB_PASSWORD, DB_NAME, JWT_SECRET (>=64 chars),
+# JWT_REFRESH_SECRET (>=64 chars), CORS_ORIGINS, WS_CORS_ORIGINS.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${DB_USER:?DB_USER is required}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_NAME:?DB_NAME is required}?schema=public
+      - REDIS_URL=redis://redis:6379
+      # Secrets are required — no fallbacks. Provide via CI/CD secrets or a vault.
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required (min 64 chars)}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required (min 64 chars)}
+      - CORS_ORIGINS=${CORS_ORIGINS:?CORS_ORIGINS is required}
+      - WS_CORS_ORIGINS=${WS_CORS_ORIGINS:?WS_CORS_ORIGINS is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Production runs migrations only — NEVER seed dev/test accounts into prod.
+    command: sh -c "npx prisma migrate deploy && npm run start"
+
+  admin-portal:
+    build:
+      context: .
+      dockerfile: apps/admin-portal/Dockerfile
+    ports:
+      - "8081:80"
+    depends_on:
+      - api
+
+  police-portal:
+    build:
+      context: .
+      dockerfile: apps/police-portal/Dockerfile
+    ports:
+      - "8082:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,105 @@
+name: Deploy — Nari Surokkha (VPS)
+
+# Deploys on a version tag (recommended) or manual dispatch.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY_BASE: ghcr.io/${{ github.repository_owner }}/nari-surokkha
+
+jobs:
+  # ─── Build & push all images to GHCR ────────────────────────
+  build:
+    name: Build & push images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - name: api
+            dockerfile: services/api/Dockerfile
+            build_args: ""
+          - name: ml-service
+            dockerfile: services/ml-service/Dockerfile
+            build_args: ""
+          - name: admin-portal
+            dockerfile: apps/admin-portal/Dockerfile
+            build_args: |
+              VITE_API_URL=${{ vars.PUBLIC_API_URL }}
+              VITE_WS_URL=${{ vars.PUBLIC_WS_URL }}
+          - name: police-portal
+            dockerfile: apps/police-portal/Dockerfile
+            build_args: |
+              VITE_API_URL=${{ vars.PUBLIC_API_URL }}
+              VITE_WS_URL=${{ vars.PUBLIC_WS_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          build-args: ${{ matrix.build_args }}
+          tags: |
+            ${{ env.REGISTRY_BASE }}/${{ matrix.name }}:${{ github.sha }}
+            ${{ env.REGISTRY_BASE }}/${{ matrix.name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Deploy to the VPS over SSH ─────────────────────────────
+  deploy:
+    name: Deploy to VPS
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.VPS_APP_DIR }}"
+
+            # Pull latest compose file, nginx template, scripts
+            git fetch --all
+            git reset --hard origin/main
+
+            # Authenticate to GHCR to pull the freshly built images
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            export REGISTRY="${{ env.REGISTRY_BASE }}"
+            export TAG="${{ github.sha }}"
+            COMPOSE="docker compose -f docker-compose.prod.yml --env-file .env.production"
+
+            $COMPOSE pull
+            # Apply DB migrations before starting the new version
+            $COMPOSE run --rm api npx prisma migrate deploy
+            $COMPOSE up -d
+            docker image prune -f
+
+            # Show health
+            sleep 5
+            $COMPOSE ps

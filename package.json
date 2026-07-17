@@ -1,0 +1,34 @@
+{
+  "name": "nari-surokkha",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nari Surokkha — Women's Safety & Emergency Response Platform",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "api": "npm --workspace=services/api run dev",
+    "police-portal": "npm --workspace=apps/police-portal run dev",
+    "admin-portal": "npm --workspace=apps/admin-portal run dev",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "type-check": "npm run type-check --workspaces --if-present",
+    "docker:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d",
+    "docker:down": "docker compose -f infra/docker/docker-compose.dev.yml down",
+    "docker:logs": "docker compose -f infra/docker/docker-compose.dev.yml logs -f"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "prettier": "^3.3.2",
+    "eslint": "^9.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "author": "Nari Surokkha Team",
+  "license": "UNLICENSED"
+}

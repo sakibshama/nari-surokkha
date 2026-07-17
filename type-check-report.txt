@@ -1,0 +1,203 @@
+
+> nari-surokkha@0.1.0 type-check
+> npm run type-check --workspaces --if-present
+
+
+> @nari-surokkha/api@0.1.0 type-check
+> tsc --noEmit
+
+src/__tests__/admin.unit.test.ts(1,32): error TS6133: 'vi' is declared but its value is never read.
+src/__tests__/admin.unit.test.ts(19,7): error TS2322: Type '"login_attempt"' is not assignable to type 'AuditAction'.
+src/__tests__/admin.unit.test.ts(34,7): error TS2322: Type '"login_attempt"' is not assignable to type 'AuditAction'.
+src/__tests__/admin.unit.test.ts(49,7): error TS2322: Type '"phone_verification"' is not assignable to type 'AuditAction'.
+src/__tests__/auth.unit.test.ts(25,20): error TS2352: Conversion of type '{ id: string; phone: string; passwordHash: string; role: string; status: "active"; }' to type '{ status: UserStatus; id: string; createdAt: Date; updatedAt: Date; phone: string; email: string | null; passwordHash: string; roleId: string; permissions: string[]; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ id: string; phone: string; passwordHash: string; role: string; status: "active"; }' is missing the following properties from type '{ status: UserStatus; id: string; createdAt: Date; updatedAt: Date; phone: string; email: string | null; passwordHash: string; roleId: string; permissions: string[]; }': createdAt, updatedAt, email, roleId, permissions
+src/__tests__/incidents.unit.test.ts(18,15): error TS2554: Expected 2 arguments, but got 1.
+src/__tests__/incidents.unit.test.ts(32,55): error TS2322: Type 'number' is not assignable to type 'Decimal'.
+src/__tests__/incidents.unit.test.ts(32,68): error TS2322: Type 'number' is not assignable to type 'Decimal'.
+src/__tests__/incidents.unit.test.ts(33,58): error TS2322: Type 'number' is not assignable to type 'Decimal'.
+src/__tests__/incidents.unit.test.ts(33,71): error TS2322: Type 'number' is not assignable to type 'Decimal'.
+src/__tests__/incidents.unit.test.ts(34,61): error TS2322: Type 'number' is not assignable to type 'Decimal'.
+src/__tests__/incidents.unit.test.ts(34,74): error TS2322: Type 'number' is not assignable to type 'Decimal'.
+src/__tests__/notifications.unit.test.ts(5,33): error TS2307: Cannot find module '@/modules/notifications/providers/sms.provider' or its corresponding type declarations.
+src/__tests__/schema.unit.test.ts(14,3): error TS2305: Module '"@prisma/client"' has no exported member 'UserRole'.
+src/__tests__/schema.unit.test.ts(22,34): error TS2305: Module '"@nari-surokkha/shared"' has no exported member 'UserRole'.
+src/middleware/authenticate.ts(51,30): error TS2339: Property 'stationId' does not exist on type 'JwtAccessPayload'.
+src/middleware/authenticate.ts(52,32): error TS2339: Property 'badgeNumber' does not exist on type 'JwtAccessPayload'.
+src/modules/admin/admin.controller.ts(3,1): error TS6133: 'Role' is declared but its value is never read.
+src/modules/admin/admin.controller.ts(19,9): error TS18046: 'req.body' is of type 'unknown'.
+src/modules/admin/admin.controller.ts(29,9): error TS18046: 'req.body' is of type 'unknown'.
+src/modules/admin/admin.controller.ts(103,5): error TS6133: 'req' is declared but its value is never read.
+src/modules/admin/admin.controller.ts(142,5): error TS6133: 'req' is declared but its value is never read.
+src/modules/admin/admin.routes.ts(9,3): error TS6133: 'options' is declared but its value is never read.
+src/modules/admin/admin.routes.ts(20,81): error TS2345: Argument of type '(req: FastifyRequest<{ Querystring: { role?: string; search?: string; limit?: number; offset?: number; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Querystring: { role?: string | undefined; search?: string | undefined; limit?: number | undefined; offset?: number | undefined; }; }, RawServerDefault, IncomingMessage, ... 4 more ..., ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Querystring: { role?: string | undefined; search?: string | undefined; limit?: number | undefined; offset?: number | undefined; }; }'.
+        Types of property 'Querystring' are incompatible.
+          Type 'unknown' is not assignable to type '{ role?: string | undefined; search?: string | undefined; limit?: number | undefined; offset?: number | undefined; }'.
+src/modules/admin/admin.routes.ts(21,82): error TS2345: Argument of type '(req: FastifyRequest<{ Body: any; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Body: any; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Body: any; }'.
+        Property 'Body' is optional in type 'RouteGenericInterface' but required in type '{ Body: any; }'.
+src/modules/admin/admin.routes.ts(22,85): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; Body: any; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; Body: any; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; Body: any; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/admin/admin.routes.ts(23,88): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/admin/admin.routes.ts(24,94): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; Body: { isVerified: boolean; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; Body: { isVerified: boolean; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; Body: { isVerified: boolean; }; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/admin/admin.routes.ts(27,86): error TS2345: Argument of type '(req: FastifyRequest<{ Querystring: { isVerified?: boolean; search?: string; limit?: number; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Querystring: { isVerified?: boolean | undefined; search?: string | undefined; limit?: number | undefined; }; }, RawServerDefault, IncomingMessage, ... 4 more ..., ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Querystring: { isVerified?: boolean | undefined; search?: string | undefined; limit?: number | undefined; }; }'.
+        Types of property 'Querystring' are incompatible.
+          Type 'unknown' is not assignable to type '{ isVerified?: boolean | undefined; search?: string | undefined; limit?: number | undefined; }'.
+src/modules/admin/admin.routes.ts(28,99): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; Body: { isVerified: boolean; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; Body: { isVerified: boolean; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; Body: { isVerified: boolean; }; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/admin/admin.routes.ts(29,93): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/admin/admin.routes.ts(32,87): error TS2345: Argument of type '(req: FastifyRequest<{ Querystring: { search?: string; limit?: number; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Querystring: { search?: string | undefined; limit?: number | undefined; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Querystring: { search?: string | undefined; limit?: number | undefined; }; }'.
+        Types of property 'Querystring' are incompatible.
+          Type 'unknown' is not assignable to type '{ search?: string | undefined; limit?: number | undefined; }'.
+src/modules/admin/admin.routes.ts(33,88): error TS2345: Argument of type '(req: FastifyRequest<{ Body: any; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Body: any; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Body: any; }'.
+        Property 'Body' is optional in type 'RouteGenericInterface' but required in type '{ Body: any; }'.
+src/modules/admin/admin.routes.ts(34,91): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; Body: any; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; Body: any; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; Body: any; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/admin/admin.routes.ts(35,94): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/admin/admin.routes.ts(38,89): error TS2345: Argument of type '(req: FastifyRequest<{ Querystring: { search?: string; limit?: number; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, FastifySchema, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Querystring: { search?: string | undefined; limit?: number | undefined; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Querystring: { search?: string | undefined; limit?: number | undefined; }; }'.
+        Types of property 'Querystring' are incompatible.
+          Type 'unknown' is not assignable to type '{ search?: string | undefined; limit?: number | undefined; }'.
+src/modules/admin/admin.service.ts(2,10): error TS6133: 'User' is declared but its value is never read.
+src/modules/admin/admin.service.ts(2,16): error TS6133: 'Responder' is declared but its value is never read.
+src/modules/admin/admin.service.ts(2,37): error TS6133: 'Role' is declared but its value is never read.
+src/modules/alerts/alerts.service.ts(45,7): error TS2353: Object literal may only specify known properties, and 'status' does not exist in type '{ userId: string; latitude: number; longitude: number; accuracy?: number | undefined; assignedStationId?: string | null | undefined; }'.
+src/modules/alerts/alerts.service.ts(111,72): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(obj: "Failed to auto-create case for alert", msg?: undefined): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'undefined'.
+  Overload 2 of 3, '(obj: "Failed to auto-create case for alert", msg?: undefined, ...args: unknown[]): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'undefined'.
+src/modules/alerts/alerts.service.ts(164,80): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(obj: "Failed to query device tokens or send push", msg?: undefined): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'undefined'.
+  Overload 2 of 3, '(obj: "Failed to query device tokens or send push", msg?: undefined, ...args: unknown[]): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'undefined'.
+src/modules/alerts/alerts.service.ts(168,73): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(obj: "Failed to dispatch to nearby responders", msg?: undefined): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'undefined'.
+  Overload 2 of 3, '(obj: "Failed to dispatch to nearby responders", msg?: undefined, ...args: unknown[]): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'undefined'.
+src/modules/alerts/alerts.service.ts(187,7): error TS2353: Object literal may only specify known properties, and 'type' does not exist in type '{ userId: string; latitude: number; longitude: number; accuracy?: number | undefined; assignedStationId?: string | null | undefined; }'.
+src/modules/alerts/alerts.service.ts(371,27): error TS18046: 'mlData' is of type 'unknown'.
+src/modules/alerts/alerts.service.ts(386,76): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(obj: "Failed to get safe route from ML service", msg?: undefined): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'undefined'.
+  Overload 2 of 3, '(obj: "Failed to get safe route from ML service", msg?: undefined, ...args: unknown[]): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'undefined'.
+src/modules/auth/auth.service.ts(28,16): error TS2339: Property 'role' does not exist on type '{ status: UserStatus; id: string; createdAt: Date; updatedAt: Date; phone: string; email: string | null; passwordHash: string; roleId: string; permissions: string[]; }'.
+src/modules/auth/auth.service.ts(132,58): error TS2339: Property 'role' does not exist on type '{ status: UserStatus; id: string; createdAt: Date; updatedAt: Date; phone: string; email: string | null; passwordHash: string; roleId: string; permissions: string[]; }'.
+src/modules/auth/auth.service.ts(132,110): error TS2353: Object literal may only specify known properties, and 'fullName' does not exist in type '{ id: string; phone: string; role: string; permissions: string[]; }'.
+src/modules/auth/auth.service.ts(179,73): error TS2561: Object literal may only specify known properties, but 'roleId' does not exist in type '{ id: string; phone: string; role: string; permissions: string[]; }'. Did you mean to write 'role'?
+src/modules/cases/cases.controller.ts(8,54): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(8,54): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/modules/cases/cases.controller.ts(13,71): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(13,71): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/modules/cases/cases.controller.ts(18,72): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(18,72): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/modules/cases/cases.controller.ts(23,89): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(23,102): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(23,102): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/modules/cases/cases.controller.ts(28,85): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(28,98): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(28,98): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/modules/cases/cases.controller.ts(33,62): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(33,75): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(33,75): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/modules/cases/cases.controller.ts(38,77): error TS18048: 'req.user' is possibly 'undefined'.
+src/modules/cases/cases.controller.ts(38,77): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/modules/cases/cases.service.ts(71,62): error TS2339: Property 'createdAt' does not exist on type '{ type: EvidenceType; alertId: string; id: string; fileKey: string; originalName: string; mimeType: string; sizeBytes: bigint; checksum: string; uploadedAt: Date; }'.
+src/modules/cases/cases.service.ts(84,35): error TS2339: Property 'victimName' does not exist on type '{ status: AlertStatus; type: AlertType; id: string; userId: string; latitude: Decimal; longitude: Decimal; accuracy: Decimal | null; ... 9 more ...; updatedAt: Date; }'.
+src/modules/cases/cases.service.ts(84,72): error TS2339: Property 'victimPhone' does not exist on type '{ status: AlertStatus; type: AlertType; id: string; userId: string; latitude: Decimal; longitude: Decimal; accuracy: Decimal | null; ... 9 more ...; updatedAt: Date; }'.
+src/modules/cases/cases.service.ts(86,56): error TS2339: Property 'profile' does not exist on type '{ role: PoliceUserRole; id: string; createdAt: Date; updatedAt: Date; phone: string; email: string | null; passwordHash: string; fullName: string; isActive: boolean; stationId: string; badgeNumber: string; }'.
+src/modules/evidence/evidence.routes.ts(38,5): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, { ...; }, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, { readonly tags: readonly ["Evidence"]; readonly summary: "Upload evidence for an alert"; readonly consumes: readonly [...]; readonly params: { ...; }; readonly response: { ...; }; }, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, Reso...' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/evidence/evidence.routes.ts(54,5): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, { ...; }, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, { readonly tags: readonly ["Evidence"]; readonly summary: "List evidence for an alert"; readonly params: { ...; }; readonly response: { ...; }; }, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/evidence/evidence.routes.ts(68,5): error TS2345: Argument of type '(req: FastifyRequest<{ Params: { id: string; }; }>, reply: FastifyReply) => Promise<never>' is not assignable to parameter of type 'RouteHandlerMethod<RawServerDefault, IncomingMessage, ServerResponse<IncomingMessage>, RouteGenericInterface, unknown, { ...; }, FastifyTypeProviderDefault, FastifyBaseLogger>'.
+  Types of parameters 'req' and 'request' are incompatible.
+    Type 'FastifyRequest<RouteGenericInterface, RawServerDefault, IncomingMessage, { readonly tags: readonly ["Evidence"]; readonly summary: "Get pre-signed URL to view evidence"; readonly params: { ...; }; }, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>' is not assignable to type 'FastifyRequest<{ Params: { id: string; }; }, RawServerDefault, IncomingMessage, FastifySchema, FastifyTypeProviderDefault, unknown, FastifyBaseLogger, ResolveFastifyRequestType<...>>'.
+      Type 'RouteGenericInterface' is not assignable to type '{ Params: { id: string; }; }'.
+        Types of property 'Params' are incompatible.
+          Type 'unknown' is not assignable to type '{ id: string; }'.
+src/modules/incidents/incidents.routes.ts(15,3): error TS6133: 'options' is declared but its value is never read.
+src/modules/incidents/incidents.routes.ts(41,34): error TS6133: 'opts' is declared but its value is never read.
+src/modules/notifications/providers/push.provider.ts(10,33): error TS6133: 'title' is declared but its value is never read.
+src/modules/notifications/providers/push.provider.ts(10,48): error TS6133: 'body' is declared but its value is never read.
+src/modules/notifications/providers/push.provider.ts(10,62): error TS6133: 'data' is declared but its value is never read.
+src/modules/notifications/providers/push.provider.ts(19,5): error TS1232: An import declaration can only be used at the top level of a namespace or module.
+src/modules/notifications/providers/push.provider.ts(19,22): error TS2307: Cannot find module 'pino' or its corresponding type declarations.
+npm error Lifecycle script `type-check` failed with error:
+npm error code 2
+npm error path D:\NRI\nari-surokkha\services\api
+npm error workspace @nari-surokkha/api@0.1.0
+npm error location D:\NRI\nari-surokkha\services\api
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c tsc --noEmit
+
+
+> @nari-surokkha/shared@0.1.0 type-check
+> tsc --noEmit
+

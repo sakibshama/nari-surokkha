@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "56680664209",
+    "project_id": "nari-surokkha",
+    "storage_bucket": "nari-surokkha.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:56680664209:android:4e18b6c15fa31993540330",
+        "android_client_info": {
+          "package_name": "com.narisurokkha.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA0F4hzBgsbE3kqHLbUZPyHhx3BmhOdYYs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

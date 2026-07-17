@@ -1,0 +1,29 @@
+# Keep the Docker build context small and never leak secrets into images.
+**/node_modules
+**/dist
+**/.git
+**/.github
+**/coverage
+**/.turbo
+**/.vite
+
+# Env files (real secrets must never be baked into an image)
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.production.example
+
+# Local evidence storage / data / backups
+data
+backups
+services/api/uploads
+uploads
+
+# Editor / OS cruft
+**/.DS_Store
+**/*.log
+lint-report.txt
+type-check-report.txt
+
+# Mobile app is not built in these images
+apps/mobile

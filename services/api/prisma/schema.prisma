@@ -1,0 +1,774 @@
+// ============================================================
+// Nari Surokkha — Prisma Schema
+// Phase 3: Full database schema
+//
+// Rules:
+// - PostGIS used for all geospatial fields (GEOMETRY type)
+// - pgcrypto used for gen_random_uuid() defaults
+// - Every table has id (UUID), created_at, updated_at
+// - All location columns store as geometry(Point, 4326) (WGS84)
+// - Indexes on all foreign keys, created_at, and geospatial cols
+// - Never store plaintext passwords — only hashes
+// - Audit logs are append-only (no update/delete)
+// ============================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis(schema: "public"), pgcrypto]
+}
+
+// ============================================================
+// ENUM DEFINITIONS
+// ============================================================
+
+
+
+enum UserStatus {
+  active
+  inactive
+  suspended
+  pending_verification
+}
+
+enum AlertStatus {
+  created
+  confirmed
+  notified_contacts
+  sent_to_police
+  acknowledged_by_police
+  in_progress
+  resolved
+  cancelled
+  false_alarm
+  closed
+}
+
+enum AlertType {
+  manual
+  sensor_triggered
+  ml_triggered
+}
+
+enum EvidenceType {
+  photo
+  audio
+  video
+  document
+}
+
+enum ResponderStatus {
+  pending
+  verified
+  rejected
+  suspended
+}
+
+enum ResponderAvailability {
+  available
+  busy
+  offline
+}
+
+enum PoliceUserRole {
+  officer
+  supervisor
+  admin
+}
+
+enum CaseStatus {
+  open
+  assigned
+  in_progress
+  resolved
+  closed
+  false_alarm
+}
+
+enum NotificationChannel {
+  sms
+  push
+  email
+}
+
+enum NotificationStatus {
+  queued
+  sent
+  failed
+  delivered
+}
+
+enum MlDetectionType {
+  fall
+  struggle_motion
+  distress_audio
+  trigger_word
+}
+
+enum IncidentType {
+  harassment
+  robbery
+  suspicious_activity
+  poor_lighting
+  other
+}
+
+enum IncidentStatus {
+  pending
+  verified
+  rejected
+}
+
+enum AuditAction {
+  created
+  updated
+  deleted
+  login
+  logout
+  sos_triggered
+  alert_acknowledged
+  case_assigned
+  case_closed
+  evidence_accessed
+  evidence_uploaded
+  responder_approved
+  responder_rejected
+}
+
+// ============================================================
+// USERS & AUTH
+// ============================================================
+
+/// Core authentication record. Never store plaintext password.
+model User {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone        String     @unique @db.VarChar(20)
+  email        String?    @unique @db.VarChar(255)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  roleId       String     @map("role_id") @db.Uuid
+  permissions  String[]   @default([])
+  status       UserStatus @default(active)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  role             Role?      @relation(fields: [roleId], references: [id])
+  profile          UserProfile?
+  sessions         UserSession[]
+  deviceTokens     DeviceToken[]
+  trustedContacts  TrustedContact[]
+  alerts           EmergencyAlert[]
+  responder        Responder?
+  auditLogs        AuditLog[]
+  mlDetections     MlDetectionEvent[]
+  activeRoutes     ActiveRoute[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([roleId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+/// Dynamic Role configuration
+model Role {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @db.VarChar(100)
+  key         String   @unique @db.VarChar(50) // e.g. 'admin', 'citizen'
+  description String?  @db.VarChar(500)
+  isSystem    Boolean  @default(false) @map("is_system") // System roles cannot be deleted
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  users       User[]
+
+  @@index([key])
+  @@map("roles")
+}
+
+/// Extended profile — emergency information about the user
+model UserProfile {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String   @unique @map("user_id") @db.Uuid
+  fullName            String   @map("full_name") @db.VarChar(100)
+  bloodGroup          String?  @map("blood_group") @db.VarChar(5)
+  preferredLanguage   String   @default("bn") @map("preferred_language") @db.VarChar(5)
+  emergencyNote       String?  @map("emergency_note") @db.VarChar(500)
+  nationalId          String?  @map("national_id") @db.VarChar(20)
+  profilePhotoKey     String?  @map("profile_photo_key") @db.VarChar(500)
+  isVerified          Boolean  @default(false) @map("is_verified")
+  verifiedAt          DateTime? @map("verified_at") @db.Timestamptz
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_profiles")
+}
+
+/// Active user sessions (refresh token store)
+model UserSession {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  refreshToken String   @unique @map("refresh_token") @db.VarChar(512)
+  deviceInfo   String?  @map("device_info") @db.VarChar(500)
+  ipAddress    String?  @map("ip_address") @db.VarChar(50)
+  expiresAt    DateTime @map("expires_at") @db.Timestamptz
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+/// Push notification device tokens (FCM)
+model DeviceToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @db.VarChar(512)
+  platform  String   @db.VarChar(10)    // android | ios
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([userId])
+  @@index([token])
+  @@map("device_tokens")
+}
+
+// ============================================================
+// TRUSTED CONTACTS
+// ============================================================
+
+/// Emergency contacts — notified when user triggers SOS
+model TrustedContact {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  name       String   @db.VarChar(100)
+  phone      String   @db.VarChar(20)
+  relation   String?  @db.VarChar(50)
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  isVerified Boolean  @default(false) @map("is_verified")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertRecipients   AlertRecipient[]
+
+  @@index([userId])
+  @@index([phone])
+  @@map("trusted_contacts")
+}
+
+// ============================================================
+// POLICE STATIONS & USERS
+// ============================================================
+
+/// Police station — has a geographic location for nearest-match lookup
+model PoliceStation {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @db.VarChar(200)
+  thanaCode   String   @unique @map("thana_code") @db.VarChar(20)
+  district    String   @db.VarChar(100)
+  division    String   @db.VarChar(100)
+  address     String?  @db.VarChar(500)
+  phone       String   @db.VarChar(20)
+  isActive    Boolean  @default(true) @map("is_active")
+  // PostGIS point — stored as latitude/longitude numerics for Prisma compatibility
+  // Raw PostGIS GEOMETRY column added via migration SQL
+  latitude    Decimal  @db.Decimal(10, 8)
+  longitude   Decimal  @db.Decimal(11, 8)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  policeUsers      PoliceUser[]
+  cases            Case[]
+  alertRecipients  AlertRecipient[]
+
+  @@index([thanaCode])
+  @@index([district])
+  @@index([isActive])
+  // Geospatial index added via raw SQL migration
+  @@map("police_stations")
+}
+
+/// Police user — officer attached to a station
+model PoliceUser {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  stationId    String         @map("station_id") @db.Uuid
+  badgeNumber  String         @unique @map("badge_number") @db.VarChar(50)
+  fullName     String         @map("full_name") @db.VarChar(100)
+  phone        String         @db.VarChar(20)
+  email        String?        @unique @db.VarChar(255)
+  passwordHash String         @map("password_hash") @db.VarChar(255)
+  role         PoliceUserRole @default(officer)
+  isActive     Boolean        @default(true) @map("is_active")
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  station         PoliceStation @relation(fields: [stationId], references: [id])
+  assignedCases   Case[]        @relation("AssignedOfficer")
+  caseUpdates     CaseUpdate[]
+  auditLogs       AuditLog[]    @relation("PoliceUserAudit")
+
+  @@index([stationId])
+  @@index([badgeNumber])
+  @@index([email])
+  @@map("police_users")
+}
+
+// ============================================================
+// EMERGENCY ALERTS (SOS)
+// ============================================================
+
+/// The core SOS alert — created when user presses SOS or sensor triggers
+model EmergencyAlert {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String      @map("user_id") @db.Uuid
+  type             AlertType   @default(manual)
+  status           AlertStatus @default(created)
+  // Initial GPS coordinates at time of SOS
+  latitude         Decimal     @db.Decimal(10, 8)
+  longitude        Decimal     @db.Decimal(11, 8)
+  accuracy         Decimal?    @db.Decimal(8, 2)
+  // Nearest station assigned at creation
+  assignedStationId String?    @map("assigned_station_id") @db.Uuid
+  // ML metadata if triggered by sensor
+  mlMetadata       Json?       @map("ml_metadata")
+  // Soft alert fields
+  isSoftAlert      Boolean     @default(false) @map("is_soft_alert")
+  softAlertAt      DateTime?   @map("soft_alert_at") @db.Timestamptz
+  softAlertCancelledAt DateTime? @map("soft_alert_cancelled_at") @db.Timestamptz
+  confirmedAt      DateTime?   @map("confirmed_at") @db.Timestamptz
+  resolvedAt       DateTime?   @map("resolved_at") @db.Timestamptz
+  closedAt         DateTime?   @map("closed_at") @db.Timestamptz
+  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  user             User              @relation(fields: [userId], references: [id])
+  locationUpdates  AlertLocation[]
+  evidence         AlertEvidence[]
+  recipients       AlertRecipient[]
+  cases            Case[]
+  mlDetections     MlDetectionEvent[]
+  notificationLogs NotificationLog[]
+  responderDispatches ResponderDispatch[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@index([assignedStationId])
+  @@map("emergency_alerts")
+}
+
+/// Live location updates during active SOS — high-frequency writes
+model AlertLocation {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertId   String   @map("alert_id") @db.Uuid
+  latitude  Decimal  @db.Decimal(10, 8)
+  longitude Decimal  @db.Decimal(11, 8)
+  accuracy  Decimal? @db.Decimal(8, 2)
+  timestamp DateTime @default(now()) @db.Timestamptz
+
+  alert EmergencyAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId])
+  @@index([alertId, timestamp(sort: Desc)])
+  // Geospatial index added via raw SQL migration
+  @@map("alert_locations")
+}
+
+/// Evidence files (photos, audio, video) uploaded during SOS
+model AlertEvidence {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertId      String       @map("alert_id") @db.Uuid
+  type         EvidenceType
+  // S3 private storage key — never exposed directly
+  fileKey      String       @map("file_key") @db.VarChar(1000)
+  originalName String       @map("original_name") @db.VarChar(255)
+  mimeType     String       @map("mime_type") @db.VarChar(100)
+  sizeBytes    BigInt       @map("size_bytes")
+  // SHA-256 checksum for integrity verification
+  checksum     String       @db.VarChar(64)
+  uploadedAt   DateTime     @default(now()) @map("uploaded_at") @db.Timestamptz
+
+  alert       EmergencyAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  accessLogs  EvidenceAccessLog[]
+
+  @@index([alertId])
+  @@index([uploadedAt])
+  @@map("alert_evidence")
+}
+
+/// Audit log for every evidence access (signed URL generation)
+model EvidenceAccessLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  evidenceId  String   @map("evidence_id") @db.Uuid
+  accessedBy  String   @map("accessed_by") @db.VarChar(100)  // police user id or admin id
+  accessedAt  DateTime @default(now()) @map("accessed_at") @db.Timestamptz
+  ipAddress   String?  @map("ip_address") @db.VarChar(50)
+
+  evidence AlertEvidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+
+  @@index([evidenceId])
+  @@index([accessedAt])
+  @@map("evidence_access_logs")
+}
+
+/// Recipients notified for an alert (trusted contacts + police station)
+model AlertRecipient {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertId          String   @map("alert_id") @db.Uuid
+  trustedContactId String?  @map("trusted_contact_id") @db.Uuid
+  policeStationId  String?  @map("police_station_id") @db.Uuid
+  notifiedAt       DateTime? @map("notified_at") @db.Timestamptz
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  alert          EmergencyAlert  @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  trustedContact TrustedContact? @relation(fields: [trustedContactId], references: [id])
+  policeStation  PoliceStation?  @relation(fields: [policeStationId], references: [id])
+
+  @@index([alertId])
+  @@index([trustedContactId])
+  @@index([policeStationId])
+  @@map("alert_recipients")
+}
+
+// ============================================================
+// RESPONDERS
+// ============================================================
+
+/// Verified community responders
+model Responder {
+  id               String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String                @unique @map("user_id") @db.Uuid
+  status           ResponderStatus       @default(pending)
+  availability     ResponderAvailability @default(offline)
+  nationalId       String?               @map("national_id") @db.VarChar(20)
+  occupation       String?               @db.VarChar(100)
+  organizationName String?               @map("organization_name") @db.VarChar(100)
+  // Current location for nearby matching
+  latitude         Decimal?              @db.Decimal(10, 8)
+  longitude        Decimal?              @db.Decimal(11, 8)
+  lastLocationAt   DateTime?             @map("last_location_at") @db.Timestamptz
+  approvedAt       DateTime?             @map("approved_at") @db.Timestamptz
+  approvedBy       String?               @map("approved_by") @db.Uuid  // admin user id
+  reputationScore  Int                   @default(0) @map("reputation_score")
+  badges           String[]
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz
+
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifications     ResponderVerification[]
+  dispatchedAlerts  ResponderDispatch[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([availability])
+  // Geospatial index added via raw SQL migration
+  @@map("responders")
+}
+
+/// Verification documents submitted by responder applicants
+model ResponderVerification {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  responderId String   @map("responder_id") @db.Uuid
+  documentKey String   @map("document_key") @db.VarChar(1000)
+  documentType String  @map("document_type") @db.VarChar(50)
+  uploadedAt  DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
+
+  responder Responder @relation(fields: [responderId], references: [id], onDelete: Cascade)
+
+  @@index([responderId])
+  @@map("responder_verifications")
+}
+
+/// Dispatch record — responder was sent to an alert
+model ResponderDispatch {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  responderId String    @map("responder_id") @db.Uuid
+  alertId     String    @map("alert_id") @db.Uuid
+  dispatchedAt DateTime @default(now()) @map("dispatched_at") @db.Timestamptz
+  acceptedAt  DateTime? @map("accepted_at") @db.Timestamptz
+  rejectedAt  DateTime? @map("rejected_at") @db.Timestamptz
+  rejectReason String?  @map("reject_reason") @db.VarChar(255)
+  verifiedAt  DateTime? @map("verified_at") @db.Timestamptz
+  verifiedBy  String?   @map("verified_by") @db.Uuid // police user id
+
+  responder Responder @relation(fields: [responderId], references: [id])
+  alert     EmergencyAlert @relation(fields: [alertId], references: [id])
+
+  @@index([responderId])
+  @@index([alertId])
+  @@map("responder_dispatches")
+}
+
+// ============================================================
+// CASES
+// ============================================================
+
+/// Police case — automatically created from a confirmed SOS alert
+model Case {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertId          String     @map("alert_id") @db.Uuid
+  stationId        String     @map("station_id") @db.Uuid
+  caseNumber       String     @unique @map("case_number") @db.VarChar(50)
+  status           CaseStatus @default(open)
+  assignedOfficerId String?   @map("assigned_officer_id") @db.Uuid
+  summary          String?    @db.VarChar(2000)
+  closedAt         DateTime?  @map("closed_at") @db.Timestamptz
+  closedReason     String?    @map("closed_reason") @db.VarChar(500)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  alert           EmergencyAlert @relation(fields: [alertId], references: [id])
+  station         PoliceStation  @relation(fields: [stationId], references: [id])
+  assignedOfficer PoliceUser?    @relation("AssignedOfficer", fields: [assignedOfficerId], references: [id])
+  updates         CaseUpdate[]
+
+  @@index([alertId])
+  @@index([stationId])
+  @@index([status])
+  @@index([assignedOfficerId])
+  @@index([createdAt])
+  @@map("cases")
+}
+
+/// Timeline of case status changes and officer notes
+model CaseUpdate {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId       String   @map("case_id") @db.Uuid
+  officerId    String   @map("officer_id") @db.Uuid
+  previousStatus CaseStatus? @map("previous_status")
+  newStatus    CaseStatus? @map("new_status")
+  note         String?  @db.VarChar(2000)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  case    Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  officer PoliceUser @relation(fields: [officerId], references: [id])
+
+  @@index([caseId])
+  @@index([officerId])
+  @@index([createdAt])
+  @@map("case_updates")
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+/// Log of all notifications (SMS, push) sent for alerts
+model NotificationLog {
+  id         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertId    String?             @map("alert_id") @db.Uuid
+  channel    NotificationChannel
+  recipient  String              @db.VarChar(255)  // phone number or FCM token
+  message    String              @db.VarChar(1000)
+  status     NotificationStatus  @default(queued)
+  attempts   Int                 @default(0)
+  lastError  String?             @map("last_error") @db.VarChar(500)
+  sentAt     DateTime?           @map("sent_at") @db.Timestamptz
+  deliveredAt DateTime?          @map("delivered_at") @db.Timestamptz
+  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  alert EmergencyAlert? @relation(fields: [alertId], references: [id])
+
+  @@index([alertId])
+  @@index([channel])
+  @@index([status])
+  @@index([createdAt])
+  @@map("notification_logs")
+}
+
+// ============================================================
+// ML DETECTION EVENTS
+// ============================================================
+
+/// Events from on-device ML model (fall, audio distress, etc.)
+model MlDetectionEvent {
+  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String          @map("user_id") @db.Uuid
+  alertId              String?         @map("alert_id") @db.Uuid
+  detectionType        MlDetectionType @map("detection_type")
+  confidence           Decimal         @db.Decimal(5, 4)
+  rawMetadata          Json?           @map("raw_metadata")
+  triggeredSoftAlert   Boolean         @default(false) @map("triggered_soft_alert")
+  softAlertCancelled   Boolean         @default(false) @map("soft_alert_cancelled")
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  user  User            @relation(fields: [userId], references: [id])
+  alert EmergencyAlert? @relation(fields: [alertId], references: [id])
+
+  @@index([userId])
+  @@index([alertId])
+  @@index([detectionType])
+  @@index([createdAt])
+  @@map("ml_detection_events")
+}
+
+// ============================================================
+// INCIDENT REPORTS & SAFETY SCORE
+// ============================================================
+
+/// Crowdsourced anonymous safety incidents
+model IncidentReport {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type        IncidentType
+  description String?        @db.Text
+  latitude    Decimal        @db.Decimal(10, 8)
+  longitude   Decimal        @db.Decimal(11, 8)
+  status      IncidentStatus @default(pending)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("incident_reports")
+}
+
+/// Pre-computed area Safety Scores (refreshed periodically)
+model SafetyScore {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Area identifier (grid cell or admin boundary)
+  areaKey       String   @unique @map("area_key") @db.VarChar(100)
+  centerLat     Decimal  @map("center_lat") @db.Decimal(10, 8)
+  centerLng     Decimal  @map("center_lng") @db.Decimal(11, 8)
+  radiusMeters  Int      @map("radius_meters")
+  score         Int      // 0–100 (100 = safest)
+  incidentCount Int      @map("incident_count")
+  alertCount    Int      @map("alert_count")
+  calculatedAt  DateTime @map("calculated_at") @db.Timestamptz
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz
+
+  @@index([areaKey])
+  @@index([calculatedAt])
+  // Geospatial index added via raw SQL migration
+  @@map("safety_scores")
+}
+
+// ============================================================
+// AUDIT LOGS (APPEND-ONLY)
+// ============================================================
+
+/// Immutable audit log — records every sensitive action in the system.
+/// CRITICAL: Never update or delete rows from this table.
+model AuditLog {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Actor — who performed the action
+  userId       String?     @map("user_id") @db.Uuid
+  policeUserId String?     @map("police_user_id") @db.Uuid
+  // Subject — what was acted on
+  action       AuditAction
+  entityType   String      @map("entity_type") @db.VarChar(50)  // e.g., "alert", "case", "user"
+  entityId     String?     @map("entity_id") @db.Uuid
+  // Context
+  ipAddress    String?     @map("ip_address") @db.VarChar(50)
+  userAgent    String?     @map("user_agent") @db.VarChar(500)
+  metadata     Json?       // Additional context (old/new values, etc.)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  user        User?       @relation(fields: [userId], references: [id])
+  policeUser  PoliceUser? @relation("PoliceUserAudit", fields: [policeUserId], references: [id])
+
+  @@index([userId])
+  @@index([policeUserId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model ActiveRoute {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  originLat   Decimal  @map("origin_lat") @db.Decimal(10, 8)
+  originLng   Decimal  @map("origin_lng") @db.Decimal(10, 8)
+  destLat     Decimal  @map("dest_lat") @db.Decimal(10, 8)
+  destLng     Decimal  @map("dest_lng") @db.Decimal(10, 8)
+  waypoints   Json     @db.JsonB // Array of { lat, lng }
+  status      String   @default("active") @db.VarChar(50) // active, completed, deviated
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// ============================================================
+// SYSTEM SETTINGS
+// Runtime-configurable key/value store (managed from the Admin
+// Portal). `value` holds a JSON blob; any secret fields inside it
+// are encrypted at rest by the application layer (AES-256-GCM),
+// never stored in plaintext. Used for the SMS provider config
+// (Twilio / BulkSMSBD API keys) so an admin can change providers
+// without a redeploy.
+// ============================================================
+model SystemSetting {
+  key       String   @id @db.VarChar(100)
+  value     Json     @db.JsonB
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("system_settings")
+}
+
+// ============================================================
+// ON-DEVICE ML — model registry + real-data training loop
+// ============================================================
+
+/// Registry of trained on-device models. The active row per `kind` is what
+/// devices download over-the-air. Files live in object storage (fileKey).
+model MlModel {
+  id        String   @id @default(uuid()) @db.Uuid
+  kind      String   @db.VarChar(50) // e.g. "motion"
+  version   Int
+  format    String   @db.VarChar(20) // "json" | "tflite"
+  fileKey   String   @map("file_key") @db.VarChar(500)
+  checksum  String   @db.VarChar(64)
+  sizeBytes Int      @map("size_bytes")
+  metadata  Json     @db.JsonB // classes, featureNames, standardize, metrics…
+  isActive  Boolean  @default(false) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([kind, version, format])
+  @@index([kind, isActive])
+  @@map("ml_models")
+}
+
+/// Labelled (or pending-label) sensor windows collected from real devices,
+/// used to retrain better model versions. `window` holds a (windowSize x
+/// channels) numeric array. `source` records how the label was derived.
+model MlTrainingSample {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  kind       String   @db.VarChar(50) // "motion"
+  label      String?  @db.VarChar(50) // class name; null until labelled
+  source     String   @db.VarChar(50) // confirmed_sos | false_alarm | manual | auto
+  window     Json     @db.JsonB
+  sampleRate Int      @map("sample_rate")
+  deviceInfo Json?    @map("device_info")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([kind, label])
+  @@index([createdAt])
+  @@map("ml_training_samples")
+}

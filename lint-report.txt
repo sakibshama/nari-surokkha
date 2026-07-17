@@ -1,0 +1,1325 @@
+
+> nari-surokkha@0.1.0 lint
+> npm run lint --workspaces --if-present
+
+
+> admin-portal@0.1.0 lint
+> oxlint
+
+
+  ! eslint(no-unused-vars): Identifier 'X' is imported but never used.
+   ,-[src/components/GlobalAlertModal.tsx:3:31]
+ 2 | import { useNavigate } from 'react-router-dom';
+ 3 | import { ShieldAlert, MapPin, X } from 'lucide-react';
+   :                               |
+   :                               `-- 'X' is imported here
+ 4 | import { playSiren } from '../utils/audio';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'Wifi' is imported but never used.
+   ,-[src/pages/Dashboard.tsx:5:3]
+ 4 |   Users, ShieldAlert, CheckCircle, Clock, MapPin, ArrowRight,
+ 5 |   Wifi, WifiOff, RefreshCw, Siren, Radio, AlertTriangle,
+   :   ^^|^
+   :     `-- 'Wifi' is imported here
+ 6 |   Eye, PhoneCall, Activity
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Variable 'initials' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/components/Layout.tsx:102:9]
+ 101 | 
+ 102 |   const initials = user?.phone?.slice(-4) || 'ADM';
+     :         ^^^^|^^^
+     :             `-- 'initials' is declared here
+ 103 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/AuditLogs.tsx:29:14]
+ 28 |       setLogs(res.data.data);
+ 29 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 30 |       toast.error('Failed to load audit logs');
+    `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'fetchLogs'
+    ,-[src/pages/AuditLogs.tsx:23:6]
+ 21 |   useEffect(() => {
+ 22 |     fetchLogs();
+    :     ^^^^|^^^^
+    :         `-- useEffect uses `fetchLogs` here
+ 23 |   }, [search]);
+    :      ^^^^^^^^
+ 24 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/PoliceStations.tsx:45:14]
+ 44 |       setStations(res.data.data);
+ 45 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 46 |       toast.error('Failed to load stations');
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/PoliceStations.tsx:58:14]
+ 57 |       fetchStations();
+ 58 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 59 |       toast.error('Failed to delete station');
+    `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'fetchStations'
+    ,-[src/pages/PoliceStations.tsx:39:6]
+ 37 |   useEffect(() => {
+ 38 |     fetchStations();
+    :     ^^^^^^|^^^^^^
+    :           `-- useEffect uses `fetchStations` here
+ 39 |   }, [search]);
+    :      ^^^^^^^^
+ 40 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Identifier 'Video' is imported but never used.
+   ,-[src/pages/AlertDetails.tsx:3:26]
+ 2 | import { useParams, useNavigate } from 'react-router-dom';
+ 3 | import { ArrowLeft, Mic, Video } from 'lucide-react';
+   :                          ^^|^^
+   :                            `-- 'Video' is imported here
+ 4 | import api from '../services/api';
+   `----
+  help: Consider removing this import.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'fetchEvidence'
+     ,-[src/pages/AlertDetails.tsx:190:6]
+ 127 |       fetchData();
+ 128 |       fetchEvidence();
+     :       ^^^^^^|^^^^^^
+     :             `-- useEffect uses `fetchEvidence` here
+ 129 |     }
+ 130 | 
+ 131 |     // WebSocket Integration
+ 132 |     socketService.connect();
+ 133 |     if (socketService.socket) {
+ 134 |       // Join the alert-specific room so WebRTC signals are routed correctly
+ 135 |       socketService.socket.emit('join:alert', id);
+ 136 |       socketService.socket.emit('join:station', 'dispatch');
+ 137 | 
+ 138 |       socketService.socket.on('alert:location_update', (data: any) => {
+ 139 |         if (data.alertId === id) {
+ 140 |           setAlert(prev => prev ? { ...prev, latitude: data.latitude, longitude: data.longitude } : prev);
+ 141 |         }
+ 142 |       });
+ 143 |       socketService.socket.on('evidence_uploaded', (data: any) => {
+ 144 |         if (data.alertId === id) {
+ 145 |           fetchEvidence();
+ 146 |         }
+ 147 |       });
+ 148 |       socketService.socket.on('webrtc:mode_changed', (data: any) => {
+ 149 |         if (data.alertId === id) {
+ 150 |           setIsAudioOnly(data.isAudioOnly);
+ 151 |         }
+ 152 |       });
+ 153 |       socketService.socket.on('webrtc:signal', async (data: any) => {
+ 154 |         if (data.alertId === id) {
+ 155 |           if (!pcRef.current) return;
+ 156 | 
+ 157 |           const pc = pcRef.current;
+ 158 | 
+ 159 |           try {
+ 160 |             if (data.signal.type === 'offer') {
+ 161 |               await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
+ 162 |               const answer = await pc.createAnswer();
+ 163 |               await pc.setLocalDescription(answer);
+ 164 |               const desc = pc.localDescription;
+ 165 |               socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: desc?.type, sdp: desc?.sdp } });
+ 166 |             } else if (data.signal.type === 'answer') {
+ 167 |               console.log('[WebRTC] Received answer from mobile, setting remote description');
+ 168 |               await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
+ 169 |             } else if (data.signal.type === 'candidate') {
+ 170 |               await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
+ 171 |             }
+ 172 |           } catch (e) {
+ 173 |             console.error('WebRTC error', e);
+ 174 |           }
+ 175 |         }
+ 176 |       });
+ 177 |     }
+ 178 | 
+ 179 |     return () => {
+ 180 |       if (socketService.socket) {
+ 181 |         socketService.socket.off('alert:location_update');
+ 182 |         socketService.socket.off('evidence_uploaded');
+ 183 |         socketService.socket.off('webrtc:signal');
+ 184 |         socketService.socket.off('webrtc:mode_changed');
+ 185 |       }
+ 186 |       if (pcRef.current) {
+ 187 |         pcRef.current.close();
+ 188 |       }
+ 189 |     };
+ 190 |   }, [id]);
+     :      ^^^^
+ 191 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-expressions): Expected expression to be used
+    ,-[src/pages/Incidents.tsx:58:5]
+ 57 |   const fetchIncidents = async (silent = false) => {
+ 58 |     silent ? setRefreshing(true) : setLoading(true);
+    :     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 59 |     try {
+    `----
+  help: Consider using this expression or removing it
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/Responders.tsx:33:14]
+ 32 |       setResponders(res.data.data);
+ 33 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 34 |       toast.error('Failed to load responders');
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/Responders.tsx:45:14]
+ 44 |       fetchResponders();
+ 45 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 46 |       toast.error('Failed to update status');
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/Responders.tsx:56:14]
+ 55 |       fetchResponders();
+ 56 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 57 |       toast.error('Failed to delete responder');
+    `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'fetchResponders'
+    ,-[src/pages/Responders.tsx:27:6]
+ 25 |   useEffect(() => {
+ 26 |     fetchResponders();
+    :     ^^^^^^^|^^^^^^^
+    :            `-- useEffect uses `fetchResponders` here
+ 27 |   }, [search]);
+    :      ^^^^^^^^
+ 28 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/Settings.tsx:43:14]
+ 42 |       });
+ 43 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 44 |       toast.error('Failed to load profile data');
+    `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'fetchProfile'
+    ,-[src/pages/Settings.tsx:32:6]
+ 30 |   useEffect(() => {
+ 31 |     fetchProfile();
+    :     ^^^^^^|^^^^^
+    :           `-- useEffect uses `fetchProfile` here
+ 32 |   }, []);
+    :      ^^
+ 33 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Identifier 'Shield' is imported but never used.
+   ,-[src/pages/Roles.tsx:3:10]
+ 2 | import {
+ 3 |   Crown, Shield, UserCircle, Users as UsersIcon, KeyRound, Check,
+   :          ^^^|^^
+   :             `-- 'Shield' is imported here
+ 4 |   ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, X, AlertTriangle, UserCog
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'UserCircle' is imported but never used.
+   ,-[src/pages/Roles.tsx:3:18]
+ 2 | import {
+ 3 |   Crown, Shield, UserCircle, Users as UsersIcon, KeyRound, Check,
+   :                  ^^^^^|^^^^
+   :                       `-- 'UserCircle' is imported here
+ 4 |   ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, X, AlertTriangle, UserCog
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'KeyRound' is imported but never used.
+   ,-[src/pages/Roles.tsx:3:50]
+ 2 | import {
+ 3 |   Crown, Shield, UserCircle, Users as UsersIcon, KeyRound, Check,
+   :                                                  ^^^^|^^^
+   :                                                      `-- 'KeyRound' is imported here
+ 4 |   ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, X, AlertTriangle, UserCog
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'Check' is imported but never used.
+   ,-[src/pages/Roles.tsx:3:60]
+ 2 | import {
+ 3 |   Crown, Shield, UserCircle, Users as UsersIcon, KeyRound, Check,
+   :                                                            ^^|^^
+   :                                                              `-- 'Check' is imported here
+ 4 |   ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, X, AlertTriangle, UserCog
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Variable 'PERMISSIONS_EXPLAINED' is declared but never used. Unused variables should start with a '_'.
+    ,-[src/pages/Roles.tsx:16:7]
+ 15 | 
+ 16 | const PERMISSIONS_EXPLAINED = [
+    :       ^^^^^^^^^^|^^^^^^^^^^
+    :                 `-- 'PERMISSIONS_EXPLAINED' is declared here
+ 17 |   { id: 'manage_users', label: 'Manage Users', icon: '👥', color: '#3b82f6', who: 'Admin', what: 'Allows listing, creating, editing, and deleting citizen, responder, and police accounts.' },
+    `----
+  help: Consider removing this declaration.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'fetchRoles'
+    ,-[src/pages/Roles.tsx:35:6]
+ 33 |   useEffect(() => {
+ 34 |     fetchRoles();
+    :     ^^^^^|^^^^
+    :          `-- useEffect uses `fetchRoles` here
+ 35 |   }, []);
+    :      ^^
+ 36 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Identifier 'ChevronDown' is imported but never used.
+   ,-[src/pages/Users.tsx:4:3]
+ 3 |   Users as UsersIcon, Shield, ShieldOff, Search, Plus, Trash2, Edit, X,
+ 4 |   ChevronDown, Crown, UserCircle, Lock, Check, AlertCircle, RefreshCw,
+   :   ^^^^^|^^^^^
+   :        `-- 'ChevronDown' is imported here
+ 5 |   Phone, Mail, Calendar, Hash, Eye, EyeOff, KeyRound
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'Calendar' is imported but never used.
+   ,-[src/pages/Users.tsx:5:16]
+ 4 |   ChevronDown, Crown, UserCircle, Lock, Check, AlertCircle, RefreshCw,
+ 5 |   Phone, Mail, Calendar, Hash, Eye, EyeOff, KeyRound
+   :                ^^^^|^^^
+   :                    `-- 'Calendar' is imported here
+ 6 | } from 'lucide-react';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Variable 'selectedIds' is declared but never used. Unused variables should start with a '_'.
+    ,-[src/pages/Users.tsx:65:10]
+ 64 |   const [submitting, setSubmitting] = useState(false);
+ 65 |   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    :          ^^^^^|^^^^^
+    :               `-- 'selectedIds' is declared here
+ 66 |   const [activeTab, setActiveTab] = useState<'details' | 'permissions'>('details');
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setSelectedIds' is declared but never used. Unused variables should start with a '_'.
+    ,-[src/pages/Users.tsx:65:23]
+ 64 |   const [submitting, setSubmitting] = useState(false);
+ 65 |   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    :                       ^^^^^^^|^^^^^^
+    :                              `-- 'setSelectedIds' is declared here
+ 66 |   const [activeTab, setActiveTab] = useState<'details' | 'permissions'>('details');
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'roleColors' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/Users.tsx:189:9]
+ 188 | 
+ 189 |   const roleColors: Record<string, string> = {
+     :         ^^^^^|^^^^
+     :              `-- 'roleColors' is declared here
+ 190 |     admin: '#a78bfa', police: '#38bdf8', responder: '#34d399', citizen: '#94a3b8'
+     `----
+  help: Consider removing this declaration.
+
+Found 28 warnings and 0 errors.
+Finished in 115ms on 23 files with 103 rules using 8 threads.
+
+> @nari-surokkha/police-portal@0.1.0 lint
+> oxlint
+
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/Settings.tsx:45:14]
+ 44 |       });
+ 45 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 46 |       toast.error('Failed to load profile data');
+    `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'fetchProfile'
+    ,-[src/pages/Settings.tsx:33:6]
+ 31 |   useEffect(() => {
+ 32 |     fetchProfile();
+    :     ^^^^^^|^^^^^
+    :           `-- useEffect uses `fetchProfile` here
+ 33 |   }, []);
+    :      ^^
+ 34 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Identifier 'toast' is imported but never used.
+   ,-[src/pages/Dashboard.tsx:5:8]
+ 4 | import { formatDistanceToNow } from 'date-fns';
+ 5 | import toast from 'react-hot-toast';
+   :        ^^|^^
+   :          `-- 'toast' is imported here
+ 6 | import api from '../services/api';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Parameter 'data' is declared but never used. Unused parameters should start with a '_'.
+    ,-[src/pages/Dashboard.tsx:31:49]
+ 30 |     if (socketService.socket) {
+ 31 |       socketService.socket.on('alert:created', (data) => {
+    :                                                 ^^|^
+    :                                                   `-- 'data' is declared here
+ 32 |         // Refetch fully to ensure we have all relational data (user, profile)
+    `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Identifier 'toast' is imported but never used.
+    ,-[src/components/Layout.tsx:10:8]
+  9 | import { socketService } from '../services/socket';
+ 10 | import toast, { Toaster } from 'react-hot-toast';
+    :        ^^|^^
+    :          `-- 'toast' is imported here
+ 11 | import GlobalAlertModal from './GlobalAlertModal';
+    `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Catch parameter 'err' is caught but never used.
+    ,-[src/pages/CaseDetail.tsx:43:14]
+ 42 |       fetchCase();
+ 43 |     } catch (err) {
+    :              ^|^
+    :               `-- 'err' is declared here
+ 44 |       alert('Failed to assign');
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'err' is caught but never used.
+    ,-[src/pages/CaseDetail.tsx:54:14]
+ 53 |       fetchCase();
+ 54 |     } catch (err) {
+    :              ^|^
+    :               `-- 'err' is declared here
+ 55 |       alert('Failed to add note');
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'err' is caught but never used.
+    ,-[src/pages/CaseDetail.tsx:67:14]
+ 66 |       fetchCase();
+ 67 |     } catch (err) {
+    :              ^|^
+    :               `-- 'err' is declared here
+ 68 |       alert('Failed to update status');
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'err' is caught but never used.
+    ,-[src/pages/CaseDetail.tsx:81:14]
+ 80 |       link.click();
+ 81 |     } catch (err) {
+    :              ^|^
+    :               `-- 'err' is declared here
+ 82 |       alert('Failed to download report');
+    `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'fetchCase'
+    ,-[src/pages/CaseDetail.tsx:37:6]
+ 35 |   useEffect(() => {
+ 36 |     fetchCase();
+    :     ^^^^|^^^^
+    :         `-- useEffect uses `fetchCase` here
+ 37 |   }, [id]);
+    :      ^^^^
+ 38 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/Incidents.tsx:54:14]
+ 53 |       setIncidents(res.data.data);
+ 54 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 55 |       toast.error('Failed to load incidents');
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/Incidents.tsx:66:14]
+ 65 |       fetchIncidents();
+ 66 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 67 |       toast.error('Failed to update status');
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/Incidents.tsx:77:14]
+ 76 |       fetchIncidents();
+ 77 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 78 |       toast.error('Failed to delete incident');
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'error' is caught but never used.
+    ,-[src/pages/Incidents.tsx:89:14]
+ 88 |       fetchIncidents();
+ 89 |     } catch (error) {
+    :              ^^|^^
+    :                `-- 'error' is declared here
+ 90 |       toast.error('Failed to update incident');
+    `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'fetchIncidents'
+    ,-[src/pages/Incidents.tsx:47:6]
+ 24 |   useEffect(() => {
+ 25 |     fetchIncidents();
+    :     ^^^^^^^|^^^^^^
+    :            `-- useEffect uses `fetchIncidents` here
+ 26 |     
+ 27 |     // Subscribe to real-time incident creations
+ 28 |     const handleNewIncident = (incident: Incident) => {
+ 29 |       // Only append to the list if we are viewing 'pending' incidents
+ 30 |       if (statusFilter === 'pending') {
+ 31 |         setIncidents(prev => [incident, ...prev]);
+ 32 |         toast.success(`New ${incident.type.replace('_', ' ')} reported nearby!`, {
+ 33 |           icon: '📍',
+ 34 |         });
+ 35 |       }
+ 36 |     };
+ 37 | 
+ 38 |     if (socketService.socket) {
+ 39 |       socketService.socket.on('incident:created', handleNewIncident);
+ 40 |     }
+ 41 | 
+ 42 |     return () => {
+ 43 |       if (socketService.socket) {
+ 44 |         socketService.socket.off('incident:created', handleNewIncident);
+ 45 |       }
+ 46 |     };
+ 47 |   }, [statusFilter]);
+    :      ^^^^^^^^^^^^^^
+ 48 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+Found 15 warnings and 0 errors.
+Finished in 39ms on 19 files with 103 rules using 8 threads.
+
+> @nari-surokkha/api@0.1.0 lint
+> eslint src --ext .ts
+
+
+D:\NRI\nari-surokkha\services\api\src\middleware\authenticate.ts
+  51:11  error  Unsafe assignment of an error typed value  @typescript-eslint/no-unsafe-assignment
+  52:11  error  Unsafe assignment of an error typed value  @typescript-eslint/no-unsafe-assignment
+
+D:\NRI\nari-surokkha\services\api\src\middleware\rbac.ts
+  21:25  error  This assertion is unnecessary since it does not change the type of the expression  @typescript-eslint/no-unnecessary-type-assertion
+  36:11  error  Unsafe assignment of an `any` value                                                @typescript-eslint/no-unsafe-assignment
+  36:46  error  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+  36:51  error  Unsafe member access .permissions on an `any` value                                @typescript-eslint/no-unsafe-member-access
+  39:12  error  Unsafe call of an `any` typed value                                                @typescript-eslint/no-unsafe-call
+  39:28  error  Unsafe member access .includes on an `any` value                                   @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\admin\admin.controller.ts
+    3:10  error    'Role' is defined but never used          @typescript-eslint/no-unused-vars
+    9:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   17:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   17:51  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   26:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   26:75  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   40:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   45:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   53:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   61:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   69:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   74:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   79:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   79:54  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   84:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   84:78  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   89:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   94:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  102:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  110:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  111:51  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  119:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  120:11  error    Unsafe assignment of an `any` value       @typescript-eslint/no-unsafe-assignment
+  121:40  error    Unsafe assignment of an `any` value       @typescript-eslint/no-unsafe-assignment
+  124:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  125:51  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  133:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  134:67  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  137:11  error    Unsafe assignment of an `any` value       @typescript-eslint/no-unsafe-assignment
+  138:40  error    Unsafe assignment of an `any` value       @typescript-eslint/no-unsafe-assignment
+  141:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  145:11  error    Unsafe assignment of an `any` value       @typescript-eslint/no-unsafe-assignment
+  146:40  error    Unsafe assignment of an `any` value       @typescript-eslint/no-unsafe-assignment
+
+D:\NRI\nari-surokkha\services\api\src\modules\admin\admin.repository.ts
+    8:18   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+    9:24   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+   11:13   error  Unsafe member access .OR on an `any` value                                                        @typescript-eslint/no-unsafe-member-access
+   20:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   26:32   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   32:26   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+   33:44   error  Unsafe argument of type `any` assigned to a parameter of type `string | Buffer<ArrayBufferLike>`  @typescript-eslint/no-unsafe-argument
+   33:49   error  Unsafe member access .password on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+   34:11   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   34:24   error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+   34:33   error  Unsafe call of an `any` typed value                                                               @typescript-eslint/no-unsafe-call
+   34:38   error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+   34:65   error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+   38:11   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   38:30   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+   38:57   error  Unsafe member access .permissions on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+   38:77   error  Unsafe member access .permissions on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+   40:15   error  Unsafe member access .permissions on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+   42:14   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+   43:17   error  Unsafe member access .badgeNumber on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+   43:38   error  Unsafe member access .stationId on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+   49:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   49:25   error  Unsafe member access .phone on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+   50:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   53:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   56:17   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   56:32   error  Unsafe member access .fullName on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+   57:17   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   57:34   error  Unsafe member access .nationalId on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+   58:17   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   58:34   error  Unsafe member access .isVerified on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+   67:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   67:29   error  Unsafe member access .stationId on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+   68:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   68:31   error  Unsafe member access .badgeNumber on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+   69:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   69:28   error  Unsafe member access .fullName on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+   70:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   70:25   error  Unsafe member access .phone on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+   71:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   82:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   82:21   error  Unsafe member access .phone on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+   83:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   85:28   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   85:38   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+   86:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   89:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   89:28   error  Unsafe member access .fullName on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+   90:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   90:30   error  Unsafe member access .nationalId on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+   91:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+   91:30   error  Unsafe member access .isVerified on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+   99:38   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  103:23   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  104:14   error  Unsafe member access .phone on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  104:21   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  104:32   error  Unsafe member access .phone on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  104:45   error  Unsafe member access .phone on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  105:14   error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  105:35   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  105:46   error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  105:59   error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  105:68   error  Unsafe call of an `any` typed value                                                               @typescript-eslint/no-unsafe-call
+  105:73   error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  105:100  error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  106:14   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+  106:31   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+  106:51   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  106:61   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+  107:14   error  Unsafe member access .status on an `any` value                                                    @typescript-eslint/no-unsafe-member-access
+  107:22   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  107:33   error  Unsafe member access .status on an `any` value                                                    @typescript-eslint/no-unsafe-member-access
+  107:47   error  Unsafe member access .status on an `any` value                                                    @typescript-eslint/no-unsafe-member-access
+  108:14   error  Unsafe member access .permissions on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+  108:48   error  Unsafe member access .permissions on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+  109:7    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  109:18   error  Unsafe member access .permissions on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+  109:37   error  Unsafe member access .permissions on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+  112:14   error  Unsafe member access .fullName on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  112:31   error  Unsafe member access .nationalId on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+  112:57   error  Unsafe member access .isVerified on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+  113:18   error  Unsafe member access .profile on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+  116:16   error  Unsafe member access .fullName on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  116:26   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  116:37   error  Unsafe member access .profile on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+  116:68   error  Unsafe member access .fullName on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  117:16   error  Unsafe member access .nationalId on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+  117:28   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  117:39   error  Unsafe member access .profile on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+  117:72   error  Unsafe member access .nationalId on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+  118:23   error  Unsafe member access .isVerified on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+  119:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  119:20   error  Unsafe member access .profile on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+  119:53   error  Unsafe member access .isVerified on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+  120:20   error  Unsafe member access .profile on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+  120:53   error  Unsafe member access .isVerified on an `any` value                                                @typescript-eslint/no-unsafe-member-access
+  127:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  132:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  132:31   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+  134:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  134:33   error  Unsafe member access .phone on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  135:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  135:33   error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  135:60   error  Unsafe member access .email on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  136:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  136:36   error  Unsafe member access .fullName on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  146:13   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  147:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  148:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  149:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  150:24   error  Unsafe member access .badgeNumber on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+  150:41   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  150:59   error  Unsafe member access .badgeNumber on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+  151:24   error  Unsafe member access .stationId on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+  151:39   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  151:55   error  Unsafe member access .stationId on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+  152:30   error  Unsafe member access .status on an `any` value                                                    @typescript-eslint/no-unsafe-member-access
+  152:60   error  Unsafe member access .status on an `any` value                                                    @typescript-eslint/no-unsafe-member-access
+  156:21   error  Unsafe member access .badgeNumber on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+  156:42   error  Unsafe member access .stationId on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+  161:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  161:31   error  Unsafe member access .stationId on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+  162:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  162:33   error  Unsafe member access .badgeNumber on an `any` value                                               @typescript-eslint/no-unsafe-member-access
+  163:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  164:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  165:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  170:62   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+  170:75   error  Unsafe member access .role on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+  204:92   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  206:18   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  209:13   error  Unsafe member access .OR on an `any` value                                                        @typescript-eslint/no-unsafe-member-access
+  217:7    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  248:18   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  250:13   error  Unsafe member access .OR on an `any` value                                                        @typescript-eslint/no-unsafe-member-access
+  257:7    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  263:29   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  266:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  266:20   error  Unsafe member access .name on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+  267:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  267:25   error  Unsafe member access .thanaCode on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+  268:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  268:24   error  Unsafe member access .district on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  269:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  269:24   error  Unsafe member access .division on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  270:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  270:23   error  Unsafe member access .address on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+  271:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  271:21   error  Unsafe member access .phone on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  272:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  272:24   error  Unsafe member access .latitude on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  273:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  273:25   error  Unsafe member access .longitude on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+  278:41   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  282:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  282:20   error  Unsafe member access .name on an `any` value                                                      @typescript-eslint/no-unsafe-member-access
+  283:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  283:25   error  Unsafe member access .thanaCode on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+  284:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  284:24   error  Unsafe member access .district on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  285:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  285:24   error  Unsafe member access .division on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  286:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  286:23   error  Unsafe member access .address on an `any` value                                                   @typescript-eslint/no-unsafe-member-access
+  287:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  287:21   error  Unsafe member access .phone on an `any` value                                                     @typescript-eslint/no-unsafe-member-access
+  288:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  288:24   error  Unsafe member access .latitude on an `any` value                                                  @typescript-eslint/no-unsafe-member-access
+  289:9    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  289:25   error  Unsafe member access .longitude on an `any` value                                                 @typescript-eslint/no-unsafe-member-access
+  302:18   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  304:13   error  Unsafe member access .OR on an `any` value                                                        @typescript-eslint/no-unsafe-member-access
+  309:7    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  332:29   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  332:63   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  333:18   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  334:17   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  334:23   error  Unsafe member access .status on an `any` value                                                    @typescript-eslint/no-unsafe-member-access
+  336:7    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  347:43   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  359:32   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  359:66   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  360:18   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  361:17   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  361:23   error  Unsafe member access .status on an `any` value                                                    @typescript-eslint/no-unsafe-member-access
+  363:7    error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  369:50   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  369:64   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+  372:15   error  Unsafe assignment of an `any` value                                                               @typescript-eslint/no-unsafe-assignment
+  377:37   error  Unexpected any. Specify a different type                                                          @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\modules\admin\admin.routes.ts
+  7:8   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  9:12  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\modules\admin\admin.service.ts
+    2:10  error    'User' is defined but never used                 @typescript-eslint/no-unused-vars
+    2:16  error    'Responder' is defined but never used            @typescript-eslint/no-unused-vars
+    2:37  error    'Role' is defined but never used                 @typescript-eslint/no-unused-vars
+    8:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   12:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   12:26  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+   16:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   16:38  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+   19:14  error    'e' is defined but never used                    @typescript-eslint/no-unused-vars
+   24:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   27:14  error    'e' is defined but never used                    @typescript-eslint/no-unused-vars
+   32:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   35:14  error    'e' is defined but never used                    @typescript-eslint/no-unused-vars
+   40:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   44:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   47:14  error    'e' is defined but never used                    @typescript-eslint/no-unused-vars
+   52:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   55:14  error    'e' is defined but never used                    @typescript-eslint/no-unused-vars
+   60:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   64:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   64:29  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+   68:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   68:41  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+   71:14  error    'e' is defined but never used                    @typescript-eslint/no-unused-vars
+   76:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   79:14  error    'e' is defined but never used                    @typescript-eslint/no-unused-vars
+   84:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   89:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+  113:13  error    Unsafe assignment of an `any` value              @typescript-eslint/no-unsafe-assignment
+  113:48  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  114:16  error    Unsafe member access .phone on an `any` value    @typescript-eslint/no-unsafe-member-access
+  114:37  error    Unsafe member access .phone on an `any` value    @typescript-eslint/no-unsafe-member-access
+  115:9   error    Unsafe assignment of an `any` value              @typescript-eslint/no-unsafe-assignment
+  115:14  error    Unsafe member access .phone on an `any` value    @typescript-eslint/no-unsafe-member-access
+  115:22  error    Unsafe call of an `any` typed value              @typescript-eslint/no-unsafe-call
+  115:27  error    Unsafe member access .phone on an `any` value    @typescript-eslint/no-unsafe-member-access
+  117:7   error    Unsafe assignment of an `any` value              @typescript-eslint/no-unsafe-assignment
+  124:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+  124:29  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  128:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+  129:11  error    Unsafe assignment of an `any` value              @typescript-eslint/no-unsafe-assignment
+  131:5   error    Unsafe return of a value of type `any`           @typescript-eslint/no-unsafe-return
+  135:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+  135:32  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  139:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+  139:50  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  141:7   error    Unsafe return of a value of type `any`           @typescript-eslint/no-unsafe-return
+  142:14  error    'e' is defined but never used                    @typescript-eslint/no-unused-vars
+  148:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+  149:5   error    Unsafe return of a value of type `Promise<any>`  @typescript-eslint/no-unsafe-return
+
+D:\NRI\nari-surokkha\services\api\src\modules\alerts\alerts.controller.ts
+   11:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   30:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   49:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   72:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   74:84  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   86:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+   97:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  108:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  120:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  138:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  139:43  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  139:61  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  146:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\alerts\alerts.repository.ts
+  10:3   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  58:16  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  67:9   error    Unsafe assignment of an `any` value       @typescript-eslint/no-unsafe-assignment
+  79:44  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  82:7   error    Unsafe assignment of an `any` value       @typescript-eslint/no-unsafe-assignment
+
+D:\NRI\nari-surokkha\services\api\src\modules\alerts\alerts.service.ts
+   56:3   warning  Missing return type on function                                            @typescript-eslint/explicit-function-return-type
+   60:22  error    Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+   71:9   error    Unsafe assignment of an `any` value                                        @typescript-eslint/no-unsafe-assignment
+   71:43  error    Unsafe member access .id on an `any` value                                 @typescript-eslint/no-unsafe-member-access
+   99:54  error    Unsafe member access .id on an `any` value                                 @typescript-eslint/no-unsafe-member-access
+  109:63  error    Unsafe argument of type `any` assigned to a parameter of type `string`     @typescript-eslint/no-unsafe-argument
+  109:78  error    Unsafe member access .id on an `any` value                                 @typescript-eslint/no-unsafe-member-access
+  122:66  error    Unsafe argument of type `any` assigned to a parameter of type `string`     @typescript-eslint/no-unsafe-argument
+  122:76  error    Unsafe member access .id on an `any` value                                 @typescript-eslint/no-unsafe-member-access
+  134:48  error    Unsafe member access .userId on an `any` value                             @typescript-eslint/no-unsafe-member-access
+  140:22  error    Unsafe assignment of an `any` value                                        @typescript-eslint/no-unsafe-assignment
+  140:40  error    Unsafe member access .userId on an `any` value                             @typescript-eslint/no-unsafe-member-access
+  161:79  error    Unsafe argument of type `any` assigned to a parameter of type `undefined`  @typescript-eslint/no-unsafe-argument
+  174:82  error    Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  191:7   error    Unsafe assignment of an `any` value                                        @typescript-eslint/no-unsafe-assignment
+  363:5   warning  Missing return type on function                                            @typescript-eslint/explicit-function-return-type
+  363:48  error    Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  363:66  error    Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  368:34  error    Unsafe assignment of an `any` value                                        @typescript-eslint/no-unsafe-assignment
+  368:42  error    Unsafe assignment of an `any` value                                        @typescript-eslint/no-unsafe-assignment
+  371:15  error    Unsafe assignment of an error typed value                                  @typescript-eslint/no-unsafe-assignment
+  371:39  error    Unsafe member access .waypoints on a type that cannot be resolved          @typescript-eslint/no-unsafe-member-access
+  376:13  error    Unsafe assignment of an `any` value                                        @typescript-eslint/no-unsafe-assignment
+  376:31  error    Unsafe member access .lat on an `any` value                                @typescript-eslint/no-unsafe-member-access
+  377:13  error    Unsafe assignment of an `any` value                                        @typescript-eslint/no-unsafe-assignment
+  377:31  error    Unsafe member access .lng on an `any` value                                @typescript-eslint/no-unsafe-member-access
+  378:13  error    Unsafe assignment of an `any` value                                        @typescript-eslint/no-unsafe-assignment
+  378:34  error    Unsafe member access .lat on an `any` value                                @typescript-eslint/no-unsafe-member-access
+  379:13  error    Unsafe assignment of an `any` value                                        @typescript-eslint/no-unsafe-assignment
+  379:34  error    Unsafe member access .lng on an `any` value                                @typescript-eslint/no-unsafe-member-access
+  380:13  error    Unsafe assignment of an error typed value                                  @typescript-eslint/no-unsafe-assignment
+  391:5   warning  Missing return type on function                                            @typescript-eslint/explicit-function-return-type
+  397:44  error    Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  400:26  error    Unsafe member access .lat on an `any` value                                @typescript-eslint/no-unsafe-member-access
+  401:26  error    Unsafe member access .lng on an `any` value                                @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\auth\auth.controller.ts
+   98:11  error  Unsafe assignment of an `any` value                                     @typescript-eslint/no-unsafe-assignment
+   98:39  error  Unexpected any. Specify a different type                                @typescript-eslint/no-explicit-any
+   98:45  error  Unsafe member access .refreshToken on an `any` value                    @typescript-eslint/no-unsafe-member-access
+  104:47  error  Unsafe argument of type `any` assigned to a parameter of type `string`  @typescript-eslint/no-unsafe-argument
+  129:11  error  Unsafe assignment of an `any` value                                     @typescript-eslint/no-unsafe-assignment
+  129:39  error  Unexpected any. Specify a different type                                @typescript-eslint/no-explicit-any
+  129:45  error  Unsafe member access .refreshToken on an `any` value                    @typescript-eslint/no-unsafe-member-access
+  131:33  error  Unsafe argument of type `any` assigned to a parameter of type `string`  @typescript-eslint/no-unsafe-argument
+
+D:\NRI\nari-surokkha\services\api\src\modules\auth\auth.service.ts
+   30:5    error  Unsafe assignment of an `any` value                  @typescript-eslint/no-unsafe-assignment
+   30:27   error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   30:32   error  Unsafe member access .permissions on an `any` value  @typescript-eslint/no-unsafe-member-access
+  132:47   error  Unsafe assignment of an error typed value            @typescript-eslint/no-unsafe-assignment
+  132:64   error  Unsafe assignment of an `any` value                  @typescript-eslint/no-unsafe-assignment
+  132:86   error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  132:91   error  Unsafe member access .permissions on an `any` value  @typescript-eslint/no-unsafe-member-access
+  132:110  error  Unsafe assignment of an `any` value                  @typescript-eslint/no-unsafe-assignment
+  132:129  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  132:134  error  Unsafe member access .profile on an `any` value      @typescript-eslint/no-unsafe-member-access
+  179:47   error  Unsafe assignment of an `any` value                  @typescript-eslint/no-unsafe-assignment
+  179:62   error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  179:67   error  Unsafe member access .role on an `any` value         @typescript-eslint/no-unsafe-member-access
+  179:94   error  Unsafe assignment of an `any` value                  @typescript-eslint/no-unsafe-assignment
+  179:116  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  179:121  error  Unsafe member access .permissions on an `any` value  @typescript-eslint/no-unsafe-member-access
+  179:140  error  Unsafe assignment of an `any` value                  @typescript-eslint/no-unsafe-assignment
+  179:159  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  179:164  error  Unsafe member access .profile on an `any` value      @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\cases\__tests__\cases.service.unit.test.ts
+   8:17  error  Unexpected any. Specify a different type                                                      @typescript-eslint/no-explicit-any
+   9:20  error  Unexpected any. Specify a different type                                                      @typescript-eslint/no-explicit-any
+  27:32  error  This assertion is unnecessary since the receiver accepts the original type of the expression  @typescript-eslint/no-unnecessary-type-assertion
+  27:72  error  This assertion is unnecessary since the receiver accepts the original type of the expression  @typescript-eslint/no-unnecessary-type-assertion
+  32:7   error  Unsafe call of an `any` typed value                                                           @typescript-eslint/no-unsafe-call
+  32:16  error  Unsafe member access .createCase on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+  36:23  error  Unsafe member access .createCase on an `any` value                                            @typescript-eslint/no-unsafe-member-access
+  48:7   error  Unsafe call of an `any` typed value                                                           @typescript-eslint/no-unsafe-call
+  48:16  error  Unsafe member access .findCaseById on an `any` value                                          @typescript-eslint/no-unsafe-member-access
+  54:7   error  Unsafe call of an `any` typed value                                                           @typescript-eslint/no-unsafe-call
+  54:16  error  Unsafe member access .getCaseUpdates on an `any` value                                        @typescript-eslint/no-unsafe-member-access
+  55:7   error  Unsafe call of an `any` typed value                                                           @typescript-eslint/no-unsafe-call
+  55:16  error  Unsafe member access .getAlertLocations on an `any` value                                     @typescript-eslint/no-unsafe-member-access
+  56:7   error  Unsafe call of an `any` typed value                                                           @typescript-eslint/no-unsafe-call
+  56:16  error  Unsafe member access .getAlertEvidence on an `any` value                                      @typescript-eslint/no-unsafe-member-access
+  76:7   error  Unsafe call of an `any` typed value                                                           @typescript-eslint/no-unsafe-call
+  76:16  error  Unsafe member access .findCaseById on an `any` value                                          @typescript-eslint/no-unsafe-member-access
+  82:7   error  Unsafe call of an `any` typed value                                                           @typescript-eslint/no-unsafe-call
+  82:16  error  Unsafe member access .getCaseDetails on an `any` value                                        @typescript-eslint/no-unsafe-member-access
+  82:95  error  Unexpected any. Specify a different type                                                      @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\modules\cases\cases.controller.ts
+   7:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  12:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  17:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  22:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  27:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  32:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  37:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\cases\cases.repository.ts
+    6:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+   17:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+   27:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+   28:18  error    Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+   30:13  error    Unsafe member access .status on an `any` value  @typescript-eslint/no-unsafe-member-access
+   33:7   error    Unsafe assignment of an `any` value             @typescript-eslint/no-unsafe-assignment
+   42:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+   70:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+   98:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+  111:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+  121:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+  128:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\cases\cases.service.ts
+   13:3   warning  Missing return type on function                                      @typescript-eslint/explicit-function-return-type
+   24:3   warning  Missing return type on function                                      @typescript-eslint/explicit-function-return-type
+   28:3   warning  Missing return type on function                                      @typescript-eslint/explicit-function-return-type
+   35:3   warning  Missing return type on function                                      @typescript-eslint/explicit-function-return-type
+   43:3   warning  Missing return type on function                                      @typescript-eslint/explicit-function-return-type
+   51:3   warning  Missing return type on function                                      @typescript-eslint/explicit-function-return-type
+   59:3   warning  Missing return type on function                                      @typescript-eslint/explicit-function-return-type
+   71:49  error    Unsafe assignment of an error typed value                            @typescript-eslint/no-unsafe-assignment
+   72:22  error    Unsafe call of a type that could not be resolved                     @typescript-eslint/no-unsafe-call
+   72:34  error    Unsafe member access .getTime on a type that cannot be resolved      @typescript-eslint/no-unsafe-member-access
+   72:46  error    Unsafe call of a type that could not be resolved                     @typescript-eslint/no-unsafe-call
+   72:58  error    Unsafe member access .getTime on a type that cannot be resolved      @typescript-eslint/no-unsafe-member-access
+   77:3   warning  Missing return type on function                                      @typescript-eslint/explicit-function-return-type
+   86:65  error    Unsafe member access .fullName on a type that cannot be resolved     @typescript-eslint/no-unsafe-member-access
+   91:13  error    Unsafe assignment of an error typed value                            @typescript-eslint/no-unsafe-assignment
+   91:23  error    Unsafe call of a type that could not be resolved                     @typescript-eslint/no-unsafe-call
+   91:38  error    Unsafe member access .toISOString on a type that cannot be resolved  @typescript-eslint/no-unsafe-member-access
+   93:15  error    Unsafe assignment of an `any` value                                  @typescript-eslint/no-unsafe-assignment
+   93:32  error    Unexpected any. Specify a different type                             @typescript-eslint/no-explicit-any
+   94:51  error    Unsafe member access .note on an `any` value                         @typescript-eslint/no-unsafe-member-access
+   96:15  error    Unsafe assignment of an `any` value                                  @typescript-eslint/no-unsafe-assignment
+   96:32  error    Unexpected any. Specify a different type                             @typescript-eslint/no-explicit-any
+   97:58  error    Unsafe member access .latitude on an `any` value                     @typescript-eslint/no-unsafe-member-access
+   97:77  error    Unsafe member access .longitude on an `any` value                    @typescript-eslint/no-unsafe-member-access
+   99:15  error    Unsafe assignment of an `any` value                                  @typescript-eslint/no-unsafe-assignment
+   99:32  error    Unexpected any. Specify a different type                             @typescript-eslint/no-explicit-any
+  100:53  error    Unsafe member access .type on an `any` value                         @typescript-eslint/no-unsafe-member-access
+  100:64  error    Unsafe member access .fileKey on an `any` value                      @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\contacts\contacts.controller.ts
+  54:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  65:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\evidence\evidence.controller.ts
+   7:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  31:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  45:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\evidence\evidence.routes.ts
+  15:8   error    Async function 'evidenceRoutes' has no 'await' expression               @typescript-eslint/require-await
+  15:8   warning  Missing return type on function                                         @typescript-eslint/explicit-function-return-type
+  73:40  error    Unsafe argument of type `any` assigned to a parameter of type `string`  @typescript-eslint/no-unsafe-argument
+  73:59  error    Unexpected any. Specify a different type                                @typescript-eslint/no-explicit-any
+  73:64  error    Unsafe member access ['*'] on an `any` value                            @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\evidence\evidence.service.ts
+  11:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+  61:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+  78:3   warning  Missing return type on function                 @typescript-eslint/explicit-function-return-type
+  86:11  error    Unsafe assignment of an `any` value             @typescript-eslint/no-unsafe-assignment
+  86:32  error    Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  86:37  error    Unsafe member access .alert on an `any` value   @typescript-eslint/no-unsafe-member-access
+  87:49  error    Unsafe member access .userId on an `any` value  @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\incidents\incidents.controller.ts
+   8:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  33:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  48:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  63:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  79:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  93:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\incidents\incidents.routes.ts
+  13:8   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  15:12  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\modules\incidents\incidents.service.ts
+  33:14   error  'err' is defined but never used           @typescript-eslint/no-unused-vars
+  41:14   error  'err' is defined but never used           @typescript-eslint/no-unused-vars
+  49:14   error  'err' is defined but never used           @typescript-eslint/no-unused-vars
+  54:102  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\modules\notifications\notifications.service.ts
+   80:25  error    Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+   81:68  error    Unsafe argument of type `any` assigned to a parameter of type `string | undefined`  @typescript-eslint/no-unsafe-argument
+   81:72  error    Unsafe member access .message on an `any` value                                     @typescript-eslint/no-unsafe-member-access
+   82:25  error    Unsafe argument of type `any` assigned to a parameter of type `Error`               @typescript-eslint/no-unsafe-argument
+   96:3   warning  Missing return type on function                                                     @typescript-eslint/explicit-function-return-type
+  114:3   warning  Missing return type on function                                                     @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\notifications\providers\firebase-push.provider.ts
+  48:21  error  Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  49:32  error  Unsafe assignment of an `any` value              @typescript-eslint/no-unsafe-assignment
+  49:45  error  Unsafe member access .message on an `any` value  @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\notifications\providers\push.provider.ts
+  10:33  error  'title' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  10:48  error  'body' is defined but never used. Allowed unused args must match /^_/u   @typescript-eslint/no-unused-vars
+  10:62  error  'data' is defined but never used. Allowed unused args must match /^_/u   @typescript-eslint/no-unused-vars
+  20:11  error  Unsafe assignment of an error typed value                                @typescript-eslint/no-unsafe-assignment
+  20:20  error  Unsafe call of a type that could not be resolved                         @typescript-eslint/no-unsafe-call
+  22:5   error  Unsafe call of a type that could not be resolved                         @typescript-eslint/no-unsafe-call
+  22:12  error  Unsafe member access .debug on a type that cannot be resolved            @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\police\police.controller.ts
+   12:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+   24:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+   35:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+   46:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+   58:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+   70:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+   89:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  101:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  114:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\police\police.repository.ts
+   10:90  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   46:32  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   53:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  126:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  129:15  error  Unsafe assignment of an `any` value       @typescript-eslint/no-unsafe-assignment
+
+D:\NRI\nari-surokkha\services\api\src\modules\police\police.routes.ts
+  44:62  error  Async arrow function has no 'await' expression  @typescript-eslint/require-await
+  45:13  error  Unsafe assignment of an `any` value             @typescript-eslint/no-unsafe-assignment
+  45:36  error  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  46:16  error  Unsafe member access .role on an `any` value    @typescript-eslint/no-unsafe-member-access
+  46:42  error  Unsafe member access .role on an `any` value    @typescript-eslint/no-unsafe-member-access
+  46:69  error  Unsafe member access .role on an `any` value    @typescript-eslint/no-unsafe-member-access
+  46:99  error  Unsafe member access .role on an `any` value    @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\police\police.service.ts
+   18:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   53:9   error    Unsafe assignment of an `any` value              @typescript-eslint/no-unsafe-assignment
+   53:37  error    Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+   53:42  error    Unsafe member access .station on an `any` value  @typescript-eslint/no-unsafe-member-access
+   63:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   67:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   71:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   75:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+   83:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+  103:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+  116:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+  128:3   warning  Missing return type on function                  @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\profile\profile.controller.ts
+  20:27  error  '_hash' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+D:\NRI\nari-surokkha\services\api\src\modules\responder\responder.controller.ts
+   8:3   warning  Missing return type on function                                                                                                                                               @typescript-eslint/explicit-function-return-type
+   8:38  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  10:57  error    Unsafe argument of type `any` assigned to a parameter of type `{ nationalId?: string | undefined; occupation?: string | undefined; organizationName?: string | undefined; }`  @typescript-eslint/no-unsafe-argument
+  10:69  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  17:3   warning  Missing return type on function                                                                                                                                               @typescript-eslint/explicit-function-return-type
+  17:47  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  19:11  error    Unsafe assignment of an `any` value                                                                                                                                           @typescript-eslint/no-unsafe-assignment
+  19:30  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  20:48  error    Unsafe argument of type `any` assigned to a parameter of type `number`                                                                                                        @typescript-eslint/no-unsafe-argument
+  20:53  error    Unsafe member access .latitude on an `any` value                                                                                                                              @typescript-eslint/no-unsafe-member-access
+  20:63  error    Unsafe argument of type `any` assigned to a parameter of type `number`                                                                                                        @typescript-eslint/no-unsafe-argument
+  20:68  error    Unsafe member access .longitude on an `any` value                                                                                                                             @typescript-eslint/no-unsafe-member-access
+  20:79  error    Unsafe argument of type `any` assigned to a parameter of type `ResponderAvailability | undefined`                                                                             @typescript-eslint/no-unsafe-argument
+  20:84  error    Unsafe member access .availability on an `any` value                                                                                                                          @typescript-eslint/no-unsafe-member-access
+  24:3   warning  Missing return type on function                                                                                                                                               @typescript-eslint/explicit-function-return-type
+  24:45  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  26:11  error    Unsafe assignment of an `any` value                                                                                                                                           @typescript-eslint/no-unsafe-assignment
+  26:34  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  27:11  error    Unsafe assignment of an `any` value                                                                                                                                           @typescript-eslint/no-unsafe-assignment
+  27:30  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  32:62  error    Unsafe argument of type `any` assigned to a parameter of type `string`                                                                                                        @typescript-eslint/no-unsafe-argument
+  32:69  error    Unsafe member access .id on an `any` value                                                                                                                                    @typescript-eslint/no-unsafe-member-access
+  32:73  error    Unsafe argument of type `any` assigned to a parameter of type `ResponderStatus`                                                                                               @typescript-eslint/no-unsafe-argument
+  32:78  error    Unsafe member access .status on an `any` value                                                                                                                                @typescript-eslint/no-unsafe-member-access
+  36:3   warning  Missing return type on function                                                                                                                                               @typescript-eslint/explicit-function-return-type
+  42:3   warning  Missing return type on function                                                                                                                                               @typescript-eslint/explicit-function-return-type
+  51:3   warning  Missing return type on function                                                                                                                                               @typescript-eslint/explicit-function-return-type
+  51:50  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  53:11  error    Unsafe assignment of an `any` value                                                                                                                                           @typescript-eslint/no-unsafe-assignment
+  53:34  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  54:11  error    Unsafe assignment of an `any` value                                                                                                                                           @typescript-eslint/no-unsafe-assignment
+  54:30  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  55:51  error    Unsafe argument of type `any` assigned to a parameter of type `string`                                                                                                        @typescript-eslint/no-unsafe-argument
+  55:58  error    Unsafe member access .dispatchId on an `any` value                                                                                                                            @typescript-eslint/no-unsafe-member-access
+  55:70  error    Unsafe argument of type `any` assigned to a parameter of type `"accept" | "reject"`                                                                                           @typescript-eslint/no-unsafe-argument
+  55:75  error    Unsafe member access .action on an `any` value                                                                                                                                @typescript-eslint/no-unsafe-member-access
+  55:83  error    Unsafe argument of type `any` assigned to a parameter of type `string | undefined`                                                                                            @typescript-eslint/no-unsafe-argument
+  55:88  error    Unsafe member access .rejectReason on an `any` value                                                                                                                          @typescript-eslint/no-unsafe-member-access
+  56:51  error    Unsafe member access .action on an `any` value                                                                                                                                @typescript-eslint/no-unsafe-member-access
+  59:3   warning  Missing return type on function                                                                                                                                               @typescript-eslint/explicit-function-return-type
+  65:3   warning  Missing return type on function                                                                                                                                               @typescript-eslint/explicit-function-return-type
+  65:47  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  67:11  error    Unsafe assignment of an `any` value                                                                                                                                           @typescript-eslint/no-unsafe-assignment
+  67:34  error    Unexpected any. Specify a different type                                                                                                                                      @typescript-eslint/no-explicit-any
+  71:64  error    Unsafe argument of type `any` assigned to a parameter of type `string`                                                                                                        @typescript-eslint/no-unsafe-argument
+  71:71  error    Unsafe member access .dispatchId on an `any` value                                                                                                                            @typescript-eslint/no-unsafe-member-access
+
+D:\NRI\nari-surokkha\services\api\src\modules\responder\responder.repository.ts
+  36:17   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  41:28   error  Unsafe member access .availability on an `any` value  @typescript-eslint/no-unsafe-member-access
+  45:7    error  Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+  49:98   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  66:22   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  78:106  error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  92:65   error  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\modules\responder\responder.routes.ts
+  20:8  error    Async function 'responderRoutes' has no 'await' expression  @typescript-eslint/require-await
+  20:8  warning  Missing return type on function                             @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\responder\responder.service.ts
+   11:3   warning  Missing return type on function                       @typescript-eslint/explicit-function-return-type
+   19:3   warning  Missing return type on function                       @typescript-eslint/explicit-function-return-type
+   23:3   warning  Missing return type on function                       @typescript-eslint/explicit-function-return-type
+   31:3   warning  Missing return type on function                       @typescript-eslint/explicit-function-return-type
+   35:3   warning  Missing return type on function                       @typescript-eslint/explicit-function-return-type
+   39:3   warning  Missing return type on function                       @typescript-eslint/explicit-function-return-type
+   54:9   error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   59:11  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   59:66  error    Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+   60:14  error    Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+   72:3   warning  Missing return type on function                       @typescript-eslint/explicit-function-return-type
+   82:30  error    Unsafe member access .acceptedAt on an `any` value    @typescript-eslint/no-unsafe-member-access
+   83:13  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   83:27  error    Unsafe member access .alert on an `any` value         @typescript-eslint/no-unsafe-member-access
+   88:11  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   88:17  error    Unsafe member access .id on an `any` value            @typescript-eslint/no-unsafe-member-access
+   89:11  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   89:27  error    Unsafe member access .dispatchedAt on an `any` value  @typescript-eslint/no-unsafe-member-access
+   90:11  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   90:25  error    Unsafe member access .acceptedAt on an `any` value    @typescript-eslint/no-unsafe-member-access
+   93:13  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   93:27  error    Unsafe member access .id on an `any` value            @typescript-eslint/no-unsafe-member-access
+   94:13  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   94:33  error    Unsafe member access .latitude on an `any` value      @typescript-eslint/no-unsafe-member-access
+   95:13  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   95:34  error    Unsafe member access .longitude on an `any` value     @typescript-eslint/no-unsafe-member-access
+   96:13  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   96:35  error    Unsafe member access .user on an `any` value          @typescript-eslint/no-unsafe-member-access
+   97:13  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   97:36  error    Unsafe member access .user on an `any` value          @typescript-eslint/no-unsafe-member-access
+   98:13  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+   98:35  error    Unsafe member access .user on an `any` value          @typescript-eslint/no-unsafe-member-access
+  101:20  error    Unsafe member access .rejectedAt on an `any` value    @typescript-eslint/no-unsafe-member-access
+  103:11  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+  103:17  error    Unsafe member access .id on an `any` value            @typescript-eslint/no-unsafe-member-access
+  109:11  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+  109:17  error    Unsafe member access .id on an `any` value            @typescript-eslint/no-unsafe-member-access
+  110:11  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+  110:27  error    Unsafe member access .dispatchedAt on an `any` value  @typescript-eslint/no-unsafe-member-access
+  113:13  error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+  113:27  error    Unsafe member access .id on an `any` value            @typescript-eslint/no-unsafe-member-access
+  114:51  error    Unsafe member access .latitude on an `any` value      @typescript-eslint/no-unsafe-member-access
+  115:52  error    Unsafe member access .longitude on an `any` value     @typescript-eslint/no-unsafe-member-access
+  124:3   warning  Missing return type on function                       @typescript-eslint/explicit-function-return-type
+  160:7   error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+  165:9   error    Unsafe assignment of an `any` value                   @typescript-eslint/no-unsafe-assignment
+  165:42  error    Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+  166:12  error    Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\modules\roles\roles.controller.ts
+   7:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  12:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  17:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+  22:3  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\modules\roles\roles.routes.ts
+  13:8   warning  Missing return type on function           @typescript-eslint/explicit-function-return-type
+  15:13  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\modules\roles\roles.service.ts
+   7:3   warning  Missing return type on function               @typescript-eslint/explicit-function-return-type
+  11:3   warning  Missing return type on function               @typescript-eslint/explicit-function-return-type
+  18:21  error    Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  19:17  error    Unsafe member access .code on an `any` value  @typescript-eslint/no-unsafe-member-access
+  26:3   warning  Missing return type on function               @typescript-eslint/explicit-function-return-type
+  35:3   warning  Missing return type on function               @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\plugins\firebase.ts
+  6:1  error  Async function 'firebasePlugin' has no 'await' expression  @typescript-eslint/require-await
+
+D:\NRI\nari-surokkha\services\api\src\plugins\queue.ts
+  13:1   error  Async function 'queuePlugin' has no 'await' expression  @typescript-eslint/require-await
+  15:5   error  Unsafe assignment of an `any` value                     @typescript-eslint/no-unsafe-assignment
+  15:40  error  Unexpected any. Specify a different type                @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\plugins\redis.ts
+  29:5  warning  Missing return type on function  @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\plugins\storage.ts
+  15:1  error    Async function 'storagePluginInit' has no 'await' expression  @typescript-eslint/require-await
+  15:1  warning  Missing return type on function                               @typescript-eslint/explicit-function-return-type
+
+D:\NRI\nari-surokkha\services\api\src\plugins\websocket.ts
+  12:1   error  Async function 'websocketPlugin' has no 'await' expression                                                                                                          @typescript-eslint/require-await
+  51:68  error  Unexpected any. Specify a different type                                                                                                                            @typescript-eslint/no-explicit-any
+  52:24  error  Unsafe object destructuring of a property with an `any` value                                                                                                       @typescript-eslint/no-unsafe-assignment
+  53:54  error  Unsafe member access .type on an `any` value                                                                                                                        @typescript-eslint/no-unsafe-member-access
+  80:5   error  Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+
+D:\NRI\nari-surokkha\services\api\src\plugins\worker.ts
+  14:1   error  Async function 'workerPlugin' has no 'await' expression                 @typescript-eslint/require-await
+  21:15  error  Unsafe assignment of an `any` value                                     @typescript-eslint/no-unsafe-assignment
+  22:71  error  Unsafe argument of type `any` assigned to a parameter of type `string`  @typescript-eslint/no-unsafe-argument
+  22:80  error  Unsafe argument of type `any` assigned to a parameter of type `string`  @typescript-eslint/no-unsafe-argument
+  26:7   error  Unsafe assignment of an `any` value                                     @typescript-eslint/no-unsafe-assignment
+  26:42  error  Unexpected any. Specify a different type                                @typescript-eslint/no-explicit-any
+
+D:\NRI\nari-surokkha\services\api\src\scripts\seed-admin-permissions.ts
+   5:1  warning  Missing return type on function                                                    @typescript-eslint/explicit-function-return-type
+   6:3  warning  Unexpected console statement. Only these console methods are allowed: warn, error  no-console
+  12:3  warning  Unexpected console statement. Only these console methods are allowed: warn, error  no-console
+  21:5  warning  Unexpected console statement. Only these console methods are allowed: warn, error  no-console
+  24:3  warning  Unexpected console statement. Only these console methods are allowed: warn, error  no-console
+
+✖ 647 problems (501 errors, 146 warnings)
+  3 errors and 0 warnings potentially fixable with the `--fix` option.
+
+npm error Lifecycle script `lint` failed with error:
+npm error code 1
+npm error path D:\NRI\nari-surokkha\services\api
+npm error workspace @nari-surokkha/api@0.1.0
+npm error location D:\NRI\nari-surokkha\services\api
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c eslint src --ext .ts
+
+
+> @nari-surokkha/shared@0.1.0 lint
+> eslint src --ext .ts
+
+
+Oops! Something went wrong! :(
+
+ESLint: 9.39.4
+
+ESLint couldn't find an eslint.config.(js|mjs|cjs) file.
+
+From ESLint v9.0.0, the default configuration file is now eslint.config.js.
+If you are using a .eslintrc.* file, please follow the migration guide
+to update your configuration file to the new format:
+
+https://eslint.org/docs/latest/use/configure/migration-guide
+
+If you still have problems after following the migration guide, please stop by
+https://eslint.org/chat/help to chat with the team.
+
+npm error Lifecycle script `lint` failed with error:
+npm error code 2
+npm error path D:\NRI\nari-surokkha\packages\shared
+npm error workspace @nari-surokkha/shared@0.1.0
+npm error location D:\NRI\nari-surokkha\packages\shared
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c eslint src --ext .ts

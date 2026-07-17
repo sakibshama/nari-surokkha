@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BrainCircuit, UploadCloud, CheckCircle2, Circle, Loader2, Database, Info } from 'lucide-react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useT } from '../i18n';
 
 interface MlModel {
   id: string;
@@ -24,6 +25,7 @@ interface SampleStats {
 const KB = (n: number) => `${(n / 1024).toFixed(1)} KB`;
 
 export default function MLModels() {
+  const t = useT();
   const [models, setModels] = useState<MlModel[]>([]);
   const [stats, setStats] = useState<SampleStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,7 +94,7 @@ export default function MLModels() {
   return (
     <div className="animate-in">
       <div className="page-header">
-        <h1 className="page-title">On-Device ML Models</h1>
+        <h1 className="page-title">{t('On-Device ML Models')}</h1>
         <p className="page-subtitle">
           Manage the motion-detection model that runs on phones, and the real data collected to retrain it.
         </p>
@@ -105,7 +107,7 @@ export default function MLModels() {
             <div className="stat-card-icon" style={{ background: 'var(--purple-dim)', color: 'var(--purple)', marginBottom: 0 }}>
               <BrainCircuit size={24} />
             </div>
-            <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>Model Registry (motion)</h2>
+            <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>{t('Model Registry (motion)')}</h2>
           </div>
 
           {models.length === 0 ? (
@@ -152,7 +154,7 @@ export default function MLModels() {
 
           {/* Upload */}
           <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-            <label className="field-label">Upload a trained model</label>
+            <label className="field-label">{t('Upload a trained model')}</label>
             <input ref={fileRef} type="file" accept=".json,.tflite" className="field-input" style={{ padding: 8 }} />
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0', cursor: 'pointer', fontSize: 13, color: 'var(--text-sub)' }}>
               <input type="checkbox" checked={activateOnUpload} onChange={(e) => setActivateOnUpload(e.target.checked)} />
@@ -171,7 +173,7 @@ export default function MLModels() {
             <div className="stat-card-icon" style={{ background: 'var(--blue-dim)', color: 'var(--blue)', marginBottom: 0 }}>
               <Database size={24} />
             </div>
-            <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>Collected Training Data</h2>
+            <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>{t('Collected Training Data')}</h2>
           </div>
 
           <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--text)' }}>{stats?.total ?? 0}</div>
@@ -180,7 +182,7 @@ export default function MLModels() {
           <div style={{ marginBottom: 12 }}>
             <div className="field-label">By label</div>
             {labelCounts.length === 0 ? (
-              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>None yet.</p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{t('None yet.')}</p>
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {labelCounts.map((b) => (

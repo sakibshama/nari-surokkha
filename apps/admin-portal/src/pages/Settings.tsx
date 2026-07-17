@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useT } from '../i18n';
 
 type SmsProvider = 'mock' | 'twilio' | 'bulksmsbd';
 
@@ -24,6 +25,7 @@ const DEFAULT_SMS: SmsConfigPublic = {
 };
 
 export default function Settings() {
+  const t = useT();
   const { user } = useAuthStore();
   const { mode, toggleTheme } = useThemeStore();
 
@@ -230,8 +232,8 @@ export default function Settings() {
   return (
     <div className="animate-in">
       <div className="page-header">
-        <h1 className="page-title">Settings</h1>
-        <p className="page-subtitle">Manage your account preferences and security.</p>
+        <h1 className="page-title">{t('Settings')}</h1>
+        <p className="page-subtitle">{t('Manage your account preferences and security.')}</p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 24 }}>
@@ -242,12 +244,12 @@ export default function Settings() {
             <div className="stat-card-icon" style={{ background: 'var(--blue-dim)', color: 'var(--blue)', marginBottom: 0 }}>
               <User size={24} />
             </div>
-            <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>Profile Information</h2>
+            <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>{t('Profile Information')}</h2>
           </div>
 
           <form onSubmit={handleProfileSubmit}>
             <div className="field">
-              <label className="field-label">Phone Number (Read-only)</label>
+              <label className="field-label">{t('Phone Number (Read-only)')}</label>
               <input type="text" className="field-input" value={profile.phone} disabled style={{ opacity: 0.7, cursor: 'not-allowed' }} />
               <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Info size={12} /> Phone number is your primary identifier and cannot be changed here.
@@ -255,12 +257,12 @@ export default function Settings() {
             </div>
 
             <div className="field">
-              <label className="field-label">Full Name</label>
+              <label className="field-label">{t('Full Name')}</label>
               <input type="text" className="field-input" value={profile.fullName} onChange={e => setProfile({...profile, fullName: e.target.value})} required />
             </div>
 
             <div className="field">
-              <label className="field-label">Email Address</label>
+              <label className="field-label">{t('Email Address')}</label>
               <input type="email" className="field-input" value={profile.email} onChange={e => setProfile({...profile, email: e.target.value})} />
             </div>
 
@@ -278,13 +280,13 @@ export default function Settings() {
               <div className="stat-card-icon" style={{ background: 'var(--purple-dim)', color: 'var(--purple)', marginBottom: 0 }}>
                 {mode === 'dark' ? <Moon size={24} /> : <Sun size={24} />}
               </div>
-              <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>Display Preferences</h2>
+              <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>{t('Display Preferences')}</h2>
             </div>
             
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
               <div>
-                <h3 style={{ margin: '0 0 4px', fontSize: 15, color: 'var(--text)' }}>Theme Mode</h3>
-                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-sub)' }}>Toggle between light and dark mode</p>
+                <h3 style={{ margin: '0 0 4px', fontSize: 15, color: 'var(--text)' }}>{t('Theme Mode')}</h3>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-sub)' }}>{t('Toggle between light and dark mode')}</p>
               </div>
               <button className="btn btn-ghost" onClick={toggleTheme}>
                 {mode === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
@@ -298,22 +300,22 @@ export default function Settings() {
               <div className="stat-card-icon" style={{ background: 'var(--green-dim)', color: 'var(--green)', marginBottom: 0 }}>
                 <Shield size={24} />
               </div>
-              <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>Security</h2>
+              <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>{t('Security')}</h2>
             </div>
 
             <form onSubmit={handlePasswordSubmit}>
               <div className="field">
-                <label className="field-label">Current Password</label>
+                <label className="field-label">{t('Current Password')}</label>
                 <input type="password" className="field-input" value={passwords.currentPassword} onChange={e => setPasswords({...passwords, currentPassword: e.target.value})} required />
               </div>
 
               <div className="field">
-                <label className="field-label">New Password</label>
+                <label className="field-label">{t('New Password')}</label>
                 <input type="password" className="field-input" value={passwords.newPassword} onChange={e => setPasswords({...passwords, newPassword: e.target.value})} required minLength={6} />
               </div>
 
               <div className="field">
-                <label className="field-label">Confirm New Password</label>
+                <label className="field-label">{t('Confirm New Password')}</label>
                 <input type="password" className="field-input" value={passwords.confirmPassword} onChange={e => setPasswords({...passwords, confirmPassword: e.target.value})} required minLength={6} />
               </div>
 

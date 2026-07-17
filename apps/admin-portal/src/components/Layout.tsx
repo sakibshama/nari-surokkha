@@ -2,15 +2,17 @@ import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserCheck, Building2,
-  Activity, Settings, LogOut, ShieldAlert, Menu, X,
-  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, BrainCircuit
+  Activity, Settings, LogOut, Menu, X,
+  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, BrainCircuit, Languages
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
+import { useT, useLangStore } from '../i18n';
 import { socketService } from '../services/socket';
 import api from '../services/api';
 import toast, { Toaster } from 'react-hot-toast';
 import GlobalAlertModal from './GlobalAlertModal';
+import FlagRoundel from './FlagRoundel';
 
 type NavItemDef = { label: string; icon: any; path: string; permission?: string };
 
@@ -36,6 +38,8 @@ export default function Layout() {
   const location = useLocation();
   const { user, logout } = useAuthStore();
   const { mode, toggleTheme } = useThemeStore();
+  const t = useT();
+  const { lang, toggleLang } = useLangStore();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', mode);
@@ -97,31 +101,41 @@ export default function Layout() {
       <span className="sidebar-item-icon">
         <item.icon size={18} />
       </span>
-      {item.label}
+      {t(item.label)}
     </div>
   );
 
 
   const SidebarContent = () => (
     <>
-      {/* Brand */}
+      {/* Brand — Government of Bangladesh identity */}
       <div className="sidebar-brand">
         <div className="sidebar-brand-icon">
-          <ShieldAlert size={20} color="#fff" />
+          <FlagRoundel size={26} />
         </div>
         <div className="sidebar-brand-text">
-          <span className="sidebar-brand-name">Nari Surokkha</span>
-          <span className="sidebar-brand-sub">Admin Portal</span>
+          <span className="sidebar-brand-name bn">নারী সুরক্ষা</span>
+          <span className="sidebar-brand-sub">Nari Surokkha · Admin</span>
+        </div>
+      </div>
+      <div className="flag-stripe" />
+
+      {/* Government attribution */}
+      <div style={{ padding: '10px 16px 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <ShieldCheck size={13} color="var(--gov-green)" />
+        <div style={{ lineHeight: 1.25 }}>
+          <div className="bn" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-sub)' }}>গণপ্রজাতন্ত্রী বাংলাদেশ সরকার</div>
+          <div style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.3px', textTransform: 'uppercase' }}>Govt. of the People&apos;s Republic of Bangladesh</div>
         </div>
       </div>
 
       {/* Nav */}
       <nav className="sidebar-nav">
-        <div className="sidebar-section-label">Main</div>
+        <div className="sidebar-section-label">{t('Main')}</div>
         {/* Show all items if permissions not loaded yet, else filter by permission */}
         {NAV_MAIN.filter(item => !item.permission || !user?.permissions || user.permissions.includes(item.permission)).map(item => <NavItem key={item.path} item={item} />)}
 
-        <div className="sidebar-section-label" style={{ marginTop: 8 }}>System</div>
+        <div className="sidebar-section-label" style={{ marginTop: 8 }}>{t('System')}</div>
         {NAV_SYSTEM.filter(item => !item.permission || !user?.permissions || user.permissions.includes(item.permission)).map(item => <NavItem key={item.path} item={item} />)}
       </nav>
 
@@ -192,9 +206,22 @@ export default function Layout() {
           >
             {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
-          <span className="topbar-title">{pageTitle}</span>
+          <span className="topbar-title">{t(pageTitle)}</span>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7,
+            padding: '5px 12px', borderRadius: 999,
+            background: 'var(--primary-dim)', border: '1px solid var(--primary-ring)',
+            fontSize: 11.5, fontWeight: 700, color: 'var(--gov-green)', letterSpacing: '0.3px',
+          }} className="gov-topbar-chip">
+            <FlagRoundel size={14} />
+            National Women Safety Service
+          </span>
           <div className="topbar-actions">
-            <button className="topbar-btn" onClick={toggleTheme} title="Toggle theme">
+            <button className="topbar-btn" onClick={toggleLang} title={t('Language')} aria-label={t('Language')}>
+              <Languages size={16} />
+              <span style={{ fontWeight: 700 }}>{lang === 'en' ? 'বাংলা' : 'EN'}</span>
+            </button>
+            <button className="topbar-btn" onClick={toggleTheme} title={t('Toggle theme')}>
               {mode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             </button>
             <div style={{ position: 'relative' }}>
@@ -214,7 +241,7 @@ export default function Layout() {
                     }}>{unreadCount}</span>
                   )}
                 </div>
-                <span>Alerts</span>
+                <span>{t('Alerts')}</span>
               </button>
 
               {showNotifications && (
@@ -227,14 +254,14 @@ export default function Layout() {
                     overflow: 'hidden'
                   }}>
                     <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Active Alerts</h3>
-                      {unreadCount > 0 && <span className="badge danger">{unreadCount} New</span>}
+                      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{t('Active Alerts')}</h3>
+                      {unreadCount > 0 && <span className="badge danger">{unreadCount} {t('New')}</span>}
                     </div>
                     <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                       {notifications.length === 0 ? (
                         <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-sub)' }}>
                           <CheckCircle size={32} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
-                          <p style={{ margin: 0, fontSize: 13 }}>No active alerts right now.</p>
+                          <p style={{ margin: 0, fontSize: 13 }}>{t('No active alerts right now.')}</p>
                         </div>
                       ) : (
                         notifications.map((alert, index) => {
@@ -253,7 +280,7 @@ export default function Layout() {
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                               <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', marginTop: 6, animation: 'alert-pulse 1.5s infinite' }} />
                               <div>
-                                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>SOS Emergency</div>
+                                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{t('SOS Emergency')}</div>
                                 <div style={{ fontSize: 12, color: 'var(--text-sub)' }}>{new Date(alert.createdAt || alert.timestamp || Date.now()).toLocaleTimeString()}</div>
                               </div>
                             </div>
@@ -265,7 +292,7 @@ export default function Layout() {
                       style={{ padding: '12px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', fontSize: 13, color: 'var(--text-sub)', cursor: 'pointer', borderTop: '1px solid var(--border)' }}
                       onClick={() => { setShowNotifications(false); navigate('/'); }}
                     >
-                      View All Alerts
+                      {t('View All Alerts')}
                     </div>
                   </div>
                 </>
@@ -273,7 +300,7 @@ export default function Layout() {
             </div>
             <button className="topbar-btn danger" onClick={handleLogout}>
               <LogOut size={16} />
-              <span>Logout</span>
+              <span>{t('Logout')}</span>
             </button>
           </div>
         </header>

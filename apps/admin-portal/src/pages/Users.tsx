@@ -7,6 +7,7 @@ import {
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/authStore';
+import { useT } from '../i18n';
 
 interface UserProfile {
   fullName: string;
@@ -53,6 +54,7 @@ const EMPTY_FORM = {
 };
 
 export default function Users() {
+  const t = useT();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -200,18 +202,18 @@ export default function Users() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: 'var(--text)' }}>
-              User Management
+              {t('User Management')}
             </h1>
             <p style={{ margin: '6px 0 0', color: 'var(--text-sub)', fontSize: 14 }}>
-              Manage platform users, assign roles, and control RBAC permissions.
+              {t('Manage platform users, assign roles, and control RBAC permissions.')}
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn btn-ghost" onClick={fetchUsers} style={{ gap: 6, padding: '9px 16px' }}>
-              <RefreshCw size={15} /> Refresh
+              <RefreshCw size={15} /> {t('Refresh')}
             </button>
             <button className="btn btn-primary" onClick={openAdd} style={{ gap: 6, padding: '9px 18px' }}>
-              <Plus size={15} /> Add User
+              <Plus size={15} /> {t('Add User')}
             </button>
           </div>
         </div>
@@ -227,7 +229,7 @@ export default function Users() {
         ].map(s => (
           <div key={s.label} className="card" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 4, border: `1px solid ${s.color}22` }}>
             <div style={{ fontSize: 28, fontWeight: 800, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: 13, color: 'var(--text-sub)', fontWeight: 500 }}>{s.label}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-sub)', fontWeight: 500 }}>{t(s.label)}</div>
           </div>
         ))}
       </div>
@@ -268,13 +270,13 @@ export default function Users() {
         {loading ? (
           <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>
             <div className="spinner" style={{ margin: '0 auto 16px' }} />
-            <div style={{ fontSize: 14 }}>Loading users…</div>
+            <div style={{ fontSize: 14 }}>{t('Loading users…')}</div>
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>
             <UsersIcon size={44} style={{ opacity: 0.3, marginBottom: 14 }} />
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>No users found</div>
-            <div style={{ fontSize: 13 }}>Try adjusting the search or filters.</div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>{t('No users found')}</div>
+            <div style={{ fontSize: 13 }}>{t('Try adjusting the search or filters.')}</div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -283,7 +285,7 @@ export default function Users() {
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
                   {['User', 'Phone', 'Role', 'Status', 'Joined', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '12px 20px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
-                      {h}
+                      {t(h)}
                     </th>
                   ))}
                 </tr>
@@ -498,7 +500,7 @@ export default function Users() {
                     {/* Row 1 */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                       <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Full Name</label>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Full Name')}</label>
                         <div style={{ position: 'relative' }}>
                           <UserCircle size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                           <input
@@ -511,7 +513,7 @@ export default function Users() {
                         </div>
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Phone</label>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Phone')}</label>
                         <div style={{ position: 'relative' }}>
                           <Phone size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                           <input
@@ -528,7 +530,7 @@ export default function Users() {
                     {/* Row 2 */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                       <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Email</label>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Email')}</label>
                         <div style={{ position: 'relative' }}>
                           <Mail size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                           <input
@@ -541,7 +543,7 @@ export default function Users() {
                         </div>
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>National ID</label>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('National ID')}</label>
                         <div style={{ position: 'relative' }}>
                           <Hash size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                           <input
@@ -557,7 +559,7 @@ export default function Users() {
 
                     {/* Role */}
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Role</label>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Role')}</label>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
                         {Object.entries(ROLE_META).filter(([key]) => key !== 'admin' || canManageAdmins).map(([key, meta]) => (
                           <label
@@ -593,7 +595,7 @@ export default function Users() {
                     {formData.role === 'police' && (
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                         <div>
-                          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Badge Number</label>
+                          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Badge Number')}</label>
                           <div style={{ position: 'relative' }}>
                             <Shield size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                             <input
@@ -606,7 +608,7 @@ export default function Users() {
                           </div>
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Station Assignment</label>
+                          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Station Assignment')}</label>
                           <div style={{ position: 'relative' }}>
                             <select
                               required
@@ -670,8 +672,8 @@ export default function Users() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button type="button" onClick={selectAll} style={{ fontSize: 12, padding: '5px 12px', background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8, color: '#34d399', cursor: 'pointer', fontWeight: 600 }}>All</button>
-                        <button type="button" onClick={clearAll} style={{ fontSize: 12, padding: '5px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#ef4444', cursor: 'pointer', fontWeight: 600 }}>None</button>
+                        <button type="button" onClick={selectAll} style={{ fontSize: 12, padding: '5px 12px', background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8, color: '#34d399', cursor: 'pointer', fontWeight: 600 }}>{t('All')}</button>
+                        <button type="button" onClick={clearAll} style={{ fontSize: 12, padding: '5px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#ef4444', cursor: 'pointer', fontWeight: 600 }}>{t('None')}</button>
                       </div>
                     </div>
 

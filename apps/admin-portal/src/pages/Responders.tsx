@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Shield, ShieldOff, Search, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useT } from '../i18n';
 
 interface Responder {
   id: string;
@@ -18,6 +19,7 @@ interface Responder {
 }
 
 export default function Responders() {
+  const t = useT();
   const [responders, setResponders] = useState<Responder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -63,8 +65,8 @@ export default function Responders() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1 className="page-title">Responders Management</h1>
-            <p className="page-subtitle">Verify and manage community responders.</p>
+            <h1 className="page-title">{t('Responders Management')}</h1>
+            <p className="page-subtitle">{t('Verify and manage community responders.')}</p>
           </div>
         </div>
       </div>
@@ -90,11 +92,11 @@ export default function Responders() {
           <table className="portal-table">
             <thead>
               <tr>
-                <th>Responder Info</th>
-                <th>National ID</th>
-                <th>Organization</th>
-                <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
+                <th>{t('Responder Info')}</th>
+                <th>{t('National ID')}</th>
+                <th>{t('Organization')}</th>
+                <th>{t('Status')}</th>
+                <th style={{ textAlign: 'right' }}>{t('Actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -107,7 +109,7 @@ export default function Responders() {
                   <td colSpan={5}>
                     <div className="empty-state">
                       <Shield size={48} />
-                      <p>No responders found matching your criteria.</p>
+                      <p>{t('No responders found matching your criteria.')}</p>
                     </div>
                   </td>
                 </tr>

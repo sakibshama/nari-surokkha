@@ -4,6 +4,7 @@ import {
   ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, X, AlertTriangle, UserCog
 } from 'lucide-react';
 import api from '../services/api';
+import { useT } from '../i18n';
 
 interface DynamicRole {
   id: string;
@@ -21,6 +22,7 @@ const PERMISSIONS_EXPLAINED = [
 ];
 
 export default function RolesPage() {
+  const t = useT();
   const [roles, setRoles] = useState<DynamicRole[]>([]);
   const [activeRoleKey, setActiveRoleKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,7 +101,7 @@ export default function RolesPage() {
     <div className="animate-in fade-in slide-in-bottom-4 duration-500">
       <div style={{ marginBottom: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: 'var(--text)' }}>Role Management</h1>
+          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: 'var(--text)' }}>{t('Role Management')}</h1>
           <p style={{ margin: '6px 0 0', color: 'var(--text-sub)', fontSize: 14 }}>
             Configure platform roles and dynamic permissions securely.
           </p>
@@ -227,8 +229,8 @@ export default function RolesPage() {
               <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--bg-card-alt)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                 <UsersIcon size={28} />
               </div>
-              <h3 style={{ margin: '0 0 8px', color: 'var(--text)', fontSize: 18 }}>No Role Selected</h3>
-              <p style={{ margin: 0, color: 'var(--text-sub)' }}>Select a role from the sidebar to view details and manage it.</p>
+              <h3 style={{ margin: '0 0 8px', color: 'var(--text)', fontSize: 18 }}>{t('No Role Selected')}</h3>
+              <p style={{ margin: 0, color: 'var(--text-sub)' }}>{t('Select a role from the sidebar to view details and manage it.')}</p>
             </div>
           )}
         </div>
@@ -276,7 +278,7 @@ export default function RolesPage() {
               )}
               
               <div style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Role Name</label>
+                <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{t('Role Name')}</label>
                 <input required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Moderator" style={{ width: '100%', padding: '12px 16px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 15, transition: 'all 0.2s', outline: 'none' }} onFocus={e => e.target.style.borderColor = '#38bdf8'} onBlur={e => e.target.style.borderColor = 'var(--border)'} />
               </div>
               

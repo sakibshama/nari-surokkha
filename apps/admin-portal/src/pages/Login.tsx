@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Lock } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
+import FlagRoundel from '../components/FlagRoundel';
+import { useT } from '../i18n';
 
 export default function Login() {
   const [phone, setPhone] = useState('');
@@ -12,6 +14,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuthStore();
+  const t = useT();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,7 +28,7 @@ export default function Login() {
       // SECURITY: Only allow admin users into the admin portal
       const roleKey = typeof user.role === 'string' ? user.role : user.role?.key;
       if (roleKey !== 'admin' && roleKey !== 'superadmin') {
-        setError('Access denied. This portal is for administrators only.');
+        setError(t('Access denied. This portal is for administrators only.'));
         setLoading(false);
         return;
       }
@@ -42,19 +45,26 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-card animate-in">
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{
-            width: 64, height: 64, borderRadius: 16, margin: '0 auto 20px',
-            background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-            boxShadow: '0 8px 24px rgba(239,68,68,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>
-            <ShieldAlert size={32} color="#fff" />
+        {/* Government header */}
+        <div className="gov-hero" style={{ margin: 0, borderRadius: 0, padding: '30px 40px 26px' }}>
+          <div className="gov-hero-inner" style={{ textAlign: 'center' }}>
+            <div style={{
+              width: 66, height: 66, borderRadius: 18, margin: '0 auto 16px',
+              background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)'
+            }}>
+              <FlagRoundel size={40} />
+            </div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.82)' }}>
+              {t('Government of Bangladesh')}
+            </div>
+            <h2 className="bn" style={{ margin: '4px 0 2px', fontSize: 26, fontWeight: 800, color: '#fff' }}>নারী সুরক্ষা</h2>
+            <p style={{ margin: 0, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>{t('National Women Safety Service — Admin Portal')}</p>
           </div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>Admin Portal</h2>
-          <p style={{ margin: '8px 0 0', color: 'var(--text-sub)', fontSize: 14 }}>Nari Surokkha — Authorized Access Only</p>
         </div>
+        <div className="flag-stripe" />
 
+        <div style={{ padding: '30px 40px 34px' }}>
         {error && (
           <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', padding: '12px 16px', borderRadius: 10, marginBottom: 24, fontSize: 14 }}>
             {error}
@@ -63,7 +73,7 @@ export default function Login() {
 
         <form onSubmit={handleLogin}>
           <div className="field">
-            <label className="field-label" htmlFor="phone">Phone Number</label>
+            <label className="field-label" htmlFor="phone">{t('Phone Number')}</label>
             <input
               id="phone"
               type="text"
@@ -77,7 +87,7 @@ export default function Login() {
           </div>
 
           <div className="field">
-            <label className="field-label" htmlFor="password">Password</label>
+            <label className="field-label" htmlFor="password">{t('Password')}</label>
             <div style={{ position: 'relative' }}>
               <input
                 id="password"
@@ -106,13 +116,14 @@ export default function Login() {
             style={{ width: '100%', justifyContent: 'center', padding: '14px', marginTop: 12, fontSize: 15 }}
             disabled={loading}
           >
-            {loading ? 'Authenticating…' : 'Sign In'}
+            {loading ? t('Authenticating…') : t('Sign In')}
           </button>
         </form>
 
-        <p style={{ textAlign: 'center', marginTop: 20, fontSize: 12, color: 'var(--text-muted)' }}>
-          This system is monitored. Unauthorized access is prohibited.
+        <p style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, textAlign: 'center', marginTop: 20, fontSize: 12, color: 'var(--text-muted)' }}>
+          <Lock size={12} /> {t('This system is monitored. Unauthorized access is prohibited.')}
         </p>
+        </div>
       </div>
     </div>
   );

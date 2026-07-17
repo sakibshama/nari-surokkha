@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Building2, Search, Plus, Trash2, Edit, X } from 'lucide-react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useT } from '../i18n';
 
 interface PoliceStation {
   id: string;
@@ -16,6 +17,7 @@ interface PoliceStation {
 }
 
 export default function PoliceStations() {
+  const t = useT();
   const [stations, setStations] = useState<PoliceStation[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -105,8 +107,8 @@ export default function PoliceStations() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1 className="page-title">Police Stations</h1>
-            <p className="page-subtitle">Manage platform police stations.</p>
+            <h1 className="page-title">{t('Police Stations')}</h1>
+            <p className="page-subtitle">{t('Manage platform police stations.')}</p>
           </div>
           <button className="btn btn-primary" onClick={openAddModal}>
             <Plus size={16} /> Add Station
@@ -135,10 +137,10 @@ export default function PoliceStations() {
           <table className="portal-table">
             <thead>
               <tr>
-                <th>Station Name / Code</th>
-                <th>Location</th>
-                <th>Contact</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
+                <th>{t('Station Name / Code')}</th>
+                <th>{t('Location')}</th>
+                <th>{t('Contact')}</th>
+                <th style={{ textAlign: 'right' }}>{t('Actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -151,7 +153,7 @@ export default function PoliceStations() {
                   <td colSpan={4}>
                     <div className="empty-state">
                       <Building2 size={48} />
-                      <p>No police stations found.</p>
+                      <p>{t('No police stations found.')}</p>
                     </div>
                   </td>
                 </tr>
@@ -206,28 +208,28 @@ export default function PoliceStations() {
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ display: 'flex', gap: 16 }}>
                 <div className="field" style={{ flex: 2 }}>
-                  <label className="field-label">Station Name</label>
+                  <label className="field-label">{t('Station Name')}</label>
                   <input type="text" className="field-input" required value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
                 </div>
                 <div className="field" style={{ flex: 1 }}>
-                  <label className="field-label">Thana Code</label>
+                  <label className="field-label">{t('Thana Code')}</label>
                   <input type="text" className="field-input" required value={formData.thanaCode} onChange={(e) => setFormData({...formData, thanaCode: e.target.value})} />
                 </div>
               </div>
 
               <div style={{ display: 'flex', gap: 16 }}>
                 <div className="field" style={{ flex: 1 }}>
-                  <label className="field-label">Division</label>
+                  <label className="field-label">{t('Division')}</label>
                   <input type="text" className="field-input" required value={formData.division} onChange={(e) => setFormData({...formData, division: e.target.value})} />
                 </div>
                 <div className="field" style={{ flex: 1 }}>
-                  <label className="field-label">District</label>
+                  <label className="field-label">{t('District')}</label>
                   <input type="text" className="field-input" required value={formData.district} onChange={(e) => setFormData({...formData, district: e.target.value})} />
                 </div>
               </div>
 
               <div className="field">
-                <label className="field-label">Address</label>
+                <label className="field-label">{t('Address')}</label>
                 <input type="text" className="field-input" required value={formData.address} onChange={(e) => setFormData({...formData, address: e.target.value})} />
               </div>
 

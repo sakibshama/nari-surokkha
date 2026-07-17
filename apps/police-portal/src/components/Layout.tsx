@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ShieldAlert, AlertTriangle, Settings, LogOut, Menu, X,
-  Bell, Moon, Sun, MapPin
+  Bell, Moon, Sun, MapPin, Languages
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
+import { useT, useLangStore } from '../i18n';
 import { socketService } from '../services/socket';
 import toast, { Toaster } from 'react-hot-toast';
 import GlobalAlertModal from './GlobalAlertModal';
@@ -23,6 +24,8 @@ export default function Layout() {
   const location = useLocation();
   const { user, logout } = useAuthStore();
   const { mode, toggleTheme } = useThemeStore();
+  const t = useT();
+  const { lang, toggleLang } = useLangStore();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', mode);
@@ -65,7 +68,7 @@ export default function Layout() {
       <span className="sidebar-item-icon">
         <item.icon size={18} />
       </span>
-      {item.label}
+      {t(item.label)}
     </div>
   );
 
@@ -80,13 +83,13 @@ export default function Layout() {
         </div>
         <div className="sidebar-brand-text">
           <span className="sidebar-brand-name">Nari Surokkha</span>
-          <span className="sidebar-brand-sub">Police Portal</span>
+          <span className="sidebar-brand-sub">{t('Police Portal')}</span>
         </div>
       </div>
 
       {/* Nav */}
       <nav className="sidebar-nav">
-        <div className="sidebar-section-label">Main</div>
+        <div className="sidebar-section-label">{t('Main')}</div>
         {NAV_MAIN.map(item => <NavItem key={item.path} item={item} />)}
       </nav>
 
@@ -159,18 +162,22 @@ export default function Layout() {
           >
             {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
-          <span className="topbar-title">{pageTitle}</span>
+          <span className="topbar-title">{t(pageTitle)}</span>
           <div className="topbar-actions">
-            <button className="topbar-btn" onClick={toggleTheme} title="Toggle theme">
+            <button className="topbar-btn" onClick={toggleLang} title={t('Language')} aria-label={t('Language')}>
+              <Languages size={16} />
+              <span style={{ fontWeight: 700 }}>{lang === 'en' ? 'বাংলা' : 'EN'}</span>
+            </button>
+            <button className="topbar-btn" onClick={toggleTheme} title={t('Toggle theme')}>
               {mode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             </button>
             <button className="topbar-btn">
               <Bell size={16} />
-              <span>Alerts</span>
+              <span>{t('Alerts')}</span>
             </button>
             <button className="topbar-btn danger" onClick={handleLogout}>
               <LogOut size={16} />
-              <span>Logout</span>
+              <span>{t('Logout')}</span>
             </button>
           </div>
         </header>

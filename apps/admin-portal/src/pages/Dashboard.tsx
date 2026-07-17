@@ -8,6 +8,8 @@ import {
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import { socketService } from '../services/socket';
+import FlagRoundel from '../components/FlagRoundel';
+import { useT } from '../i18n';
 
 interface HealthData {
   totalUsers: number;
@@ -69,6 +71,7 @@ const URGENCY_STYLES = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const t = useT();
   const [health, setHealth] = useState<HealthData | null>(null);
   const [activeAlertsList, setActiveAlertsList] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,34 +134,46 @@ export default function Dashboard() {
   }, [fetchData]);
 
   const stats = [
-    { label: 'Active Emergencies', value: health?.activeAlerts ?? '—', icon: ShieldAlert, color: '#ef4444', bg: 'rgba(239,68,68,0.12)', trend: 'urgent' },
-    { label: 'Registered Users',   value: health?.totalUsers ?? '—',   icon: Users,       color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', trend: null },
-    { label: 'Verified Responders',value: health?.verifiedResponders ?? '—', icon: CheckCircle, color: '#10b981', bg: 'rgba(16,185,129,0.12)', trend: 'good' },
+    { label: 'Active Emergencies', value: health?.activeAlerts ?? '—', icon: ShieldAlert, color: '#e11d3a', bg: 'rgba(225,29,58,0.12)', trend: 'urgent' },
+    { label: 'Registered Users',   value: health?.totalUsers ?? '—',   icon: Users,       color: '#2563eb', bg: 'rgba(37,99,235,0.12)', trend: null },
+    { label: 'Verified Responders',value: health?.verifiedResponders ?? '—', icon: CheckCircle, color: '#006a4e', bg: 'rgba(0,106,78,0.12)', trend: 'good' },
     { label: 'Pending Reviews',    value: health?.pendingResponders ?? '—',  icon: Clock,       color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', trend: 'warn' },
-    { label: 'Avg Safety Score',   value: '84/100',  icon: ShieldCheck, color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)', trend: 'good' },
+    { label: 'Avg Safety Score',   value: '84/100',  icon: ShieldCheck, color: '#00875f', bg: 'rgba(0,135,95,0.12)', trend: 'good' },
   ];
 
   return (
     <div className="animate-in">
 
-      {/* ─── Page Header ─── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: 'var(--text)' }}>System Overview</h1>
-          <p style={{ margin: '4px 0 0', color: 'var(--text-sub)', fontSize: 14 }}>
-            Real-time metrics for the Nari Surokkha platform
-          </p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: isConnected ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.1)', border: `1px solid ${isConnected ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`, fontSize: 12, fontWeight: 600, color: isConnected ? '#10b981' : '#ef4444' }}>
-            {isConnected ? <><span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981' }} /> Live Feed</> : <><WifiOff size={12} /> Reconnecting…</>}
+      {/* ─── Government Hero Header ─── */}
+      <div className="gov-hero">
+        <div className="gov-hero-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, backdropFilter: 'blur(4px)' }}>
+              <FlagRoundel size={34} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.82)', marginBottom: 3 }}>
+                {t('Government of Bangladesh')} · {t('National Women Safety Service')}
+              </div>
+              <h1 className="bn" style={{ margin: 0, fontSize: 27, fontWeight: 800, color: '#fff', lineHeight: 1.15 }}>
+                নারী সুরক্ষা <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 18, opacity: 0.85 }}>· {t('Command Overview')}</span>
+              </h1>
+              <p style={{ margin: '5px 0 0', color: 'rgba(255,255,255,0.85)', fontSize: 13.5 }}>
+                {t('Real-time emergency response & safety monitoring across the nation')}
+              </p>
+            </div>
           </div>
-          <button
-            onClick={fetchData}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, cursor: 'pointer', color: 'var(--text-sub)', fontSize: 13, fontWeight: 500 }}
-          >
-            <RefreshCw size={13} /> Refresh
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 999, background: isConnected ? 'rgba(255,255,255,0.18)' : 'rgba(244,42,65,0.28)', border: `1px solid rgba(255,255,255,0.3)`, fontSize: 12, fontWeight: 700, color: '#fff' }}>
+              {isConnected ? <><span style={{ width: 7, height: 7, borderRadius: '50%', background: '#8affce', display: 'inline-block', boxShadow: '0 0 8px #8affce' }} /> {t('Live Feed')}</> : <><WifiOff size={12} /> {t('Reconnecting…')}</>}
+            </div>
+            <button
+              onClick={fetchData}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 600 }}
+            >
+              <RefreshCw size={13} /> {t('Refresh')}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -174,12 +189,12 @@ export default function Dashboard() {
                 </div>
                 {s.trend === 'urgent' && (
                   <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: 'rgba(239,68,68,0.15)', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444', display: 'inline-block', animation: 'pulse-dot 1.2s infinite' }} /> Live
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444', display: 'inline-block', animation: 'pulse-dot 1.2s infinite' }} /> {t('Live')}
                   </span>
                 )}
               </div>
               <div style={{ fontSize: 34, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-              <div style={{ fontSize: 13, color: 'var(--text-sub)', marginTop: 6, fontWeight: 500 }}>{s.label}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-sub)', marginTop: 6, fontWeight: 500 }}>{t(s.label)}</div>
             </div>
           ))}
         </div>
@@ -220,7 +235,7 @@ export default function Dashboard() {
 
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: 'var(--text)' }}>Global Active Alerts</h2>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: 'var(--text)' }}>{t('Global Active Alerts')}</h2>
                 {activeAlertsList.length > 0 && (
                   <span style={{
                     display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -230,12 +245,12 @@ export default function Dashboard() {
                     animation: 'pulse-badge 2s ease-in-out infinite',
                   }}>
                     <Radio size={10} style={{ animation: 'spin 2s linear infinite' }} />
-                    LIVE TRACKING
+                    {t('LIVE TRACKING')}
                   </span>
                 )}
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                Last updated {timeAgo(lastRefresh.toISOString())} · Auto-refreshes on new events
+                {t('Last updated')} {timeAgo(lastRefresh.toISOString())} · {t('Auto-refreshes on new events')}
               </div>
             </div>
           </div>
@@ -244,9 +259,9 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(239,68,68,0.08)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)' }}>
                 <Activity size={13} color="#ef4444" />
-                <span style={{ color: '#ef4444', fontWeight: 600 }}>{activeAlertsList.filter(a => a.status === 'created').length} critical</span>
+                <span style={{ color: '#ef4444', fontWeight: 600 }}>{activeAlertsList.filter(a => a.status === 'created').length} {t('critical')}</span>
                 <span style={{ color: 'var(--text-muted)' }}>·</span>
-                <span style={{ color: '#f97316', fontWeight: 600 }}>{activeAlertsList.filter(a => a.status === 'in_progress').length} responding</span>
+                <span style={{ color: '#f97316', fontWeight: 600 }}>{activeAlertsList.filter(a => a.status === 'in_progress').length} {t('responding')}</span>
               </div>
             </div>
           )}
@@ -256,7 +271,7 @@ export default function Dashboard() {
         {loading ? (
           <div style={{ padding: '60px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, color: 'var(--text-muted)' }}>
             <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid var(--border)', borderTopColor: '#ef4444', animation: 'spin 0.8s linear infinite' }} />
-            <span style={{ fontSize: 14 }}>Loading emergency data…</span>
+            <span style={{ fontSize: 14 }}>{t('Loading emergency data…')}</span>
           </div>
         ) : activeAlertsList.length === 0 ? (
           /* ── Empty State ── */
@@ -268,16 +283,16 @@ export default function Dashboard() {
               <div style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: '50%', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>✓</div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>All Clear — No Active Emergencies</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>{t('All Clear — No Active Emergencies')}</div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 320, lineHeight: 1.6 }}>
-                The platform is monitoring in real-time. You'll be notified instantly when a new SOS is triggered.
+                {t("The platform is monitoring in real-time. You'll be notified instantly when a new SOS is triggered.")}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 20, marginTop: 4 }}>
               {[['#10b981', 'Platform Online'], ['#3b82f6', 'WebSocket Live'], ['#f59e0b', 'GPS Tracking Ready']].map(([color, label]) => (
                 <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block', boxShadow: `0 0 6px ${color}` }} />
-                  {label}
+                  {t(label)}
                 </div>
               ))}
             </div>
@@ -321,7 +336,7 @@ export default function Dashboard() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
                       <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
-                        {alert.user?.profile?.fullName || 'Unknown Victim'}
+                        {alert.user?.profile?.fullName || t('Unknown Victim')}
                       </span>
 
                       {/* Status badge */}
@@ -332,18 +347,18 @@ export default function Dashboard() {
                         fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
                       }}>
                         {sm.pulse && <span style={{ width: 5, height: 5, borderRadius: '50%', background: sm.color, display: 'inline-block', animation: 'pulse-dot 1.2s infinite' }} />}
-                        {sm.label}
+                        {t(sm.label)}
                       </span>
 
                       {/* Alert type label */}
                       <span style={{ padding: '3px 9px', borderRadius: 20, background: `${us.accent}14`, color: us.accent, fontSize: 10, fontWeight: 600 }}>
-                        {tm.label}
+                        {t(tm.label)}
                       </span>
 
                       {/* Soft-alert (pre-alarm) badge */}
                       {alert.isSoftAlert && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 20, background: 'rgba(245,158,11,0.16)', color: '#f59e0b', fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', border: '1px solid rgba(245,158,11,0.35)' }}>
-                          ⏱ SOFT ALERT
+                          ⏱ {t('SOFT ALERT')}
                         </span>
                       )}
                     </div>
@@ -385,11 +400,11 @@ export default function Dashboard() {
                         transition: 'opacity 0.15s',
                       }}
                     >
-                      <Eye size={13} /> Track Live <ArrowRight size={12} />
+                      <Eye size={13} /> {t('Track Live')} <ArrowRight size={12} />
                     </button>
                     {urgency === 'critical' && (
                       <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <AlertTriangle size={9} /> Critical
+                        <AlertTriangle size={9} /> {t('Critical')}
                       </span>
                     )}
                   </div>

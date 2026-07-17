@@ -7,6 +7,7 @@ import {
 import api from '../services/api';
 import { socketService } from '../services/socket';
 import toast from 'react-hot-toast';
+import { useT } from '../i18n';
 
 interface Incident {
   id: string;
@@ -45,6 +46,7 @@ function getMeta(type: string) {
 }
 
 export default function Incidents() {
+  const t = useT();
   const [incidents, setIncidents]         = useState<Incident[]>([]);
   const [loading, setLoading]             = useState(true);
   const [refreshing, setRefreshing]       = useState(false);
@@ -113,7 +115,7 @@ export default function Incidents() {
             <div style={{ width:38, height:38, borderRadius:11, background:'rgba(245,158,11,0.12)', display:'flex', alignItems:'center', justifyContent:'center' }}>
               <AlertTriangle size={20} color="#f59e0b" />
             </div>
-            <h1 className="page-title" style={{ margin:0 }}>Incident Reports</h1>
+            <h1 className="page-title" style={{ margin:0 }}>{t('Incident Reports')}</h1>
           </div>
           <p style={{ margin:0, color:'var(--text-muted)', fontSize:13 }}>
             Crowdsourced safety reports · Verify or reject to update safety scores
@@ -193,7 +195,7 @@ export default function Incidents() {
       {loading ? (
         <div className="card" style={{ padding:60, textAlign:'center' }}>
           <div style={{ width:36, height:36, borderRadius:'50%', border:'3px solid var(--border)', borderTopColor:'#f59e0b', animation:'spin 0.8s linear infinite', margin:'0 auto 16px' }} />
-          <p style={{ color:'var(--text-muted)', margin:0, fontSize:13 }}>Loading incident reports…</p>
+          <p style={{ color:'var(--text-muted)', margin:0, fontSize:13 }}>{t('Loading incident reports…')}</p>
         </div>
       ) : filtered.length === 0 ? (
         <div className="card" style={{ padding:'60px 40px', textAlign:'center' }}>

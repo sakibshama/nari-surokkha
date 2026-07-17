@@ -7,10 +7,12 @@ import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import api from '../services/api';
 import { Activity, MapPin, AlertCircle, TrendingUp } from 'lucide-react';
+import { useT } from '../i18n';
 
 const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899'];
 
 export default function Analytics() {
+  const t = useT();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -35,7 +37,7 @@ export default function Analytics() {
   if (loading) {
     return (
       <div className="animate-in" style={{ padding: 24, display: 'flex', justifyContent: 'center' }}>
-        <p>Loading analytics data...</p>
+        <p>{t('Loading analytics data...')}</p>
       </div>
     );
   }
@@ -47,9 +49,9 @@ export default function Analytics() {
   return (
     <div className="animate-in" style={{ paddingBottom: 40 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--text)' }}>City Safety Analytics</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--text)' }}>{t('City Safety Analytics')}</h1>
         <button className="btn btn-primary" onClick={fetchAnalytics}>
-          <Activity size={16} /> Refresh Data
+          <Activity size={16} /> {t('Refresh Data')}
         </button>
       </div>
 

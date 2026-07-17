@@ -5,17 +5,21 @@ export const getAppTheme = (mode: 'light' | 'dark') => {
     palette: {
       mode,
       primary: {
-        main: '#2196f3',
+        main: mode === 'dark' ? '#22b389' : '#006a4e', // Bangladesh bottle green
+        contrastText: '#ffffff',
       },
       secondary: {
-        main: '#f50057',
+        main: '#f42a41', // national flag red
       },
       error: {
-        main: '#f44336',
+        main: '#e11d3a', // emergency red
+      },
+      success: {
+        main: '#006a4e',
       },
       background: {
-        default: mode === 'dark' ? '#0a1929' : '#f8fafc',
-        paper: mode === 'dark' ? '#001e3c' : '#ffffff',
+        default: mode === 'dark' ? '#05100b' : '#eef2f0',
+        paper: mode === 'dark' ? '#0a1712' : '#ffffff',
       },
     },
     typography: {
@@ -52,7 +56,7 @@ export const getAppTheme = (mode: 'light' | 'dark') => {
         styleOverrides: {
           head: {
             fontWeight: 700,
-            backgroundColor: mode === 'dark' ? '#001e3c' : '#f1f5f9',
+            backgroundColor: mode === 'dark' ? '#0f2018' : '#f1f6f4',
           },
         },
       },

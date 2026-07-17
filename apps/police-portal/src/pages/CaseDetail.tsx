@@ -4,11 +4,13 @@ import { ArrowLeft, Save, UserCheck, Download, X } from 'lucide-react';
 import { format } from 'date-fns';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { useT } from '../i18n';
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const t = useT();
   
   const [caseData, setCaseData] = useState<any>(null);
   const [timeline, setTimeline] = useState<any[]>([]);
@@ -94,8 +96,8 @@ export default function CaseDetail() {
   if (!caseData) {
     return (
       <div className="animate-in empty-state">
-        <p>Case not found.</p>
-        <button className="btn btn-ghost" onClick={() => navigate('/cases')} style={{ marginTop: 16 }}>Back to Cases</button>
+        <p>{t('Case not found.')}</p>
+        <button className="btn btn-ghost" onClick={() => navigate('/cases')} style={{ marginTop: 16 }}>{t('Back to Cases')}</button>
       </div>
     );
   }
@@ -126,7 +128,7 @@ export default function CaseDetail() {
           {/* Details Card */}
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>Case Details</h2>
+              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>{t('Case Details')}</h2>
               <span className={`badge ${isClosed ? 'success' : 'warning'}`}>{caseData.status.replace('_', ' ').toUpperCase()}</span>
             </div>
             <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
@@ -160,14 +162,14 @@ export default function CaseDetail() {
 
           {/* Notes Card */}
           <div className="card">
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>Add Investigation Note</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Add Investigation Note')}</h2>
             <textarea
               className="field-input"
               rows={4}
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
               disabled={isClosed}
-              placeholder={isClosed ? "This case is closed." : "Enter detailed case notes here..."}
+              placeholder={isClosed ? t("This case is closed.") : t("Enter detailed case notes here...")}
               style={{ resize: 'vertical', minHeight: 100, marginBottom: 16 }}
             />
             <button className="btn btn-primary" onClick={handleAddNote} disabled={isClosed || !noteText}>
@@ -178,12 +180,12 @@ export default function CaseDetail() {
 
         {/* Right Column (Timeline) */}
         <div className="card" style={{ flex: '1 1 350px', maxHeight: '80vh', overflowY: 'auto' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>Master Timeline</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Master Timeline')}</h2>
           <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {timeline.length === 0 ? (
-              <p style={{ color: 'var(--text-sub)', fontSize: 14 }}>No timeline events recorded.</p>
+              <p style={{ color: 'var(--text-sub)', fontSize: 14 }}>{t('No timeline events recorded.')}</p>
             ) : (
               timeline.map((item, idx) => (
                 <div key={idx} style={{ display: 'flex', gap: '12px' }}>
@@ -231,10 +233,10 @@ export default function CaseDetail() {
               <X size={20} />
             </button>
             
-            <h2 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 24px', color: 'var(--text)' }}>Update Case Status</h2>
+            <h2 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 24px', color: 'var(--text)' }}>{t('Update Case Status')}</h2>
             
             <div className="field">
-              <label className="field-label">Status</label>
+              <label className="field-label">{t('Status')}</label>
               <select 
                 className="field-input" 
                 value={newStatus} 
@@ -251,7 +253,7 @@ export default function CaseDetail() {
 
             {(newStatus === 'closed' || newStatus === 'false_alarm') && (
               <div className="field">
-                <label className="field-label">Reason for closing</label>
+                <label className="field-label">{t('Reason for closing')}</label>
                 <textarea
                   className="field-input"
                   rows={3}
@@ -263,7 +265,7 @@ export default function CaseDetail() {
             )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: 24 }}>
-              <button className="btn btn-ghost" onClick={() => setStatusDialogOpen(false)}>Cancel</button>
+              <button className="btn btn-ghost" onClick={() => setStatusDialogOpen(false)}>{t('Cancel')}</button>
               <button className="btn btn-primary" onClick={handleUpdateStatus} disabled={!newStatus}>Update Case</button>
             </div>
           </div>

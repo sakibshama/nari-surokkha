@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { FileText, Search } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import api from '../services/api';
+import { useT } from '../i18n';
 
 export default function Cases() {
   const navigate = useNavigate();
+  const t = useT();
   const [cases, setCases] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -43,8 +45,8 @@ export default function Cases() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1 className="page-title">Case Management</h1>
-            <p className="page-subtitle">Manage and track active and closed investigations.</p>
+            <h1 className="page-title">{t('Case Management')}</h1>
+            <p className="page-subtitle">{t('Manage and track active and closed investigations.')}</p>
           </div>
         </div>
       </div>
@@ -57,7 +59,7 @@ export default function Cases() {
           </div>
           <div className="data-table-search">
             <Search size={16} />
-            <input type="text" placeholder="Search case number..." />
+            <input type="text" placeholder={t('Search case number...')} />
           </div>
         </div>
 
@@ -65,11 +67,11 @@ export default function Cases() {
           <table className="portal-table">
             <thead>
               <tr>
-                <th>Case Number</th>
-                <th>Created At</th>
-                <th>Status</th>
-                <th>Assigned Officer</th>
-                <th style={{ textAlign: 'right' }}>Action</th>
+                <th>{t('Case Number')}</th>
+                <th>{t('Created At')}</th>
+                <th>{t('Status')}</th>
+                <th>{t('Assigned Officer')}</th>
+                <th style={{ textAlign: 'right' }}>{t('Action')}</th>
               </tr>
             </thead>
             <tbody>
@@ -82,7 +84,7 @@ export default function Cases() {
                   <td colSpan={5}>
                     <div className="empty-state">
                       <FileText size={48} />
-                      <p>No cases found.</p>
+                      <p>{t('No cases found.')}</p>
                     </div>
                   </td>
                 </tr>

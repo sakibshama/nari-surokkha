@@ -3,6 +3,7 @@ import { ShieldAlert, CheckCircle, XCircle, MapPin, Clock, Edit2, Trash2 } from 
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { socketService } from '../services/socket';
+import { useT } from '../i18n';
 
 interface Incident {
   id: string;
@@ -15,6 +16,7 @@ interface Incident {
 }
 
 export default function Incidents() {
+  const t = useT();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [statusFilter, setStatusFilter] = useState<'pending' | 'verified' | 'rejected'>('pending');
   const [loading, setLoading] = useState(true);
@@ -102,8 +104,8 @@ export default function Incidents() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1 className="page-title">Safety Incidents</h1>
-            <p className="page-subtitle">Review anonymous community reports to update area safety scores.</p>
+            <h1 className="page-title">{t('Safety Incidents')}</h1>
+            <p className="page-subtitle">{t('Review anonymous community reports to update area safety scores.')}</p>
           </div>
           
           <div style={{ display: 'flex', background: 'var(--bg-input)', borderRadius: '10px', padding: 4, border: '1px solid var(--border)' }}>
@@ -191,12 +193,12 @@ export default function Incidents() {
         <div className="modal-overlay" onClick={() => setEditingIncident(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
             <div className="modal-header">
-              <h2>Edit Incident</h2>
+              <h2>{t('Edit Incident')}</h2>
               <button className="btn-close" onClick={() => setEditingIncident(null)}>×</button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className="field">
-                <label className="field-label">Type</label>
+                <label className="field-label">{t('Type')}</label>
                 <select className="field-input" value={editForm.type} onChange={e => setEditForm({...editForm, type: e.target.value})}>
                   <option value="harassment">Harassment</option>
                   <option value="robbery">Robbery</option>
@@ -206,19 +208,19 @@ export default function Incidents() {
                 </select>
               </div>
               <div className="field">
-                <label className="field-label">Description</label>
+                <label className="field-label">{t('Description')}</label>
                 <textarea 
                   className="field-input" 
                   rows={4}
                   value={editForm.description}
                   onChange={e => setEditForm({...editForm, description: e.target.value})}
-                  placeholder="Update description..."
+                  placeholder={t('Update description...')}
                 ></textarea>
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setEditingIncident(null)}>Cancel</button>
-              <button className="btn btn-blue" onClick={handleSaveEdit}>Save Changes</button>
+              <button className="btn btn-ghost" onClick={() => setEditingIncident(null)}>{t('Cancel')}</button>
+              <button className="btn btn-blue" onClick={handleSaveEdit}>{t('Save Changes')}</button>
             </div>
           </div>
         </div>

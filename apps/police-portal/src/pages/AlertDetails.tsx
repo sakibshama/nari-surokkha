@@ -5,10 +5,12 @@ import { useAlertStore } from '../store/alertStore';
 import api from '../services/api';
 import { socketService } from '../services/socket';
 import LiveLocationMap from '../components/SmartLocationMap';
+import { useT } from '../i18n';
 
 export default function AlertDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const t = useT();
   const { alerts, updateAlertStatus } = useAlertStore();
   const [alert, setAlert] = useState(alerts.find((a) => a.id === id));
   const [loadingAction, setLoadingAction] = useState(false);
@@ -154,8 +156,8 @@ export default function AlertDetails() {
   if (!alert) {
     return (
       <div className="animate-in empty-state">
-        <p>Alert not found.</p>
-        <button className="btn btn-ghost" onClick={() => navigate('/')} style={{ marginTop: 16 }}>Back to Dashboard</button>
+        <p>{t('Alert not found.')}</p>
+        <button className="btn btn-ghost" onClick={() => navigate('/')} style={{ marginTop: 16 }}>{t('Back to Dashboard')}</button>
       </div>
     );
   }
@@ -189,7 +191,7 @@ export default function AlertDetails() {
 
       <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', marginBottom: 24 }}>
         <div className="card" style={{ flex: '1 1 300px' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>Alert Information</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Alert Information')}</h2>
           <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: 24 }}>
@@ -253,7 +255,7 @@ export default function AlertDetails() {
 
         <div className="card" style={{ flex: '2 1 400px', display: 'flex', flexDirection: 'column', minHeight: 400, padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '24px 24px 16px' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>Live Location Map</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>{t('Live Location Map')}</h2>
           </div>
           
           <div style={{ flex: 1, position: 'relative', background: 'var(--bg-input)' }}>
@@ -275,7 +277,7 @@ export default function AlertDetails() {
 
         {/* Live Video Stream */}
         <div className="card" style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>Live Video Feed</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Live Video Feed')}</h2>
           <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
           <div style={{ flex: 1, backgroundColor: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', minHeight: '200px' }}>
             {isAudioOnly ? (
@@ -301,13 +303,13 @@ export default function AlertDetails() {
 
       {/* Evidence Section */}
       <div className="card">
-        <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>Evidence Uploaded</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Evidence Uploaded')}</h2>
         <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
         
         {loadingEvidence ? (
-          <p style={{ color: 'var(--text-sub)', fontSize: 14 }}>Loading evidence...</p>
+          <p style={{ color: 'var(--text-sub)', fontSize: 14 }}>{t('Loading evidence...')}</p>
         ) : evidence.length === 0 ? (
-          <p style={{ color: 'var(--text-sub)', fontSize: 14 }}>No evidence uploaded for this alert.</p>
+          <p style={{ color: 'var(--text-sub)', fontSize: 14 }}>{t('No evidence uploaded for this alert.')}</p>
         ) : (
           <div className="detail-grid">
             {evidence.map((item) => (
@@ -337,7 +339,7 @@ export default function AlertDetails() {
       {/* Dispatched Responders Section */}
       {(alert as any).responderDispatches && (alert as any).responderDispatches.length > 0 && (
         <div className="card" style={{ marginTop: 24 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>Dispatched Responders</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Dispatched Responders')}</h2>
           <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
           
           <div className="detail-grid">

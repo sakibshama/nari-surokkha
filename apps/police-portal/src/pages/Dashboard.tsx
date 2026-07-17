@@ -6,9 +6,11 @@ import toast from 'react-hot-toast';
 import api from '../services/api';
 import { useAlertStore } from '../store/alertStore';
 import { socketService } from '../services/socket';
+import { useT } from '../i18n';
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const t = useT();
   const { alerts, setAlerts, addAlert, updateAlertStatus, updateAlertLocation } = useAlertStore();
   const [loading, setLoading] = useState(true);
 
@@ -71,8 +73,8 @@ export default function Dashboard() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1 className="page-title">Live SOS Alerts Queue</h1>
-            <p className="page-subtitle">Real-time incoming emergency alerts from citizens in your jurisdiction.</p>
+            <h1 className="page-title">{t('Live SOS Alerts Queue')}</h1>
+            <p className="page-subtitle">{t('Real-time incoming emergency alerts from citizens in your jurisdiction.')}</p>
           </div>
         </div>
       </div>
@@ -81,11 +83,11 @@ export default function Dashboard() {
         <div className="data-table-header">
           <div className="data-table-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span className="live-dot" style={{ marginRight: '8px' }}></span>
-            Active Dispatches ({alerts.length})
+            {t('Active Dispatches')} ({alerts.length})
           </div>
           <div className="data-table-search">
             <Search size={16} />
-            <input type="text" placeholder="Search by victim or phone..." />
+            <input type="text" placeholder={t('Search by victim or phone...')} />
           </div>
         </div>
         
@@ -93,25 +95,25 @@ export default function Dashboard() {
           <table className="portal-table">
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Victim</th>
-                <th>Phone</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Action</th>
+                <th>{t('Time')}</th>
+                <th>{t('Victim')}</th>
+                <th>{t('Phone')}</th>
+                <th>{t('Type')}</th>
+                <th>{t('Status')}</th>
+                <th style={{ textAlign: 'right' }}>{t('Action')}</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px' }}>Loading live alerts...</td>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px' }}>{t('Loading live alerts...')}</td>
                 </tr>
               ) : alerts.length === 0 ? (
                 <tr>
                   <td colSpan={6}>
                     <div className="empty-state" style={{ padding: '40px' }}>
                       <ShieldAlert size={48} />
-                      <p>No active emergency alerts at the moment.</p>
+                      <p>{t('No active emergency alerts at the moment.')}</p>
                     </div>
                   </td>
                 </tr>
@@ -123,7 +125,7 @@ export default function Dashboard() {
                         {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
                       </div>
                     </td>
-                    <td className="cell-primary">{alert.user?.profile?.fullName || 'Unknown'}</td>
+                    <td className="cell-primary">{alert.user?.profile?.fullName || t('Unknown')}</td>
                     <td>{alert.user?.phone}</td>
                     <td><span className="badge muted">{alert.type}</span></td>
                     <td>{getStatusBadge(alert.status)}</td>
@@ -132,7 +134,7 @@ export default function Dashboard() {
                         className="btn btn-ghost btn-sm"
                         onClick={() => navigate(`/alerts/${alert.id}`)}
                       >
-                        View Details
+                        {t('View Details')}
                       </button>
                     </td>
                   </tr>

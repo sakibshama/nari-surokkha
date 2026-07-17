@@ -5,6 +5,7 @@ import api from '../services/api';
 import { socketService } from '../services/socket';
 
 import LiveLocationMap from '../components/SmartLocationMap';
+import { useT } from '../i18n';
 
 interface AlertDetail {
   id: string;
@@ -27,6 +28,7 @@ interface AlertDetail {
 export default function AlertDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const t = useT();
   const [alert, setAlert] = useState<AlertDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [stations, setStations] = useState<any[]>([]);
@@ -165,7 +167,7 @@ export default function AlertDetails() {
           <ArrowLeft size={16} /> Back
         </button>
         <div className="empty-state">
-          <p>Alert not found.</p>
+          <p>{t('Alert not found.')}</p>
         </div>
       </div>
     );
@@ -199,12 +201,12 @@ export default function AlertDetails() {
       </button>
 
       <div className="page-header">
-        <h1 className="page-title">Alert Details</h1>
+        <h1 className="page-title">{t('Alert Details')}</h1>
       </div>
 
       <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
         <div className="card" style={{ flex: '1 1 300px' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>Alert Information</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Alert Information')}</h2>
           <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -256,7 +258,7 @@ export default function AlertDetails() {
 
         <div className="card" style={{ flex: '2 1 400px', display: 'flex', flexDirection: 'column', minHeight: 400, padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '24px 24px 16px' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>Live Location Map</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>{t('Live Location Map')}</h2>
           </div>
           
           <div style={{ flex: 1, position: 'relative', background: 'var(--bg-input)' }}>
@@ -352,11 +354,11 @@ export default function AlertDetails() {
 
       {/* EVIDENCE SECTION */}
       <div className="card" style={{ marginTop: 24 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>Live SOS Evidence</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Live SOS Evidence')}</h2>
         <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
         {evidenceList.length === 0 ? (
           <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-sub)' }}>
-            <p>No evidence has been uploaded for this alert yet.</p>
+            <p>{t('No evidence has been uploaded for this alert yet.')}</p>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>

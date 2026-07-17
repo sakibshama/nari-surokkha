@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useT } from '../i18n';
 
 export default function MLTuning() {
+  const t = useT();
   const [fallSensitivity, setFallSensitivity] = useState(70);
   const [audioConfidence, setAudioConfidence] = useState(85);
 
@@ -12,14 +14,14 @@ export default function MLTuning() {
   return (
     <div className="animate-in space-y-6">
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: 'var(--text)' }}>ML Tuning</h1>
-        <p style={{ marginTop: 8, fontSize: 14, color: 'var(--text-sub)' }}>Adjust the sensitivity thresholds for the machine learning services.</p>
+        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: 'var(--text)' }}>{t('ML Tuning')}</h1>
+        <p style={{ marginTop: 8, fontSize: 14, color: 'var(--text-sub)' }}>{t('Adjust the sensitivity thresholds for the machine learning services.')}</p>
       </div>
 
       <div style={{ display: 'grid', gap: 24, gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
         <div className="card" style={{ padding: 24 }}>
-          <h2 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700 }}>Fall Detection Sensitivity</h2>
-          <p style={{ margin: '0 0 16px 0', fontSize: 13, color: 'var(--text-sub)' }}>Minimum confidence threshold to trigger a soft alert for a fall.</p>
+          <h2 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700 }}>{t('Fall Detection Sensitivity')}</h2>
+          <p style={{ margin: '0 0 16px 0', fontSize: 13, color: 'var(--text-sub)' }}>{t('Minimum confidence threshold to trigger a soft alert for a fall.')}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 600 }}>
               <span>Sensitivity</span>
@@ -37,8 +39,8 @@ export default function MLTuning() {
         </div>
 
         <div className="card" style={{ padding: 24 }}>
-          <h2 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700 }}>Audio Distress Confidence</h2>
-          <p style={{ margin: '0 0 16px 0', fontSize: 13, color: 'var(--text-sub)' }}>Minimum confidence threshold to trigger a soft alert for distress audio.</p>
+          <h2 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700 }}>{t('Audio Distress Confidence')}</h2>
+          <p style={{ margin: '0 0 16px 0', fontSize: 13, color: 'var(--text-sub)' }}>{t('Minimum confidence threshold to trigger a soft alert for distress audio.')}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 600 }}>
               <span>Confidence</span>

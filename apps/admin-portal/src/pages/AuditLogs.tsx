@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Activity, Search } from 'lucide-react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useT } from '../i18n';
 
 interface AuditLog {
   id: string;
@@ -14,6 +15,7 @@ interface AuditLog {
 }
 
 export default function AuditLogs() {
+  const t = useT();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -38,8 +40,8 @@ export default function AuditLogs() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1 className="page-title">System Audit Logs</h1>
-            <p className="page-subtitle">Immutable record of system actions. Sensitive data is automatically masked.</p>
+            <h1 className="page-title">{t('System Audit Logs')}</h1>
+            <p className="page-subtitle">{t('Immutable record of system actions. Sensitive data is automatically masked.')}</p>
           </div>
         </div>
       </div>
@@ -65,11 +67,11 @@ export default function AuditLogs() {
           <table className="portal-table">
             <thead>
               <tr>
-                <th>Timestamp</th>
-                <th>Action</th>
-                <th>Entity Type</th>
-                <th>IP Address</th>
-                <th>Metadata</th>
+                <th>{t('Timestamp')}</th>
+                <th>{t('Action')}</th>
+                <th>{t('Entity Type')}</th>
+                <th>{t('IP Address')}</th>
+                <th>{t('Metadata')}</th>
               </tr>
             </thead>
             <tbody>
@@ -82,7 +84,7 @@ export default function AuditLogs() {
                   <td colSpan={5}>
                     <div className="empty-state">
                       <Activity size={48} />
-                      <p>No audit logs found.</p>
+                      <p>{t('No audit logs found.')}</p>
                     </div>
                   </td>
                 </tr>

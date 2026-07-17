@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
+import { useT } from '../i18n';
 
 export default function Login() {
+  const t = useT();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -42,8 +44,8 @@ export default function Login() {
           }}>
             <ShieldAlert size={32} color="#fff" />
           </div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>Police Portal</h2>
-          <p style={{ margin: '8px 0 0', color: 'var(--text-sub)' }}>Sign in with your Badge Number, Email, or Phone</p>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>{t('Police Portal')}</h2>
+          <p style={{ margin: '8px 0 0', color: 'var(--text-sub)' }}>{t('Sign in with your Badge Number, Email, or Phone')}</p>
         </div>
 
         {error && (
@@ -54,7 +56,7 @@ export default function Login() {
 
         <form onSubmit={handleLogin}>
           <div className="field">
-            <label className="field-label" htmlFor="identifier">Badge Number, Email, or Phone</label>
+            <label className="field-label" htmlFor="identifier">{t('Badge Number, Email, or Phone')}</label>
             <input
               id="identifier"
               type="text"
@@ -67,7 +69,7 @@ export default function Login() {
           </div>
 
           <div className="field">
-            <label className="field-label" htmlFor="password">Password</label>
+            <label className="field-label" htmlFor="password">{t('Password')}</label>
             <input
               id="password"
               type="password"
@@ -85,7 +87,7 @@ export default function Login() {
             style={{ width: '100%', justifyContent: 'center', padding: '14px', marginTop: 12, fontSize: 15 }}
             disabled={loading}
           >
-            {loading ? 'Authenticating...' : 'Sign In'}
+            {loading ? t('Authenticating...') : t('Sign In')}
           </button>
         </form>
       </div>

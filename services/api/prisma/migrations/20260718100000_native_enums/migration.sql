@@ -61,6 +61,10 @@ END $$;
 -- ─── 2. Convert columns (only if still varchar/text) ────────
 -- helper pattern: drop CHECK, drop default, alter type, restore default
 
+-- idx_alerts_active has a text-literal predicate on status; it cannot survive
+-- the enum conversion (rebuild fails on enum <> text). Drop now, recreate after.
+DROP INDEX IF EXISTS idx_alerts_active;
+
 DO $$
 DECLARE
   r RECORD;
@@ -103,3 +107,8 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- ─── 3. Recreate the active-alerts partial index (enum-aware) ─
+CREATE INDEX IF NOT EXISTS idx_alerts_active
+  ON emergency_alerts(user_id, status)
+  WHERE status NOT IN ('closed', 'cancelled', 'false_alarm', 'resolved');

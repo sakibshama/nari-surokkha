@@ -159,19 +159,21 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     setupWebRTC();
 
     (async () => {
-      let webInterval: ReturnType<typeof setInterval> | null = null;
       if (Platform.OS === 'web') {
-        let currentLat = 23.8103;
-        let currentLng = 90.4125;
-        webInterval = setInterval(() => {
-          currentLat += (Math.random() - 0.5) * 0.001; // simulate movement
-          currentLng += (Math.random() - 0.5) * 0.001;
-          api.post(`/alerts/${alertId}/location`, {
-            latitude: currentLat,
-            longitude: currentLng,
-            accuracy: 10,
-          }).catch(console.error);
-        }, 5000); // send every 5s for fast testing
+        // Real browser geolocation — stream actual coordinates, never simulated ones.
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') { Alert.alert('Permission needed', 'Location permission required.'); return; }
+        const watcher = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Highest, timeInterval: 5000, distanceInterval: 5 },
+          (pos) => {
+            api.post(`/alerts/${alertId}/location`, {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy ?? 10,
+            }).catch(console.error);
+          },
+        );
+        (window as any).webSosWatcher = watcher;
       } else {
         const { status } = await Location.getForegroundPermissionsAsync();
         if (status !== 'granted') { Alert.alert('Permission needed', 'Location permission required.'); return; }
@@ -179,14 +181,10 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
           await startBackgroundLocationUpdates();
         } catch (e) { console.error(e); }
       }
-      
-      // We will assign webInterval to a ref or just use cleanup directly inside this closure, but wait, the cleanup function is outside.
-      // Better to use window.webInterval for hacky quick cleanup or just a module variable.
-      (window as any).webSosInterval = webInterval;
     })();
 
-    return () => { 
-      if ((window as any).webSosInterval) clearInterval((window as any).webSosInterval);
+    return () => {
+      if ((window as any).webSosWatcher) { (window as any).webSosWatcher.remove(); (window as any).webSosWatcher = null; }
       stopBackgroundLocationUpdates();
       socketService.disconnect();
       socketService.offWebRTCMessage();

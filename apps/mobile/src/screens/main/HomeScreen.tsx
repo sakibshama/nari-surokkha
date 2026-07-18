@@ -111,9 +111,30 @@ export default function HomeScreen({ navigation }: Props) {
     setLoading(true);
     const userName = user?.profile?.fullName || 'A user';
     try {
-      let loc = { coords: { latitude: 23.8103, longitude: 90.4125 } }; // Default Dhaka location
-      if (Platform.OS !== 'web') {
-        loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      // Real GPS fix on every platform — an SOS must NEVER go out with a
+      // default/fallback location (responders would be sent to the wrong place).
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLoading(false);
+        Alert.alert(
+          'Location Required',
+          'Location permission is needed so responders can find you. Please enable it and try again.',
+        );
+        return;
+      }
+      let loc = null;
+      try {
+        loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+      } catch {
+        loc = await Location.getLastKnownPositionAsync();
+      }
+      if (!loc) {
+        setLoading(false);
+        Alert.alert(
+          'No GPS Signal',
+          'Could not determine your location. Move near a window or open area and try again.',
+        );
+        return;
       }
       const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
 

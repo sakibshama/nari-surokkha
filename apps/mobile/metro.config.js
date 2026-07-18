@@ -1,8 +1,21 @@
 // Learn more https://docs.expo.io/guides/customizing-metro
 const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
+
+// ── Monorepo root node_modules resolution ─────────────────────────────────────
+// npm workspaces may hoist some packages (e.g. react-native-worklets) to the
+// monorepo root. Metro needs to know about the root node_modules so it can
+// resolve those packages (e.g. react-native-reanimated/plugin re-exports
+// react-native-worklets/plugin which lives at root level).
+const monorepoRoot = path.resolve(__dirname, '../..');
+config.resolver.nodeModulesPaths = [
+  path.resolve(monorepoRoot, 'node_modules'),
+  path.resolve(__dirname, 'node_modules'),
+];
+config.watchFolders = [monorepoRoot];
 
 // Disable package exports to fix the event-target-shim warning from react-native-webrtc
 config.resolver.unstable_enablePackageExports = false;
@@ -15,11 +28,11 @@ config.resolver.unstable_enablePackageExports = false;
 // folders disappear mid-watch and crash Metro with "ENOENT: watch ...".
 // Excluding them (and the sibling Vite portals) from Metro's file map stops it.
 const ignorePatterns = [
-  /.*[\\/]node_modules[\\/]\.vite.*/,
-  /.*[\\/]node_modules[\\/]\.cache[\\/].*/,
-  /.*[\\/]node_modules[\\/]\.[^\\/]*-cjs-interop[^\\/]*[\\/].*/,
-  /.*[\\/]apps[\\/]admin-portal[\\/].*/,
-  /.*[\\/]apps[\\/]police-portal[\\/].*/,
+  /.*[\\\/]node_modules[\\\/]\.vite.*/,
+  /.*[\\\/]node_modules[\\\/]\.cache[\\\/].*/,
+  /.*[\\\/]node_modules[\\\/]\.[^\\\/]*-cjs-interop[^\\\/]*[\\\/].*/,
+  /.*[\\\/]apps[\\\/]admin-portal[\\\/].*/,
+  /.*[\\\/]apps[\\\/]police-portal[\\\/].*/,
 ];
 
 const existing = config.resolver.blockList;

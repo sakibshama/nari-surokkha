@@ -20,6 +20,9 @@
     "docker:down": "docker compose -f infra/docker/docker-compose.dev.yml down",
     "docker:logs": "docker compose -f infra/docker/docker-compose.dev.yml logs -f"
   },
+  "dependencies": {
+    "react-native-worklets": "0.8.3"
+  },
   "devDependencies": {
     "typescript": "^5.4.5",
     "prettier": "^3.3.2",

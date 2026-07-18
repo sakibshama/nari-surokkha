@@ -19,8 +19,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const CONTACTS_CACHE_KEY = '@trusted_contacts';
 
 // National emergency SMS gateway / police shortcode fallback.
-// Included so an SOS still reaches authorities even with zero contacts.
-const EMERGENCY_GATEWAY_NUMBERS: string[] = ['999'];
+// PILOT MODE: disabled — do not SMS 999 until the service is officially
+// integrated with the national emergency gateway. Re-enable at launch by
+// restoring ['999'] and passing includeGateway: true.
+const EMERGENCY_GATEWAY_NUMBERS: string[] = [];
 
 interface Coords {
   latitude: number;

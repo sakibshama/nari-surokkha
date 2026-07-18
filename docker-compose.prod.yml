@@ -61,7 +61,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health/live || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health/live || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -102,6 +102,23 @@ services:
         VITE_WS_URL: ${PUBLIC_WS_URL:?PUBLIC_WS_URL is required}
     restart: unless-stopped
     networks: [internal]
+
+  # ─── TURN relay (WebRTC across NAT/CGNAT — required for live
+  #     streaming when phone and portal are on different networks) ─
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    restart: unless-stopped
+    # Host networking: TURN must advertise the real public IP and use a
+    # UDP relay port range — Docker NAT breaks both.
+    network_mode: host
+    command: >
+      -n --log-file=stdout
+      --fingerprint --lt-cred-mech
+      --realm=mystrix-soft.com
+      --user=nari:${TURN_PASSWORD:?TURN_PASSWORD is required}
+      --listening-port=3478
+      --min-port=49152 --max-port=49200
+      --no-cli --no-tlsv1 --no-tlsv1_1
 
   # ─── Edge Nginx (TLS termination + reverse proxy) ──────────
   nginx:

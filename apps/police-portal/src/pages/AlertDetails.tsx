@@ -7,6 +7,17 @@ import { socketService } from '../services/socket';
 import LiveLocationMap from '../components/SmartLocationMap';
 import { useT } from '../i18n';
 
+// STUN + TURN — TURN relays media when P2P fails (cellular CGNAT etc.).
+// Credential must match TURN_PASSWORD in the server's .env.production.
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  {
+    urls: ['turn:api.mystrix-soft.com:3478?transport=udp', 'turn:api.mystrix-soft.com:3478?transport=tcp'],
+    username: 'nari',
+    credential: 'CHANGE_ME_turn_password',
+  },
+];
+
 export default function AlertDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -85,7 +96,7 @@ export default function AlertDetails() {
       socketService.socket.on('webrtc:signal', async (data: any) => {
         if (data.alertId === id) {
           if (!pcRef.current) {
-            const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+            const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
             pcRef.current = pc;
 
             pc.onicecandidate = (e) => {

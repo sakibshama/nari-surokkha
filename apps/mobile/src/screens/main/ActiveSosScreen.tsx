@@ -6,7 +6,7 @@ import { useLocationStore } from '../../store/locationStore';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import { Phone, XCircle, Camera, Wifi, Users, MapPin, Shield, VideoOff, Video } from 'lucide-react-native';
-import api from '../../services/api';
+import api, { ICE_SERVERS } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../services/backgroundTasks';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -120,7 +120,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
         });
         setLocalStream(stream as any);
 
-        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        const configuration = { iceServers: ICE_SERVERS };
         const peerConnection = new RTCPeerConnection(configuration);
         pc.current = peerConnection;
 

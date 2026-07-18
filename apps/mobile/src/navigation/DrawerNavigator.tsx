@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { createDrawerNavigator, DrawerContentScrollView, DrawerContentComponentProps } from '@react-navigation/drawer';
-import { Settings, Home, LogOut, ShieldAlert, FileText, User, Users, Shield } from 'lucide-react-native';
+import { Settings, Home, LogOut, ShieldAlert, FileText, User, Users, Shield, Navigation, Timer } from 'lucide-react-native';
 import MainStack from './MainStack';
 import { colors, font, spacing, radius } from '../theme';
 import { useAuthStore } from '../store/authStore';
@@ -89,6 +89,18 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
           label="Report Incident"
           isActive={false}
           onPress={() => props.navigation.navigate('Main', { screen: 'ReportIncident' })}
+        />
+        <DrawerItem
+          icon={<Navigation color={colors.textSub} size={22} />}
+          label="Safe Route"
+          isActive={false}
+          onPress={() => props.navigation.navigate('Main', { screen: 'SafeRoute' })}
+        />
+        <DrawerItem
+          icon={<Timer color={colors.textSub} size={22} />}
+          label="Silent Alert"
+          isActive={false}
+          onPress={() => props.navigation.navigate('Main', { screen: 'SoftAlert', params: { manual: true } })}
         />
 
       </DrawerContentScrollView>

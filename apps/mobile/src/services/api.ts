@@ -4,24 +4,42 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 // ─── API URL Configuration ───────────────────────────────────────────────────
-// For real device testing on same WiFi: set to your laptop's local IP
-//   e.g. 'http://192.168.1.105:3001/api/v1'
-// For production: set to your deployed backend URL
-//   e.g. 'https://api.narisurokkha.com/api/v1'
-// For Android emulator: use '10.0.2.2' which maps to host machine localhost
+// PRODUCTION (default): the live VPS API. Used automatically in all release
+// builds (`__DEV__` is false in EAS/production builds).
+//
+// DEVELOPMENT (`expo start`): set DEV_API_URL to reach your local backend:
+//   - Android emulator:            'http://10.0.2.2:3001/api/v1'
+//   - iOS simulator / web:         'http://localhost:3001/api/v1'
+//   - Physical device (same WiFi): 'http://<your-laptop-LAN-IP>:3001/api/v1'
+// Or leave it as the production URL to develop against the live server.
 
-const PRODUCTION_API_URL = 'https://api.narisurokkha.com/api/v1'; // Change this for production
-const LOCAL_WIFI_API_URL = 'https://narisurokkha-api.loca.lt/api/v1'; // Bypass firewall for physical devices
-const EMULATOR_API_URL   = 'http://10.0.2.2:3001/api/v1'; // Android emulator localhost
-const WEB_API_URL        = 'http://localhost:3001/api/v1'; // Web platform localhost
+const PRODUCTION_API_URL = 'https://api.mystrix-soft.com/api/v1';
 
-// ⬇️ Switch this to LOCAL_WIFI_API_URL for real device testing on same WiFi
-// ⬇️ Switch this to PRODUCTION_API_URL when backend is deployed to the cloud
-export const API_BASE_URL = Platform.OS === 'android'
-  ? LOCAL_WIFI_API_URL   // Real device on same WiFi
-  : Platform.OS === 'web'
-    ? WEB_API_URL
-    : WEB_API_URL;
+// Dev default = live VPS API (works from any device/emulator with internet).
+// To develop against a local backend instead, swap in one of the options below.
+const DEV_API_URL = PRODUCTION_API_URL;
+// const DEV_API_URL = Platform.OS === 'android'
+//   ? 'http://10.0.2.2:3001/api/v1'      // Android emulator → host machine
+//   : 'http://localhost:3001/api/v1';    // iOS simulator / web
+
+// Release builds always hit production; dev builds use DEV_API_URL.
+export const API_BASE_URL = __DEV__ ? DEV_API_URL : PRODUCTION_API_URL;
+
+// ─── WebRTC ICE servers ──────────────────────────────────────────────────────
+// STUN discovers the public address; TURN relays media when peer-to-peer
+// fails (common on cellular CGNAT). The TURN credential must match
+// TURN_PASSWORD in the server's .env.production.
+export const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  {
+    urls: [
+      'turn:api.mystrix-soft.com:3478?transport=udp',
+      'turn:api.mystrix-soft.com:3478?transport=tcp',
+    ],
+    username: 'nari',
+    credential: 'CHANGE_ME_turn_password',
+  },
+];
 
 const api = axios.create({
   baseURL: API_BASE_URL,

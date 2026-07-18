@@ -11,11 +11,13 @@ import NetInfo from '@react-native-community/netinfo';
 import { WifiOff } from 'lucide-react-native';
 import { colors } from './src/theme';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
+import AnimatedSplash from './src/components/AnimatedSplash';
 
 import Toast from 'react-native-toast-message';
 
 export default function App() {
   const [isConnected, setIsConnected] = useState<boolean | null>(true);
+  const [splashDone, setSplashDone] = useState(false);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
@@ -39,6 +41,7 @@ export default function App() {
               </View>
             )}
             <AppNavigator />
+            {!splashDone && <AnimatedSplash onFinish={() => setSplashDone(true)} />}
           </View>
         </View>
         <Toast />

@@ -6,7 +6,7 @@ import { MainStackParamList } from '../../navigation/MainStack';
 import { useAuthStore } from '../../store/authStore';
 import { useLocationStore } from '../../store/locationStore';
 import * as Location from 'expo-location';
-import { ShieldAlert, Users, User, Map, AlertTriangle, PhoneCall, Bell, Navigation, Menu, Timer } from 'lucide-react-native';
+import { ShieldAlert, Users, User, Map, AlertTriangle, PhoneCall, Bell, Menu } from 'lucide-react-native';
 import api from '../../services/api';
 import { sensorProcessor } from '../../services/ml/SensorProcessor';
 import { audioProcessor } from '../../services/ml/AudioProcessor';
@@ -22,16 +22,41 @@ import Animated, {
 
 type Props = NativeStackScreenProps<MainStackParamList, 'Home'>;
 
+// ─── Soft feminine palette (rose / lavender / teal) over the gov identity ───
+const ROSE   = '#fb7185';
+const PINK   = '#f472b6';
+const LAVEND = '#c4b5fd';
+const TEAL   = '#34d399';
+const GOLD   = '#fcd34d';
+const SKY    = '#7dd3fc';
+const GOV_GREEN = '#00a878';
+const FLAG_RED  = '#f42a41';
+
 const MENU = [
-  { id: 'fakecall',  label: 'Fake Call',    icon: PhoneCall,     color: colors.primary,  bg: 'rgba(239,68,68,0.15)' },
-  { id: 'contacts',  label: 'Contacts',     icon: Users,         color: colors.blue,     bg: 'rgba(59,130,246,0.15)' },
-  { id: 'profile',   label: 'Profile',      icon: User,          color: colors.purple,   bg: 'rgba(139,92,246,0.15)' },
-  { id: 'responder', label: 'Responder',    icon: ShieldAlert,   color: colors.green,    bg: 'rgba(16,185,129,0.15)' },
-  { id: 'report',    label: 'Report',       icon: AlertTriangle, color: colors.amber,    bg: 'rgba(245,158,11,0.15)' },
-  { id: 'map',       label: 'Safety Map',   icon: Map,           color: colors.cyan,     bg: 'rgba(6,182,212,0.15)' },
-  { id: 'route',     label: 'Safe Route',   icon: Navigation,    color: colors.purple,   bg: 'rgba(139,92,246,0.15)' },
-  { id: 'silent',    label: 'Silent Alert', icon: Timer,         color: colors.pink,     bg: 'rgba(236,72,153,0.15)' },
+  { id: 'fakecall',  label: 'Fake Call',    icon: PhoneCall,     color: ROSE,   bg: 'rgba(251,113,133,0.14)' },
+  { id: 'contacts',  label: 'Contacts',     icon: Users,         color: SKY,    bg: 'rgba(125,211,252,0.13)' },
+  { id: 'profile',   label: 'Profile',      icon: User,          color: PINK,   bg: 'rgba(244,114,182,0.14)' },
+  { id: 'responder', label: 'Responder',    icon: ShieldAlert,   color: TEAL,   bg: 'rgba(52,211,153,0.13)' },
+  { id: 'report',    label: 'Report',       icon: AlertTriangle, color: GOLD,   bg: 'rgba(252,211,77,0.13)' },
+  { id: 'map',       label: 'Safety Map',   icon: Map,           color: LAVEND, bg: 'rgba(196,181,253,0.14)' },
+  // 'Safe Route' and 'Silent Alert' moved to the app drawer (see DrawerNavigator).
 ];
+
+/** Mini Bangladesh flag roundel — green field, red disc slightly toward the hoist. */
+function FlagMini({ size = 30 }: { size?: number }) {
+  return (
+    <View style={{
+      width: size, height: size, borderRadius: size * 0.28,
+      backgroundColor: '#006a4e', alignItems: 'center', justifyContent: 'center',
+      borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+    }}>
+      <View style={{
+        width: size * 0.46, height: size * 0.46, borderRadius: size * 0.23,
+        backgroundColor: FLAG_RED, marginRight: size * 0.08,
+      }} />
+    </View>
+  );
+}
 
 export default function HomeScreen({ navigation }: Props) {
   const { user, updateUser } = useAuthStore();
@@ -208,49 +233,64 @@ export default function HomeScreen({ navigation }: Props) {
   };
 
   return (
-    <LinearGradient colors={['#060d1f', '#0a1428', '#0d1b35']} style={styles.root}>
+    <LinearGradient colors={['#0b0916', '#0e1224', '#0c1a2e']} style={styles.root}>
+      {/* Ambient glows — soft rose top-right, gov green bottom-left */}
+      <View pointerEvents="none" style={styles.glowRose} />
+      <View pointerEvents="none" style={styles.glowGreen} />
+
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Status Bar Space + Header */}
+        {/* Government identity strip */}
+        <View style={styles.govStrip}>
+          <FlagMini size={22} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.govStripBn}>গণপ্রজাতন্ত্রী বাংলাদেশ সরকার</Text>
+            <Text style={styles.govStripEn}>National Women Safety Service</Text>
+          </View>
+        </View>
+
+        {/* Header */}
       <View style={styles.topBar}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
           <TouchableOpacity onPress={() => navigation.dispatch(DrawerActions.openDrawer())} style={{ marginRight: spacing.md, padding: 4 }}>
-            <Menu color={colors.text} size={28} />
+            <Menu color={colors.text} size={26} />
           </TouchableOpacity>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.greeting}>{getGreeting()}</Text>
-            <Text style={styles.userName}>{displayName} 👋</Text>
+            <Text style={styles.userName} numberOfLines={1}>{displayName} 🌸</Text>
           </View>
         </View>
         <TouchableOpacity style={styles.notifBtn}>
-          <Bell color={colors.textSub} size={22} />
+          <Bell color={colors.textSub} size={20} />
         </TouchableOpacity>
       </View>
 
       {/* Status Banner */}
-      <View style={styles.statusBanner}>
-        <View style={[styles.statusDot, { backgroundColor: isSosActive ? colors.primary : colors.green }]} />
-        <Text style={styles.statusText}>{isSosActive ? 'SOS ACTIVE — Broadcasting' : 'All Safe — Monitoring Active'}</Text>
+      <View style={[styles.statusBanner, isSosActive ? styles.statusBannerActive : styles.statusBannerSafe]}>
+        <View style={[styles.statusDot, { backgroundColor: isSosActive ? FLAG_RED : GOV_GREEN }]} />
+        <Text style={[styles.statusText, { color: isSosActive ? ROSE : TEAL }]}>
+          {isSosActive ? 'SOS ACTIVE — Broadcasting' : 'You are protected — Monitoring active'}
+        </Text>
       </View>
 
       {/* SOS Button Area */}
       <View style={styles.sosArea}>
-        {/* Ripple rings */}
-        <Animated.View style={[styles.pulseRing, p1Style, { borderColor: 'rgba(239,68,68,0.5)' }]} />
-        <Animated.View style={[styles.pulseRing, p2Style, { borderColor: 'rgba(239,68,68,0.3)' }]} />
+        {/* Ripple rings — soft rose */}
+        <Animated.View style={[styles.pulseRing, p1Style, { borderColor: 'rgba(251,113,133,0.45)' }]} />
+        <Animated.View style={[styles.pulseRing, p2Style, { borderColor: 'rgba(244,114,182,0.28)' }]} />
 
         <TouchableOpacity onPress={handleSos} disabled={loading} activeOpacity={0.88} style={styles.sosOuter}>
           <LinearGradient
-            colors={isSosActive ? (['#7f1d1d', '#991b1b'] as const) : gradients.primary}
+            colors={isSosActive ? (['#9f1239', '#be123c'] as const) : (['#fb7185', '#e11d48', '#be123c'] as const)}
             style={styles.sosInner}
-            start={{ x: 0.2, y: 0 }}
-            end={{ x: 0.8, y: 1 }}
+            start={{ x: 0.15, y: 0 }}
+            end={{ x: 0.85, y: 1 }}
           >
             {loading
               ? <ActivityIndicator size="large" color="#fff" />
               : <>
-                  <ShieldAlert color="#fff" size={52} />
+                  <ShieldAlert color="#fff" size={50} />
                   <Text style={styles.sosLabel}>{isSosActive ? 'ACTIVE' : 'SOS'}</Text>
-                  <Text style={styles.sosSublabel}>{isSosActive ? 'Help is Coming' : 'Hold in Emergency'}</Text>
+                  <Text style={styles.sosSublabel}>{isSosActive ? 'Help is Coming' : 'Tap in Emergency'}</Text>
                 </>
             }
           </LinearGradient>
@@ -268,6 +308,12 @@ export default function HomeScreen({ navigation }: Props) {
           </TouchableOpacity>
         ))}
         </View>
+
+        {/* Government footer */}
+        <View style={styles.govFooter}>
+          <FlagMini size={16} />
+          <Text style={styles.govFooterText}>জাতীয় নারী নিরাপত্তা সেবা · Govt. of the People's Republic of Bangladesh</Text>
+        </View>
       </ScrollView>
     </LinearGradient>
   );
@@ -278,20 +324,45 @@ const TILE_SIZE = '30%';
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scrollContent: { flexGrow: 1 },
+  glowRose: {
+    position: 'absolute', top: -80, right: -100,
+    width: 280, height: 280, borderRadius: 140,
+    backgroundColor: 'rgba(244,114,182,0.09)',
+  },
+  glowGreen: {
+    position: 'absolute', bottom: -100, left: -110,
+    width: 300, height: 300, borderRadius: 150,
+    backgroundColor: 'rgba(0,168,120,0.08)',
+  },
+  govStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 2,
+    marginTop: Platform.OS === 'ios' ? 54 : 42,
+    marginHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: 'rgba(0,106,78,0.14)',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(0,168,120,0.25)',
+  },
+  govStripBn: { color: 'rgba(255,255,255,0.92)', fontSize: 12, fontWeight: '700' },
+  govStripEn: { color: 'rgba(255,255,255,0.55)', fontSize: 10, fontWeight: '600', letterSpacing: 0.6, textTransform: 'uppercase' },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingTop: Platform.OS === 'ios' ? 60 : 48,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.md,
   },
   greeting: { ...font.sm, color: colors.textMuted },
   userName: { ...font.h1, color: colors.text, marginTop: 2 },
   notifBtn: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1, borderColor: colors.glassBorder,
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: 'rgba(244,114,182,0.10)',
+    borderWidth: 1, borderColor: 'rgba(244,114,182,0.22)',
     alignItems: 'center', justifyContent: 'center',
   },
   statusBanner: {
@@ -300,15 +371,21 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginHorizontal: spacing.lg,
     marginBottom: spacing.md,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: radius.md,
+    borderRadius: radius.full ?? 999,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.md + 2,
     paddingVertical: spacing.sm + 2,
   },
+  statusBannerSafe: {
+    backgroundColor: 'rgba(0,168,120,0.10)',
+    borderColor: 'rgba(0,168,120,0.28)',
+  },
+  statusBannerActive: {
+    backgroundColor: 'rgba(244,42,65,0.10)',
+    borderColor: 'rgba(244,42,65,0.30)',
+  },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusText: { ...font.xs, color: colors.textSub, fontWeight: '600', letterSpacing: 0.3 },
+  statusText: { ...font.xs, fontWeight: '700', letterSpacing: 0.3 },
   sosArea: {
     flex: 1,
     minHeight: 320,
@@ -322,16 +399,20 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   sosOuter: {
-    width: 220, height: 220, borderRadius: 110,
-    ...shadows.primary,
+    width: 216, height: 216, borderRadius: 108,
+    shadowColor: '#e11d48',
+    shadowOpacity: 0.55,
+    shadowRadius: 32,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 16,
   },
   sosInner: {
     width: '100%', height: '100%',
-    borderRadius: 110,
+    borderRadius: 108,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   sosLabel: {
     color: '#fff', fontSize: 42, fontWeight: 'bold',
@@ -353,14 +434,31 @@ const styles = StyleSheet.create({
   menuTile: {
     width: TILE_SIZE,
     alignItems: 'center',
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.lg,
+    backgroundColor: 'rgba(255,255,255,0.045)',
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
-    paddingVertical: spacing.md,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingVertical: spacing.md + 2,
     paddingHorizontal: spacing.sm,
     ...shadows.card,
   },
-  tileIcon: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
+  tileIcon: { width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
   tileLabel: { ...font.xs, color: colors.textSub, fontWeight: '600', textAlign: 'center' },
+  govFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingBottom: spacing.xxl ?? 32,
+    paddingHorizontal: spacing.lg,
+    opacity: 0.65,
+  },
+  govFooterText: {
+    color: colors.textMuted,
+    fontSize: 10.5,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+    flexShrink: 1,
+  },
 });

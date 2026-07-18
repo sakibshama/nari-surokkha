@@ -61,9 +61,13 @@ END $$;
 -- ─── 2. Convert columns (only if still varchar/text) ────────
 -- helper pattern: drop CHECK, drop default, alter type, restore default
 
--- idx_alerts_active has a text-literal predicate on status; it cannot survive
--- the enum conversion (rebuild fails on enum <> text). Drop now, recreate after.
+-- These partial indexes have text-literal predicates on enum-bound columns;
+-- they cannot survive the type conversion (rebuild fails on enum vs text).
+-- Drop them now, recreate them (enum-aware) at the end.
 DROP INDEX IF EXISTS idx_alerts_active;
+DROP INDEX IF EXISTS idx_responders_availability;
+DROP INDEX IF EXISTS idx_responders_location;
+DROP INDEX IF EXISTS idx_notification_logs_status;
 
 DO $$
 DECLARE
@@ -108,7 +112,19 @@ BEGIN
   END LOOP;
 END $$;
 
--- ─── 3. Recreate the active-alerts partial index (enum-aware) ─
+-- ─── 3. Recreate the partial indexes (enum-aware) ────────────
 CREATE INDEX IF NOT EXISTS idx_alerts_active
   ON emergency_alerts(user_id, status)
   WHERE status NOT IN ('closed', 'cancelled', 'false_alarm', 'resolved');
+
+CREATE INDEX IF NOT EXISTS idx_responders_availability
+  ON responders(availability)
+  WHERE status = 'verified';
+
+CREATE INDEX IF NOT EXISTS idx_responders_location
+  ON responders USING GIST(location)
+  WHERE status = 'verified' AND availability = 'available';
+
+CREATE INDEX IF NOT EXISTS idx_notification_logs_status
+  ON notification_logs(status)
+  WHERE status IN ('queued','failed');

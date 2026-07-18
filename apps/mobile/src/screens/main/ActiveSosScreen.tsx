@@ -106,7 +106,11 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
         }
 
         stream = await mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
           video: {
             width: 640,
             height: 480,

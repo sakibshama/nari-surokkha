@@ -14,16 +14,25 @@ export class AlertsRepository {
   }
 
   /**
-   * Find the nearest active police station using PostGIS ST_Distance.
+   * Find the nearest active police station.
+   *
+   * Uses the maintained `location` geometry column (kept in sync with
+   * latitude/longitude by trg_sync_police_station_location) rather than
+   * rebuilding the point with ST_MakePoint. That distinction matters: an
+   * expression over the lat/lng columns cannot use the GIST index, so the old
+   * form sequentially scanned police_stations on every single SOS.
+   *
+   * `location::geography <-> ...::geography` is a true metre-accurate KNN
+   * search and is index-assisted by idx_police_stations_location_geog
+   * (20260819000000_spatial_index_usage).
    */
   async findNearestPoliceStation(lat: number, lng: number): Promise<PoliceStation | null> {
-    // We use a raw query because Prisma doesn't natively support PostGIS <-> (distance) operator well yet.
-    // Order by distance to the provided point and limit to 1.
     const stations: PoliceStation[] = await this.db.$queryRaw`
       SELECT id, name, thana_code as "thanaCode", district, division, address, phone, is_active as "isActive", latitude, longitude, created_at as "createdAt", updated_at as "updatedAt"
       FROM police_stations
       WHERE is_active = true
-      ORDER BY ST_SetSRID(ST_MakePoint(longitude::float, latitude::float), 4326) <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)
+        AND location IS NOT NULL
+      ORDER BY location::geography <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography
       LIMIT 1;
     `;
     return stations[0] || null;

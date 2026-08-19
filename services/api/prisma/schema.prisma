@@ -373,6 +373,8 @@ model EmergencyAlert {
   @@index([type])
   @@index([createdAt])
   @@index([assignedStationId])
+  // Station dashboards filter by station + status and sort by newest first.
+  @@index([assignedStationId, status, createdAt(sort: Desc)], map: "idx_alerts_station_status_created")
   @@map("emergency_alerts")
 }
 
@@ -515,6 +517,9 @@ model ResponderDispatch {
 
   @@index([responderId])
   @@index([alertId])
+  // One dispatch per responder per alert — lets the alert fan-out use
+  // createMany({ skipDuplicates: true }) and makes retries idempotent.
+  @@unique([alertId, responderId], map: "idx_responder_dispatches_unique")
   @@map("responder_dispatches")
 }
 
@@ -546,6 +551,7 @@ model Case {
   @@index([status])
   @@index([assignedOfficerId])
   @@index([createdAt])
+  @@index([stationId, status], map: "idx_cases_station_status")
   @@map("cases")
 }
 
@@ -593,6 +599,7 @@ model NotificationLog {
   @@index([channel])
   @@index([status])
   @@index([createdAt])
+  @@index([alertId, status], map: "idx_notification_logs_alert_status")
   @@map("notification_logs")
 }
 

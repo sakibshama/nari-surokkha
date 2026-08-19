@@ -505,6 +505,10 @@ export class AlertsService {
 
       let incidents: Array<{ type: string; latitude: number; longitude: number }> = [];
       try {
+        // Uses the maintained `location` geometry column so ST_DWithin can be
+        // answered from idx_incident_reports_location_geog. The previous
+        // ST_MakePoint(longitude, latitude) form rebuilt the point per row and
+        // scanned all of incident_reports on every Safe Route request.
         incidents = await this.fastify.prisma.$queryRaw<
           Array<{ type: string; latitude: number; longitude: number }>
         >`
@@ -512,8 +516,9 @@ export class AlertsService {
           FROM "incident_reports"
           WHERE status = 'verified'
             AND "created_at" >= ${since}
+            AND location IS NOT NULL
             AND ST_DWithin(
-              ST_MakePoint(longitude::float, latitude::float)::geography,
+              location::geography,
               ST_GeogFromText(${'SRID=4326;' + wkt}),
               ${BUFFER_M}
             );

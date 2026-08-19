@@ -46,24 +46,49 @@ export class ResponderRepository {
     });
   }
 
-  async findNearbyResponders(latitude: number, longitude: number, radiusMeters: number): Promise<any[]> {
-    // PostGIS raw query
-    // Find verified, online responders within radius. 
-    // ST_DistanceSphere takes (lon, lat) arguments.
-    // We return their IDs to create dispatches.
-    const result = await this.prisma.$queryRaw`
-      SELECT id, user_id as "userId"
+  /**
+   * Verified + AVAILABLE responders within `radiusMeters`, nearest first.
+   *
+   * NOTE: the ResponderAvailability enum is { available, busy, offline } — the
+   * "on duty" state is `available` (there is no `online`). Filtering on a
+   * non-existent value returns zero rows, which silently breaks dispatch.
+   *
+   * Queries the maintained `location` geometry column (trg_sync_responder_location)
+   * instead of rebuilding the point from latitude/longitude. ST_DWithin over
+   * `location::geography` is index-assisted by idx_responders_location_geog;
+   * the previous ST_DistanceSphere(ST_MakePoint(...)) form could not use any
+   * index and scanned the whole responders table on every SOS.
+   *
+   * `limit` caps the fan-out: notifying 200 responders for one alert is noise,
+   * not coverage. The nearest N are the ones who can actually respond.
+   */
+  async findNearbyResponders(
+    latitude: number,
+    longitude: number,
+    radiusMeters: number,
+    limit = 20,
+  ): Promise<Array<{ id: string; userId: string; distanceMeters: number }>> {
+    const result = await this.prisma.$queryRaw<Array<{ id: string; userId: string; distanceMeters: number }>>`
+      SELECT id,
+             user_id AS "userId",
+             ST_Distance(
+               location::geography,
+               ST_SetSRID(ST_MakePoint(${longitude}::float, ${latitude}::float), 4326)::geography
+             )::float AS "distanceMeters"
       FROM responders
       WHERE status = 'verified'
-        AND availability = 'online'
-        AND latitude IS NOT NULL
-        AND longitude IS NOT NULL
-        AND ST_DistanceSphere(
-              ST_MakePoint(longitude::float, latitude::float),
-              ST_MakePoint(${longitude}::float, ${latitude}::float)
-            ) <= ${radiusMeters};
+        AND availability = 'available'
+        AND location IS NOT NULL
+        AND NOT (latitude = 0 AND longitude = 0)
+        AND ST_DWithin(
+              location::geography,
+              ST_SetSRID(ST_MakePoint(${longitude}::float, ${latitude}::float), 4326)::geography,
+              ${radiusMeters}
+            )
+      ORDER BY location::geography <-> ST_SetSRID(ST_MakePoint(${longitude}::float, ${latitude}::float), 4326)::geography
+      LIMIT ${limit};
     `;
-    return result as any[];
+    return result;
   }
 
   async createDispatch(responderId: string, alertId: string): Promise<ResponderDispatch> {

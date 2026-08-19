@@ -57,14 +57,18 @@ export class IncidentsRepository {
     radiusMeters: number,
     since: Date
   ): Promise<IncidentReport[]> {
-    // PostGIS raw query to find incidents within radius
+    // Uses the maintained `location` geometry column (trg_sync_incident_location)
+    // so ST_DWithin can be answered from idx_incident_reports_location_geog.
+    // Rebuilding the point with ST_MakePoint(longitude, latitude) — as this
+    // did previously — defeats the index and scans the whole table.
     const incidents = await this.prisma.$queryRaw<IncidentReport[]>`
       SELECT * FROM "incident_reports"
       WHERE status = 'verified'
         AND "created_at" >= ${since}
+        AND location IS NOT NULL
         AND ST_DWithin(
-          ST_MakePoint(longitude::float, latitude::float)::geography,
-          ST_MakePoint(${longitude}::float, ${latitude}::float)::geography,
+          location::geography,
+          ST_SetSRID(ST_MakePoint(${longitude}::float, ${latitude}::float), 4326)::geography,
           ${radiusMeters}
         );
     `;

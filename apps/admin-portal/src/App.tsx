@@ -1,19 +1,38 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Box, CircularProgress } from '@mui/material';
 import Layout from './components/Layout';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import AlertDetails from './pages/AlertDetails';
-import Users from './pages/Users';
-import Roles from './pages/Roles';
-import Responders from './pages/Responders';
-import PoliceStations from './pages/PoliceStations';
-import AuditLogs from './pages/AuditLogs';
-import Incidents from './pages/Incidents';
-import Settings from './pages/Settings';
-import Analytics from './pages/Analytics';
-import MLTuning from './pages/MLTuning';
-import MLModels from './pages/MLModels';
 import { useAuthStore } from './store/authStore';
+
+// ─── Route-level code splitting ─────────────────────────────────────────────
+// Every page used to be a static import, so the initial bundle contained all
+// twelve of them plus MUI, Leaflet, Google Maps, Recharts and framer-motion in
+// one chunk. A police officer on 3G waited for the analytics charting library
+// before they could see an alert.
+//
+// Login stays eager: it is the first thing an unauthenticated user needs, and
+// splitting it only adds a round trip to the critical path.
+import Login from './pages/Login';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const AlertDetails = lazy(() => import('./pages/AlertDetails'));
+const Users = lazy(() => import('./pages/Users'));
+const Roles = lazy(() => import('./pages/Roles'));
+const Responders = lazy(() => import('./pages/Responders'));
+const PoliceStations = lazy(() => import('./pages/PoliceStations'));
+const AuditLogs = lazy(() => import('./pages/AuditLogs'));
+const Incidents = lazy(() => import('./pages/Incidents'));
+const Settings = lazy(() => import('./pages/Settings'));
+// Analytics pulls in Recharts — by far the heaviest page, and the one least
+// likely to be the first thing anyone opens.
+const Analytics = lazy(() => import('./pages/Analytics'));
+
+/** Shown while a route chunk downloads. */
+const PageFallback = () => (
+  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+    <CircularProgress />
+  </Box>
+);
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, user } = useAuthStore();
@@ -43,7 +62,9 @@ function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <Layout />
+              <Suspense fallback={<PageFallback />}>
+                <Layout />
+              </Suspense>
             </ProtectedRoute>
           }
         >
@@ -56,8 +77,6 @@ function App() {
           <Route path="incidents" element={<Incidents />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="audit-logs" element={<AuditLogs />} />
-          <Route path="ml-tuning" element={<MLTuning />} />
-          <Route path="ml-models" element={<MLModels />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

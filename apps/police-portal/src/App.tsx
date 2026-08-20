@@ -1,14 +1,29 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { Box, CircularProgress } from '@mui/material';
 import Layout from './components/Layout';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import AlertDetails from './pages/AlertDetails';
-import Cases from './pages/Cases';
-import CaseDetail from './pages/CaseDetail';
-import Incidents from './pages/Incidents';
-import Settings from './pages/Settings';
 import { useAuthStore } from './store/authStore';
+
+// ─── Route-level code splitting ─────────────────────────────────────────────
+// All six pages used to be static imports, so the initial bundle carried MUI,
+// Leaflet, Google Maps and framer-motion before an officer could see a single
+// alert. Login stays eager — it is the first screen and splitting it would only
+// add a round trip to the critical path.
+import Login from './pages/Login';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const AlertDetails = lazy(() => import('./pages/AlertDetails'));
+const Cases = lazy(() => import('./pages/Cases'));
+const CaseDetail = lazy(() => import('./pages/CaseDetail'));
+const Incidents = lazy(() => import('./pages/Incidents'));
+const Settings = lazy(() => import('./pages/Settings'));
+
+const PageFallback = () => (
+  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+    <CircularProgress />
+  </Box>
+);
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -30,7 +45,9 @@ function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <Layout />
+              <Suspense fallback={<PageFallback />}>
+                <Layout />
+              </Suspense>
             </ProtectedRoute>
           }
         >

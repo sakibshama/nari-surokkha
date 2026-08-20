@@ -21,7 +21,7 @@ import { env } from '@/config/env';
 
 export function authRoutes(fastify: FastifyInstance, _opts: unknown, done: (err?: Error) => void): void {
   const repo = new AuthRepository(fastify.prisma);
-  const service = new AuthService(repo);
+  const service = new AuthService(repo, fastify);
   const controller = new AuthController(service);
 
   // ─── Public Routes ──────────────────────────────────────────

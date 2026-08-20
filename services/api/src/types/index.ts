@@ -37,6 +37,13 @@ export interface JwtAccessPayload {
   stationId?: string;
   badgeNumber?: string;
   type: 'access';
+  /**
+   * Token version, from utils/token-version. Compared against the user's
+   * current version on every request, so revoking a role or permission takes
+   * effect immediately rather than waiting for the token to expire.
+   * Optional: tokens issued before this shipped simply have no `ver`.
+   */
+  ver?: number;
   iat: number;
   exp: number;
 }

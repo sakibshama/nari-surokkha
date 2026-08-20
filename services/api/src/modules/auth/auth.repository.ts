@@ -117,6 +117,17 @@ export class AuthRepository {
     });
   }
 
+  /**
+   * Find a session by refresh token in ANY state — including revoked.
+   *
+   * Used only for reuse detection: if a token verifies cryptographically but
+   * has no *valid* session, we need to know whether we ever issued it. A hit
+   * here means a single-use token was replayed, which is treated as theft.
+   */
+  async findAnySessionByToken(refreshToken: string): Promise<UserSession | null> {
+    return this.db.userSession.findFirst({ where: { refreshToken } });
+  }
+
   async revokeSession(sessionId: string): Promise<void> {
     await this.db.userSession.update({
       where: { id: sessionId },

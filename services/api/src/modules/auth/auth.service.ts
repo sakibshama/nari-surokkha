@@ -17,17 +17,20 @@ import {
   ForbiddenError,
 } from '@/utils/errors';
 import { ERROR_CODES, MAX_LOGIN_ATTEMPTS } from '@nari-surokkha/shared';
+import type { FastifyInstance } from 'fastify';
 import type { JwtAccessPayload, JwtRefreshPayload } from '@/types/index';
+import { bumpTokenVersion, getTokenVersion } from '@/utils/token-version';
 
 // ─── Token generation helpers ─────────────────────────────────
 
-function generateAccessToken(user: UserWithRole): string {
+function generateAccessToken(user: UserWithRole, tokenVersion = 0): string {
   const payload: Omit<JwtAccessPayload, 'iat' | 'exp'> = {
     sub: user.id,
     role: user.role?.key ?? 'citizen',
     phone: user.phone,
     permissions: user.permissions ?? [],
     type: 'access',
+    ver: tokenVersion,
   };
   return jwt.sign(payload, env.JWT_SECRET, {
     expiresIn: env.JWT_ACCESS_EXPIRY as jwt.SignOptions['expiresIn'],
@@ -82,7 +85,15 @@ export class AuthService {
   // Access token expiry in seconds (parsed from "15m" → 900)
   private readonly accessTokenExpirySeconds: number;
 
-  constructor(private readonly repo: AuthRepository) {
+  constructor(
+    private readonly repo: AuthRepository,
+    /**
+     * Optional so the token-verification path (middleware/authenticate) can
+     * construct a lightweight instance. Token versioning and reuse detection
+     * need Redis, and degrade gracefully without it.
+     */
+    private readonly fastify?: FastifyInstance,
+  ) {
     this.accessTokenExpirySeconds = parseExpiryToSeconds(env.JWT_ACCESS_EXPIRY);
   }
 
@@ -195,9 +206,30 @@ export class AuthService {
       throw new UnauthorizedError('Invalid token type.');
     }
 
-    // 2. Verify session is still valid in DB (not revoked)
+    // 2. Verify the session is still valid (not revoked, not expired)
     const session = await this.repo.findValidSession(refreshToken);
     if (!session) {
+      // The JWT verified, so this token was genuinely issued by us — but its
+      // session is gone. Rotation means a refresh token is single-use, so
+      // seeing one again is the classic signal of a stolen token being
+      // replayed after the legitimate client already rotated it.
+      //
+      // The safe response is to assume compromise and revoke the whole family:
+      // every session for this user, plus every access token already issued.
+      const known = await this.repo.findAnySessionByToken(refreshToken);
+      if (known) {
+        await this.repo.revokeAllUserSessions(payload.sub);
+        if (this.fastify) {
+          await bumpTokenVersion(this.fastify, payload.sub);
+          this.fastify.log.warn(
+            { userId: payload.sub },
+            'SECURITY: refresh token reuse detected — all sessions revoked',
+          );
+        }
+        throw new UnauthorizedError(
+          'This session was ended for security reasons. Please sign in again.',
+        );
+      }
       throw new UnauthorizedError('Session has been revoked or expired.');
     }
 
@@ -317,7 +349,11 @@ export class AuthService {
     // of the previous create → revoke → create dance.
     const sessionId = crypto.randomUUID();
 
-    const accessToken = generateAccessToken(user);
+    // Stamp the user's current revocation version into the token, so a later
+    // bump (role change, suspension, detected token reuse) invalidates it.
+    const tokenVersion = this.fastify ? await getTokenVersion(this.fastify, user.id) : 0;
+
+    const accessToken = generateAccessToken(user, tokenVersion);
     const refreshToken = generateRefreshToken(user.id, sessionId);
 
     await this.repo.createSession({

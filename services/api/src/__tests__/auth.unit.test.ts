@@ -50,12 +50,20 @@ describe('AuthService', () => {
       createUser: vi.fn(),
       createSession: vi.fn(),
       findValidSession: vi.fn(),
+      // Reuse detection: looks the token up regardless of revoked state.
+      findAnySessionByToken: vi.fn().mockResolvedValue(null),
       revokeSession: vi.fn(),
       revokeAllUserSessions: vi.fn(),
       upsertDeviceToken: vi.fn(),
     } as unknown as Mocked<AuthRepository>;
 
-    service = new AuthService(repo);
+    // Token versioning and reuse detection use Redis via the Fastify instance.
+    const fastifyMock = {
+      log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+      redis: { get: vi.fn().mockResolvedValue(null), incr: vi.fn().mockResolvedValue(1) },
+    } as any;
+
+    service = new AuthService(repo, fastifyMock);
 
     vi.clearAllMocks();
   });
@@ -153,10 +161,34 @@ describe('AuthService', () => {
     });
 
     it('throws UnauthorizedError if session revoked', async () => {
-      vi.mocked(jwt.verify).mockReturnValue({ type: 'refresh' } as any);
+      vi.mocked(jwt.verify).mockReturnValue({ type: 'refresh', sub: 'user-1' } as any);
       repo.findValidSession.mockResolvedValue(null);
+      repo.findAnySessionByToken.mockResolvedValue(null);
 
       await expect(service.refresh('token')).rejects.toThrow(UnauthorizedError);
+    });
+
+    // Rotation makes a refresh token single-use, so seeing one a second time
+    // means it was replayed — the classic signature of a stolen token.
+    it('revokes ALL sessions when a rotated refresh token is replayed', async () => {
+      vi.mocked(jwt.verify).mockReturnValue({ type: 'refresh', sub: 'user-1' } as any);
+      repo.findValidSession.mockResolvedValue(null);
+      repo.findAnySessionByToken.mockResolvedValue({ id: 'sess-old', userId: 'user-1' } as any);
+
+      await expect(service.refresh('stolen-token')).rejects.toThrow(
+        /ended for security reasons/,
+      );
+
+      expect(repo.revokeAllUserSessions).toHaveBeenCalledWith('user-1');
+    });
+
+    it('does not revoke everything for a token we never issued', async () => {
+      vi.mocked(jwt.verify).mockReturnValue({ type: 'refresh', sub: 'user-1' } as any);
+      repo.findValidSession.mockResolvedValue(null);
+      repo.findAnySessionByToken.mockResolvedValue(null);
+
+      await expect(service.refresh('unknown')).rejects.toThrow(UnauthorizedError);
+      expect(repo.revokeAllUserSessions).not.toHaveBeenCalled();
     });
   });
 

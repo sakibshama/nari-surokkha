@@ -9,6 +9,9 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService } from './auth.service';
 import { sendCreated, sendSuccess } from '@/utils/response';
+import { env } from '@/config/env';
+
+const COOKIE_SECURE = env.NODE_ENV === 'production';
 
 export class AuthController {
   constructor(private readonly service: AuthService) {}
@@ -28,7 +31,7 @@ export class AuthController {
     reply.setCookie('refreshToken', result.tokens.refreshToken, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60, // 30 days
     });
@@ -36,7 +39,7 @@ export class AuthController {
     reply.setCookie('accessToken', result.tokens.accessToken, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'lax',
       maxAge: 15 * 60, // 15 minutes
     });
@@ -74,7 +77,7 @@ export class AuthController {
     reply.setCookie('refreshToken', result.tokens.refreshToken, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60, // 30 days
     });
@@ -82,7 +85,7 @@ export class AuthController {
     reply.setCookie('accessToken', result.tokens.accessToken, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'lax',
       maxAge: 15 * 60, // 15 minutes
     });
@@ -95,7 +98,8 @@ export class AuthController {
     reply: FastifyReply,
   ): Promise<void> => {
     // Try to get from body first (for legacy/mobile clients), then cookie
-    const refreshToken = (req.body as any)?.refreshToken || req.cookies.refreshToken;
+    const refreshToken =
+      (req.body as { refreshToken?: string } | undefined)?.refreshToken || req.cookies.refreshToken;
     if (!refreshToken) {
       reply.status(401).send({ message: 'No refresh token provided' });
       return;
@@ -106,7 +110,7 @@ export class AuthController {
     reply.setCookie('refreshToken', tokens.refreshToken, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60, // 30 days
     });
@@ -114,7 +118,7 @@ export class AuthController {
     reply.setCookie('accessToken', tokens.accessToken, {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'lax',
       maxAge: 15 * 60, // 15 minutes
     });
@@ -126,7 +130,8 @@ export class AuthController {
     req: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> => {
-    const refreshToken = (req.body as any)?.refreshToken || req.cookies.refreshToken;
+    const refreshToken =
+      (req.body as { refreshToken?: string } | undefined)?.refreshToken || req.cookies.refreshToken;
     if (refreshToken) {
       await this.service.logout(refreshToken);
     }
@@ -176,6 +181,6 @@ export class AuthController {
       req.body.token,
       req.body.platform,
     );
-    sendSuccess(reply, null, 'Device token registered');
+    sendSuccess(reply, null, 'Device token registered successfully.');
   };
 }

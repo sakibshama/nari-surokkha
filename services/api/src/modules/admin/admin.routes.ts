@@ -9,7 +9,8 @@ export function adminRoutes(
   _options: unknown,
   done: () => void,
 ) {
-  const repository = new AdminRepository(fastify.prisma);
+  // Reporting-shaped reads go to the replica when one is configured.
+  const repository = new AdminRepository(fastify.prisma, fastify.prismaRead);
   const service = new AdminService(repository, fastify);
   const controller = new AdminController(service);
 

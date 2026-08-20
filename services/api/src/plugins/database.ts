@@ -15,6 +15,16 @@ import { env } from '@/config/env';
 declare module 'fastify' {
   interface FastifyInstance {
     prisma: PrismaClient;
+    /**
+     * Read-only client, pointed at REPLICA_DATABASE_URL when one is
+     * configured and at the primary otherwise.
+     *
+     * Use it for reporting-shaped reads — analytics, audit browsing, admin
+     * lists — so a slow dashboard query never queues behind, or competes
+     * with, an SOS write. Never use it for anything read-after-write:
+     * replication lag means a row written a moment ago may not be here yet.
+     */
+    prismaRead: PrismaClient;
   }
 }
 
@@ -65,8 +75,23 @@ async function databasePlugin(fastify: FastifyInstance): Promise<void> {
   // Make prisma available as fastify.prisma
   fastify.decorate('prisma', prisma);
 
+  // ─── Read replica (optional) ──────────────────────────────────────────
+  let prismaRead = prisma;
+  if (env.REPLICA_DATABASE_URL) {
+    prismaRead = new PrismaClient({
+      log: ['warn', 'error'],
+      datasources: { db: { url: withPoolSize(env.REPLICA_DATABASE_URL, env.DATABASE_POOL_MAX) } },
+    });
+    await prismaRead.$connect();
+    fastify.log.info('✅ Read replica connected — analytics reads routed away from the primary');
+  } else {
+    fastify.log.info('No REPLICA_DATABASE_URL set; reads use the primary');
+  }
+  fastify.decorate('prismaRead', prismaRead);
+
   // Graceful disconnect on shutdown
   fastify.addHook('onClose', async (app) => {
+    if (app.prismaRead !== app.prisma) await app.prismaRead.$disconnect();
     await app.prisma.$disconnect();
     app.log.info('PostgreSQL disconnected');
   });

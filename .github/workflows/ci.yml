@@ -66,7 +66,17 @@ jobs:
         working-directory: services/api
         run: npm run lint
 
-      - name: Run tests
+      # Integration/E2E tests hit the real test DB — apply the schema first.
+      - name: Apply migrations to test DB
+        working-directory: services/api
+        env:
+          DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
+        run: npx prisma migrate deploy
+
+      # Coverage thresholds live in vitest.config.ts (lines 70, functions 70,
+      # branches 60). Running with --coverage makes them a gate rather than a
+      # number nobody looks at: vitest exits non-zero when they are not met.
+      - name: Run tests with coverage gate
         working-directory: services/api
         env:
           DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
@@ -74,7 +84,8 @@ jobs:
           JWT_SECRET: test_jwt_secret_at_least_64_chars_long_xxxxxxxxxxxxxxxxxxxxxxxxxx
           JWT_REFRESH_SECRET: test_refresh_secret_at_least_64_chars_long_xxxxxxxxxxxxxxxx
           NODE_ENV: test
-        run: npm test
+          SMS_PROVIDER: mock
+        run: npm run test:coverage
 
   # ─── Police Portal ──────────────────────────────────────────
   police-portal-checks:
@@ -100,6 +111,48 @@ jobs:
       - name: Build
         working-directory: apps/police-portal
         run: npm run build
+
+  # ─── Admin Portal ───────────────────────────────────────────
+  admin-portal-checks:
+    name: Admin Portal — Lint, Build (type-check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+      - name: Lint
+        working-directory: apps/admin-portal
+        run: npm run lint
+      # `build` runs `tsc -b` first, so this also type-checks the portal.
+      - name: Build
+        working-directory: apps/admin-portal
+        run: npm run build
+
+  # ─── Mobile App ─────────────────────────────────────────────
+  mobile-checks:
+    name: Mobile — Type-Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+      - name: Type check
+        working-directory: apps/mobile
+        run: npm run type-check
 
   # ─── Shared Package ─────────────────────────────────────────
   shared-checks:
@@ -132,10 +185,184 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Lint
         run: |
-          pip install ruff
-          ruff check .
+          pip install -r requirements.txt
+          pip install pytest ruff
+      - name: Lint
+        run: ruff check .
+      # Real inference guardrails — fail if the service ever regresses to the
+      # old random mock (models must load, probs sum to 1, fall → emergency).
       - name: Test
-        run: pytest --tb=short || echo "No tests yet"
+        run: pytest -q --tb=short
+
+  # ─── Migrations ─────────────────────────────────────────────
+  # The migrations are hand-written SQL with PostGIS geometry columns, sync
+  # triggers and a retention function -- none of which Prisma generates or
+  # validates. Applying them to a real PostGIS database on every PR is the only
+  # way to know they still work, and re-applying them proves they are
+  # idempotent (they use IF NOT EXISTS / OR REPLACE throughout, and a broken
+  # one would fail a redeploy at the worst possible moment).
+  migration-checks:
+    name: Migrations — Apply and Re-apply
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4-alpine
+        env:
+          POSTGRES_DB: nari_migrate
+          POSTGRES_USER: nari_user
+          POSTGRES_PASSWORD: test_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      PGPASSWORD: test_password
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply every migration in order
+        run: |
+          set -e
+          for d in services/api/prisma/migrations/2026*/; do
+            echo "→ $d"
+            psql -h localhost -U nari_user -d nari_migrate -v ON_ERROR_STOP=1 -q -f "$d/migration.sql"
+          done
+
+      - name: Re-apply the two newest (idempotency)
+        run: |
+          set -e
+          for d in 20260819000000_spatial_index_usage 20260819100000_retention_and_search; do
+            psql -h localhost -U nari_user -d nari_migrate -v ON_ERROR_STOP=1 -q \
+              -f "services/api/prisma/migrations/$d/migration.sql"
+          done
+
+      - name: Assert the spatial indexes are actually usable
+        run: |
+          set -e
+          psql -h localhost -U nari_user -d nari_migrate -v ON_ERROR_STOP=1 <<'SQL'
+          -- Enough rows that a seq scan would be the cheaper plan if the
+          -- geography index could not be used.
+          INSERT INTO users (id, phone, password_hash, status)
+          SELECT gen_random_uuid(), '+88017'||lpad(i::text,8,'0'), 'x', 'active'
+          FROM generate_series(1,20000) i;
+          INSERT INTO responders (id, user_id, status, availability, latitude, longitude)
+          SELECT gen_random_uuid(), u.id, 'verified', 'available',
+                 23.70+random()*0.25, 90.30+random()*0.25 FROM users u;
+          ANALYZE responders;
+          SQL
+
+          PLAN=$(psql -h localhost -U nari_user -d nari_migrate -tAc "EXPLAIN SELECT id FROM responders WHERE status='verified' AND availability='available' AND ST_DWithin(location::geography, ST_SetSRID(ST_MakePoint(90.41,23.81),4326)::geography, 5000);")
+          echo "$PLAN"
+          # This is THE regression guard for the whole spatial fix. A stray
+          # "location IS NOT NULL" in the query, or a dropped index, silently
+          # turns an index scan back into a full filter -- which is exactly the
+          # bug that existed before, and it produces correct results, just slowly.
+          echo "$PLAN" | grep -q "idx_responders_location_geog" \
+            || { echo "::error::Spatial query is NOT using idx_responders_location_geog"; echo "$PLAN"; exit 1; }
+          echo "✅ geography index in use"
+
+      - name: Assert retention never deletes evidence for an open case
+        run: |
+          set -e
+          psql -h localhost -U nari_user -d nari_migrate -v ON_ERROR_STOP=1 <<'SQL'
+          WITH u AS (SELECT id FROM users LIMIT 1),
+          a AS (
+            INSERT INTO emergency_alerts (user_id, type, status, latitude, longitude, created_at)
+            SELECT u.id,'manual','in_progress',23.8,90.4, NOW() - INTERVAL '400 days' FROM u
+            RETURNING id
+          )
+          INSERT INTO alert_locations (alert_id, latitude, longitude, timestamp)
+          SELECT a.id, 23.8, 90.4, NOW() - INTERVAL '400 days' FROM a, generate_series(1,10);
+          SQL
+          psql -h localhost -U nari_user -d nari_migrate -tAc "SELECT prune_old_records();" >/dev/null
+          KEPT=$(psql -h localhost -U nari_user -d nari_migrate -tAc "SELECT count(*) FROM alert_locations al JOIN emergency_alerts e ON e.id=al.alert_id WHERE e.closed_at IS NULL;" | tr -d ' ')
+          [ "$KEPT" = "10" ] || { echo "::error::Retention deleted the trail of an OPEN alert (kept $KEPT of 10)"; exit 1; }
+          echo "✅ open-case evidence preserved"
+
+  # ─── Portals ────────────────────────────────────────────────
+  portal-checks:
+    name: Portals — Build and Bundle Budget
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        portal: [admin-portal, police-portal]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+      - name: Build
+        working-directory: apps/${{ matrix.portal }}
+        env:
+          VITE_API_URL: https://api.example.com/api/v1
+          VITE_WS_URL: wss://api.example.com
+        run: npm run build
+
+      # Code splitting is easy to add and easy to lose -- one stray static
+      # import of a page pulls its whole dependency tree back into the entry
+      # chunk. This fails the build if that happens.
+      - name: Bundle budget
+        working-directory: apps/${{ matrix.portal }}
+        run: |
+          set -e
+          ENTRY=$(find dist/assets -name 'index-*.js' | head -1)
+          SIZE=$(stat -c%s "$ENTRY")
+          BUDGET=$((700 * 1024))
+          echo "entry chunk: $((SIZE / 1024)) KB (budget $((BUDGET / 1024)) KB)"
+          ls -la dist/assets/*.js | awk '{printf "  %6.1f KB  %s\n", $5/1024, $9}'
+          [ "$SIZE" -le "$BUDGET" ] || { echo "::error::Entry chunk $((SIZE/1024))KB exceeds $((BUDGET/1024))KB budget -- has a page been statically imported again?"; exit 1; }
+          CHUNKS=$(find dist/assets -name '*.js' | wc -l)
+          [ "$CHUNKS" -ge 4 ] || { echo "::error::Only $CHUNKS JS chunks -- code splitting appears to have been lost"; exit 1; }
+          echo "✅ $CHUNKS chunks, entry within budget"
+
+  # ─── Docker ─────────────────────────────────────────────────
+  # CI type-checked and tested the source but never proved the images build.
+  # A broken Dockerfile was therefore only discovered at deploy time.
+  docker-build:
+    name: Docker — Build Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/api/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build ML service image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/ml-service/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Load test scripts ──────────────────────────────────────
+  # Does not run a load test (that needs a deployed target). It verifies the
+  # scripts still parse and their thresholds are registered, so a broken load
+  # test is found now rather than during an incident when someone reaches for it.
+  loadtest-lint:
+    name: Load Tests — Validate Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install k6
+        run: |
+          curl -sSL https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz \
+            | tar xz --strip-components=1 -C /usr/local/bin k6-v0.54.0-linux-amd64/k6
+      - name: Validate
+        run: |
+          set -e
+          for f in load/*.js; do
+            echo "→ $f"
+            k6 inspect "$f" > /dev/null
+          done
+          echo "✅ all load scripts parse"

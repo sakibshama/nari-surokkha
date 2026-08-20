@@ -2,7 +2,14 @@ import { PrismaClient, User, Responder, AuditLog, PoliceStation } from '@prisma/
 import argon2 from 'argon2';
 
 export class AdminRepository {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    /**
+     * Read-only client for reporting queries. Falls back to the primary when
+     * no replica is configured, so this is safe either way.
+     */
+    private readonly prismaRead: PrismaClient = prisma,
+  ) {}
 
   async listUsers(roleKey?: string, search?: string, limit: number = 50, offset: number = 0): Promise<{ data: User[], total: number }> {
     const where: any = {};
@@ -320,7 +327,7 @@ export class AdminRepository {
     }
 
     const take = Math.min(limit, 200);
-    const rows = await this.prisma.auditLog.findMany({
+    const rows = await this.prismaRead.auditLog.findMany({
       where,
       // Fetch one extra to know whether another page exists, without a count.
       take: take + 1,
@@ -415,7 +422,7 @@ export class AdminRepository {
   async getAnalyticsData(days = 30): Promise<any> {
     const [incidentTypes, trends, heatmap, totals] = await Promise.all([
       // ── Incidents by type ────────────────────────────────────────────
-      this.prisma.$queryRaw<Array<{ name: string; value: bigint }>>`
+      this.prismaRead.$queryRaw<Array<{ name: string; value: bigint }>>`
         SELECT type::text AS name, COUNT(*)::bigint AS value
         FROM incident_reports
         GROUP BY type
@@ -423,7 +430,7 @@ export class AdminRepository {
       `,
 
       // ── Daily alert/incident counts, with empty days filled ──────────
-      this.prisma.$queryRaw<Array<{ date: string; alerts: bigint; incidents: bigint }>>`
+      this.prismaRead.$queryRaw<Array<{ date: string; alerts: bigint; incidents: bigint }>>`
         WITH days AS (
           SELECT generate_series(
             (CURRENT_DATE - (${days - 1} || ' days')::INTERVAL)::date,
@@ -456,7 +463,7 @@ export class AdminRepository {
       // ~0.0025 degrees is roughly 250m at this latitude. Returning a weighted
       // grid instead of every raw point keeps the payload small and avoids
       // handing the browser the exact location of every reported incident.
-      this.prisma.$queryRaw<Array<{ lat: number; lng: number; weight: bigint; type: string }>>`
+      this.prismaRead.$queryRaw<Array<{ lat: number; lng: number; weight: bigint; type: string }>>`
         SELECT ROUND(latitude::numeric  / 0.0025) * 0.0025 AS lat,
                ROUND(longitude::numeric / 0.0025) * 0.0025 AS lng,
                COUNT(*)::bigint AS weight,
@@ -468,7 +475,7 @@ export class AdminRepository {
         LIMIT 2000;
       `,
 
-      this.prisma.$queryRaw<Array<{ alerts: bigint; incidents: bigint }>>`
+      this.prismaRead.$queryRaw<Array<{ alerts: bigint; incidents: bigint }>>`
         SELECT
           (SELECT COUNT(*) FROM emergency_alerts
              WHERE created_at >= CURRENT_DATE - (${days - 1} || ' days')::INTERVAL)::bigint AS alerts,

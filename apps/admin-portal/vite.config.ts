@@ -23,7 +23,11 @@ export default defineConfig({
         manualChunks: {
           react: ['react', 'react-dom', 'react-router-dom'],
           mui: ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
+          // Both map libraries get their own chunks. SmartLocationMap
+          // lazy-imports whichever one the runtime config selects, so a user
+          // downloads one mapping library, not two.
           maps: ['leaflet', 'react-leaflet'],
+          gmaps: ['@react-google-maps/api'],
           charts: ['recharts'],
           realtime: ['socket.io-client'],
         },

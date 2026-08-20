@@ -38,6 +38,7 @@
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_EXACT_ALARM",
         "android.permission.CAMERA",
+        "android.permission.SEND_SMS",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.WAKE_LOCK"
@@ -82,7 +83,9 @@
     "extra": {
       "eas": {
         "projectId": "0c8649fc-01e7-4202-ad19-4ce86fd77a3b"
-      }
+      },
+      "apiUrl": "https://api.mystrix-soft.com/api/v1",
+      "wsUrl": "https://api.mystrix-soft.com"
     }
   }
 }

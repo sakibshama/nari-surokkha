@@ -30,7 +30,7 @@ export class AlertsController {
   updateLocation = async (
     req: FastifyRequest<{
       Params: { id: string };
-      Body: { latitude: number; longitude: number; accuracy?: number };
+      Body: { latitude: number; longitude: number; accuracy?: number; timestamp?: string };
     }>,
     reply: FastifyReply,
   ) => {
@@ -136,7 +136,9 @@ export class AlertsController {
   };
 
   getSafeRoute = async (
-    req: FastifyRequest<{ Body: { origin: any; destination: any } }>,
+    req: FastifyRequest<{
+      Body: { origin: { lat: number; lng: number }; destination: { lat: number; lng: number } };
+    }>,
     reply: FastifyReply
   ) => {
     const route = await this.service.getSafeRoute(req.user!.id, req.body.origin, req.body.destination);

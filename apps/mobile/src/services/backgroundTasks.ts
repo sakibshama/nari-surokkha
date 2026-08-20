@@ -3,6 +3,7 @@ import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import api from './api';
 import { useLocationStore } from '../store/locationStore';
+import { sendOrQueue, flush, clear as clearOutbox } from './locationOutbox';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -20,12 +21,23 @@ if (Platform.OS !== 'web') {
 
         try {
           if (isSosActive && activeAlertId) {
-            await api.post(`/alerts/${activeAlertId}/location`, {
+            // Queued rather than dropped when offline. Coverage is worst
+            // exactly where this app matters most, and a silent gap in the
+            // trail is indistinguishable from "she stopped moving".
+            const delivered = await sendOrQueue({
+              alertId: activeAlertId,
               latitude: loc.coords.latitude,
               longitude: loc.coords.longitude,
-              accuracy: loc.coords.accuracy,
+              accuracy: loc.coords.accuracy ?? undefined,
+              timestamp: new Date(loc.timestamp ?? Date.now()).toISOString(),
             });
-            if (__DEV__) console.log('Background SOS location updated');
+
+            // A ping getting through is the clearest signal connectivity is
+            // back — drain anything that queued up while it was not.
+            if (delivered) {
+              const { sent } = await flush();
+              if (__DEV__ && sent > 0) console.log(`Flushed ${sent} queued location pings`);
+            }
           }
 
           if (activeRouteId) {
@@ -53,6 +65,12 @@ export const startBackgroundLocationUpdates = async () => {
   if (status === 'granted') {
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
       accuracy: Location.Accuracy.Balanced,
+      // Adaptive by distance rather than fixed by time. `distanceInterval`
+      // suppresses updates while the phone is stationary, so a victim waiting
+      // in one place stops burning battery and quota on identical fixes, while
+      // someone being moved still reports every 10s. Battery life during an
+      // emergency is not a minor concern — the tracking link is only useful
+      // for as long as the phone is alive.
       timeInterval: 10000,
       distanceInterval: 10,
       showsBackgroundLocationIndicator: true,
@@ -69,6 +87,9 @@ export const startBackgroundLocationUpdates = async () => {
 };
 
 export const stopBackgroundLocationUpdates = async () => {
+  // The alert is over; a queued trail from it is no longer useful and must not
+  // be delivered against the next one.
+  await clearOutbox();
   if (Platform.OS === 'web') return;
   const hasTask = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
   if (hasTask) {

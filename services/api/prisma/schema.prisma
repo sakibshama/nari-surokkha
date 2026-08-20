@@ -19,7 +19,15 @@ generator client {
 
 datasource db {
   provider   = "postgresql"
+  // Runtime queries go through PgBouncer (transaction pooling), so many API
+  // and worker replicas can share a small Postgres connection budget.
+  //   DATABASE_URL=postgresql://user:pass@pgbouncer:5432/nari_surokkha?pgbouncer=true&connection_limit=10
   url        = env("DATABASE_URL")
+  // Migrations must bypass the pooler: DDL and Prisma's advisory locks cannot
+  // survive transaction-mode pooling. Points straight at Postgres.
+  //   DIRECT_DATABASE_URL=postgresql://user:pass@postgres:5432/nari_surokkha
+  // Falls back to DATABASE_URL when unset, so local development is unchanged.
+  directUrl  = env("DIRECT_DATABASE_URL")
   extensions = [postgis(schema: "public"), pgcrypto]
 }
 

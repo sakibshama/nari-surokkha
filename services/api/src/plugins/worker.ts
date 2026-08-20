@@ -9,6 +9,8 @@ import { ResponderRepository } from '@/modules/responder/responder.repository';
 import { CasesRepository } from '@/modules/cases/cases.repository';
 import { CasesService } from '@/modules/cases/cases.service';
 import type { AlertFanOutPayload } from '@/modules/alerts/alerts.service';
+import { RUNS_WORKERS } from '@/config/env';
+import { flushLocationBuffers } from '@/modules/alerts/alert-location.buffer';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -21,6 +23,17 @@ declare module 'fastify' {
 }
 
 async function workerPlugin(fastify: FastifyInstance): Promise<void> {
+  // ─── Process role gate ────────────────────────────────────────────────
+  // These workers used to start inside every API process, so job processing
+  // competed with request handling on the same event loop and could not be
+  // scaled independently. In production they now run only in the dedicated
+  // worker container (WORKER_MODE=true, entrypoint dist/worker.js).
+  if (!RUNS_WORKERS) {
+    fastify.decorate('workers', {});
+    fastify.log.info('Background workers not started in this process (WORKER_MODE=false)');
+    return;
+  }
+
   const notificationsService = new NotificationsService(fastify.prisma, fastify);
 
   const alertsRepo = new AlertsRepository(fastify.prisma);
@@ -121,6 +134,52 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
     fastify.log.info({ jobId: job.id, alertId: job.data?.alertId }, 'Alert dispatch completed');
   });
 
+  // ─── Live-location flusher ────────────────────────────────────────────
+  // Drains the Redis ping buffer into Postgres in batches. This is what turns
+  // ~100 writes/s of tracking traffic into a handful: one createMany plus one
+  // update per active alert per interval, instead of two writes per ping.
+  const flushIntervalMs = 15_000;
+  const locationFlusher = setInterval(() => {
+    void (async () => {
+      try {
+        const written = await flushLocationBuffers(fastify);
+        if (written > 0) {
+          fastify.log.debug({ points: written }, 'Flushed buffered location points');
+        }
+      } catch (err) {
+        fastify.log.error({ err }, 'Location buffer flush failed');
+      }
+    })();
+  }, flushIntervalMs);
+  locationFlusher.unref();
+
+  // ─── Daily retention sweep ────────────────────────────────────────────
+  // alert_locations, audit_logs and notification_logs were append-only with no
+  // retention at all. prune_old_records() (migration 20260819100000) deletes in
+  // chunks so it never takes a long lock, and never touches location trails for
+  // alerts whose case is still open.
+  const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  const retentionSweep = setInterval(() => {
+    void (async () => {
+      try {
+        const [result] = await fastify.prisma.$queryRaw<
+          Array<{ deleted_locations: bigint; deleted_notifications: bigint; deleted_audits: bigint }>
+        >`SELECT * FROM prune_old_records();`;
+        fastify.log.info(
+          {
+            locations: Number(result?.deleted_locations ?? 0),
+            notifications: Number(result?.deleted_notifications ?? 0),
+            audits: Number(result?.deleted_audits ?? 0),
+          },
+          'Retention sweep complete',
+        );
+      } catch (err) {
+        fastify.log.error({ err }, 'Retention sweep failed');
+      }
+    })();
+  }, RETENTION_INTERVAL_MS);
+  retentionSweep.unref();
+
   fastify.decorate('workers', {
     notifications: worker,
     escalations: escalationsWorker,
@@ -128,6 +187,15 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
   });
 
   fastify.addHook('onClose', async (app) => {
+    clearInterval(locationFlusher);
+    clearInterval(retentionSweep);
+    // Final drain on shutdown so a rolling deploy never discards the points
+    // buffered since the last interval.
+    try {
+      await flushLocationBuffers(app);
+    } catch (err) {
+      app.log.error({ err }, 'Final location flush failed during shutdown');
+    }
     await app.workers.notifications?.close();
     await app.workers.escalations?.close();
     await app.workers.dispatch?.close();

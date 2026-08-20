@@ -21,6 +21,7 @@ describe('AlertsService', () => {
       findNearestPoliceStation: vi.fn(),
       createAlert: vi.fn(),
       createAuditLog: vi.fn(),
+      addLocationUpdate: vi.fn(),
     };
 
     contactsRepo = {
@@ -41,6 +42,17 @@ describe('AlertsService', () => {
       prisma: {
         responderDispatch: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
         deviceToken: { findMany: vi.fn().mockResolvedValue([]) },
+        // Location pings authorise through a Redis-cached record that falls
+        // back to this lookup.
+        emergencyAlert: { findUnique: vi.fn().mockResolvedValue(null) },
+      },
+      // Live positions are buffered in Redis and flushed by the worker, so the
+      // ping path talks to Redis rather than the database.
+      redis: {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue('OK'),
+        del: vi.fn().mockResolvedValue(1),
+        multi: vi.fn(),
       },
       io: {
         to: vi.fn().mockReturnThis(),
@@ -56,6 +68,15 @@ describe('AlertsService', () => {
     casesService = {
       createCaseFromAlert: vi.fn(),
     };
+
+    // Chainable pipeline stub for the buffered-write path.
+    const pipeline: any = {};
+    for (const m of ['set', 'rpush', 'ltrim', 'expire', 'sadd']) {
+      pipeline[m] = vi.fn(() => pipeline);
+    }
+    pipeline.exec = vi.fn().mockResolvedValue([]);
+    fastifyMock.redis.multi.mockReturnValue(pipeline);
+    fastifyMock.__pipeline = pipeline;
 
     service = new AlertsService(
       alertsRepo,
@@ -168,8 +189,13 @@ describe('AlertsService', () => {
   });
 
   describe('updateLocation', () => {
+    /** Seed the authorisation record the ping path reads from Redis. */
+    const cacheMeta = (meta: unknown) =>
+      fastifyMock.redis.get.mockResolvedValue(JSON.stringify(meta));
+
     it('throws ForbiddenError if alert is not found', async () => {
-      alertsRepo.getAlertById = vi.fn().mockResolvedValue(null);
+      fastifyMock.redis.get.mockResolvedValue(null);
+      fastifyMock.prisma.emergencyAlert.findUnique.mockResolvedValue(null);
 
       await expect(
         service.updateLocation('user-123', 'alert-404', { latitude: 23.7, longitude: 90.4 })
@@ -177,7 +203,7 @@ describe('AlertsService', () => {
     });
 
     it('throws ForbiddenError if user is not the owner', async () => {
-      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ userId: 'other-user' });
+      cacheMeta({ userId: 'other-user', status: 'in_progress', assignedStationId: null });
 
       await expect(
         service.updateLocation('user-123', 'alert-123', { latitude: 23.7, longitude: 90.4 })
@@ -185,30 +211,42 @@ describe('AlertsService', () => {
     });
 
     it('throws ForbiddenError if alert is closed', async () => {
-      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ userId: 'user-123', status: 'closed' });
+      cacheMeta({ userId: 'user-123', status: 'closed', assignedStationId: null });
 
       await expect(
         service.updateLocation('user-123', 'alert-123', { latitude: 23.7, longitude: 90.4 })
       ).rejects.toThrow(ForbiddenError);
     });
 
-    it('adds location update and emits websocket event', async () => {
-      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ 
-        userId: 'user-123', 
-        status: 'in_progress', 
-        assignedStationId: 'station-456' 
-      });
-      alertsRepo.addLocationUpdate = vi.fn().mockResolvedValue(undefined);
+    it('buffers the position and emits to the station immediately', async () => {
+      cacheMeta({ userId: 'user-123', status: 'in_progress', assignedStationId: 'station-456' });
 
       await service.updateLocation('user-123', 'alert-123', { latitude: 23.8, longitude: 90.5 });
 
-      expect(alertsRepo.addLocationUpdate).toHaveBeenCalledWith('alert-123', 23.8, 90.5, undefined);
-      expect(fastifyMock.io.to).toHaveBeenCalledWith('station:station-456');
+      // Written to Redis, not straight to Postgres.
+      expect(fastifyMock.__pipeline.rpush).toHaveBeenCalled();
+      expect(fastifyMock.__pipeline.exec).toHaveBeenCalled();
+
+      // Liveness is unchanged: the portal still hears about it on this request.
+      expect(fastifyMock.io.to).toHaveBeenCalledWith(
+        expect.arrayContaining(['alert:alert-123', 'station:dispatch', 'station:station-456']),
+      );
       expect(fastifyMock.io.emit).toHaveBeenCalledWith('alert:location_update', expect.objectContaining({
         alertId: 'alert-123',
         latitude: 23.8,
         longitude: 90.5
       }));
+    });
+
+    it('costs no database round trip when the alert is cached', async () => {
+      cacheMeta({ userId: 'user-123', status: 'in_progress', assignedStationId: null });
+
+      await service.updateLocation('user-123', 'alert-123', { latitude: 23.8, longitude: 90.5 });
+
+      // This is the whole point of the change: the highest-frequency write path
+      // in the system no longer touches Postgres on the happy path.
+      expect(fastifyMock.prisma.emergencyAlert.findUnique).not.toHaveBeenCalled();
+      expect(alertsRepo.addLocationUpdate).not.toHaveBeenCalled();
     });
   });
 

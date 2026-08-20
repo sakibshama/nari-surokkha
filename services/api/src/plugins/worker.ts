@@ -8,12 +8,14 @@ import { ContactsRepository } from '@/modules/contacts/contacts.repository';
 import { ResponderRepository } from '@/modules/responder/responder.repository';
 import { CasesRepository } from '@/modules/cases/cases.repository';
 import { CasesService } from '@/modules/cases/cases.service';
+import type { AlertFanOutPayload } from '@/modules/alerts/alerts.service';
 
 declare module 'fastify' {
   interface FastifyInstance {
     workers: {
       notifications?: Worker;
       escalations?: Worker;
+      dispatch?: Worker;
     };
   }
 }
@@ -31,14 +33,25 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
   const worker = new Worker(
     'notifications',
     async (job: Job) => {
+      // Fan-out: one alert -> one job per trusted contact.
       if (job.name === 'notify_trusted_contacts') {
         const { alertId, userId } = job.data;
         await notificationsService.processTrustedContactsNotification(alertId, userId);
+        return;
+      }
+      // Delivery: one contact, both channels, idempotent and retried alone.
+      if (job.name === 'notify_trusted_contact') {
+        const { alertId, contactId } = job.data;
+        await notificationsService.notifyTrustedContact(alertId, contactId);
       }
     },
     {
       connection: fastify.redisBullMQ as any,
-      concurrency: 5, // process up to 5 jobs concurrently
+      // Raised from 5: jobs are now per-contact rather than per-alert, so there
+      // are more of them and each is smaller. The work is entirely I/O bound
+      // (SMS gateway, FCM), so concurrency here is about not queueing behind a
+      // slow provider during a burst of simultaneous alerts.
+      concurrency: 20,
     }
   );
 
@@ -79,14 +92,45 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
     fastify.log.error({ jobId: job?.id, err }, 'Escalations job failed');
   });
 
+  // ─── Dispatch worker ──────────────────────────────────────────────────
+  // Carries the heavy half of an SOS — audit log, police case, nearby-responder
+  // fan-out — so none of it sits on the citizen's request path. Concurrency is
+  // higher than the notification worker because the work is I/O bound and a
+  // burst of simultaneous alerts is exactly the scenario that must not queue up.
+  const dispatchWorker = new Worker(
+    'dispatch',
+    async (job: Job) => {
+      if (job.name === 'fan_out_alert') {
+        await alertsService.fanOutAlert(job.data as AlertFanOutPayload);
+      }
+    },
+    {
+      connection: fastify.redisBullMQ as any,
+      concurrency: 10,
+    },
+  );
+
+  dispatchWorker.on('failed', (job, err) => {
+    fastify.log.error(
+      { jobId: job?.id, alertId: job?.data?.alertId, attempt: job?.attemptsMade, err },
+      'Alert dispatch job failed',
+    );
+  });
+
+  dispatchWorker.on('completed', (job) => {
+    fastify.log.info({ jobId: job.id, alertId: job.data?.alertId }, 'Alert dispatch completed');
+  });
+
   fastify.decorate('workers', {
     notifications: worker,
     escalations: escalationsWorker,
+    dispatch: dispatchWorker,
   });
 
   fastify.addHook('onClose', async (app) => {
     await app.workers.notifications?.close();
     await app.workers.escalations?.close();
+    await app.workers.dispatch?.close();
     app.log.info('BullMQ Worker closed');
   });
 

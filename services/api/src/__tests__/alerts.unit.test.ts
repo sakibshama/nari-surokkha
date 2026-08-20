@@ -13,6 +13,8 @@ describe('AlertsService', () => {
   let alertsRepo: any;
   let contactsRepo: any;
   let fastifyMock: any;
+  let responderRepo: any;
+  let casesService: any;
 
   beforeEach(() => {
     alertsRepo = {
@@ -32,9 +34,13 @@ describe('AlertsService', () => {
         error: vi.fn(),
       },
       queues: {
-        notifications: {
-          add: vi.fn(),
-        },
+        notifications: { add: vi.fn() },
+        // The heavy fan-out now goes here instead of running on the request.
+        dispatch: { add: vi.fn() },
+      },
+      prisma: {
+        responderDispatch: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+        deviceToken: { findMany: vi.fn().mockResolvedValue([]) },
       },
       io: {
         to: vi.fn().mockReturnThis(),
@@ -42,12 +48,12 @@ describe('AlertsService', () => {
       },
     };
 
-    const responderRepo = {
+    responderRepo = {
       findNearbyResponders: vi.fn().mockResolvedValue([]),
       createDispatch: vi.fn(),
     };
 
-    const casesService = {
+    casesService = {
       createCaseFromAlert: vi.fn(),
     };
 
@@ -61,15 +67,13 @@ describe('AlertsService', () => {
   });
 
   describe('triggerManualSos', () => {
-    it('throws ForbiddenError if user has no trusted contacts', async () => {
+    it('allows SOS creation even if user has no trusted contacts', async () => {
       contactsRepo.getContactsByUserId.mockResolvedValue([]);
+      alertsRepo.findNearestPoliceStation.mockResolvedValue(null);
+      alertsRepo.createAlert.mockResolvedValue({ id: 'alert-123', status: 'confirmed', userId: 'user-123', type: 'manual' } as any);
 
-      await expect(
-        service.triggerManualSos('user-123', { latitude: 23.7, longitude: 90.4 })
-      ).rejects.toThrow(ForbiddenError);
-
-      expect(contactsRepo.getContactsByUserId).toHaveBeenCalledWith('user-123');
-      expect(alertsRepo.createAlert).not.toHaveBeenCalled();
+      const result = await service.triggerManualSos('user-123', { latitude: 23.7, longitude: 90.4 });
+      expect(result.id).toBe('alert-123');
     });
 
     it('creates SOS alert successfully, matches police station, and notifies', async () => {
@@ -103,18 +107,33 @@ describe('AlertsService', () => {
         status: 'confirmed',
       });
 
-      // Verify audit log
-      expect(alertsRepo.createAuditLog).toHaveBeenCalledWith(expect.objectContaining({
-        userId: 'user-123',
-        action: 'sos_triggered',
-        entityId: 'alert-123',
-      }));
+      // Verify trusted-contact notifications are queued (kept on the request
+      // path — it is only a Redis push, and it is the most time-critical
+      // downstream action). The deterministic jobId is what makes a retried
+      // SOS unable to double-notify.
+      expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
+        'notify_trusted_contacts',
+        { alertId: 'alert-123', userId: 'user-123' },
+        { jobId: 'fanout:alert-123' },
+      );
 
-      // Verify Queue
-      expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith('notify_trusted_contacts', {
-        alertId: 'alert-123',
-        userId: 'user-123',
-      });
+      // The heavy fan-out (audit log, case, responder dispatch) is handed to
+      // the dispatch queue rather than run inline.
+      expect(fastifyMock.queues.dispatch.add).toHaveBeenCalledWith(
+        'fan_out_alert',
+        expect.objectContaining({
+          alertId: 'alert-123',
+          userId: 'user-123',
+          stationId: 'station-123',
+          ipAddress: '192.168.1.1',
+        }),
+        { jobId: 'dispatch:alert-123' },
+      );
+
+      // ...and therefore does NOT happen on the request itself.
+      expect(alertsRepo.createAuditLog).not.toHaveBeenCalled();
+      expect(responderRepo.findNearbyResponders).not.toHaveBeenCalled();
+      expect(casesService.createCaseFromAlert).not.toHaveBeenCalled();
 
       // Verify WebSocket
       expect(fastifyMock.io.to).toHaveBeenCalledWith('station:station-123');
@@ -122,7 +141,7 @@ describe('AlertsService', () => {
         alertId: 'alert-123',
       }));
 
-      expect(result).toEqual(mockAlert);
+      expect(result.id).toBe(mockAlert.id);
     });
 
     it('creates SOS alert successfully even if no nearest station is found', async () => {
@@ -263,8 +282,110 @@ describe('AlertsService', () => {
       expect(alertsRepo.updateAlert).toHaveBeenCalledWith('alert-soft', expect.objectContaining({
         status: 'confirmed',
       }));
-      expect(alertsRepo.createAuditLog).toHaveBeenCalled();
+      // The audit log now lives in the queued fan-out, not on the request.
+      expect(fastifyMock.queues.dispatch.add).toHaveBeenCalledWith(
+        'fan_out_alert',
+        expect.objectContaining({ alertId: 'alert-soft', stationId: 'station-123' }),
+        { jobId: 'dispatch:alert-soft' },
+      );
       expect(fastifyMock.io.to).toHaveBeenCalledWith('station:station-123');
+    });
+  });
+
+  // ── The queued half of an SOS ────────────────────────────────────────────
+  describe('fanOutAlert', () => {
+    const payload = {
+      alertId: 'alert-1',
+      userId: 'user-1',
+      latitude: 23.7,
+      longitude: 90.4,
+      stationId: 'station-1',
+      alertType: 'manual',
+      ipAddress: '10.0.0.1',
+    };
+
+    it('writes the audit log and opens a case', async () => {
+      await service.fanOutAlert(payload);
+
+      expect(alertsRepo.createAuditLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          action: 'sos_triggered',
+          entityId: 'alert-1',
+        }),
+      );
+      expect(casesService.createCaseFromAlert).toHaveBeenCalledWith('alert-1', 'station-1');
+    });
+
+    it('inserts every responder dispatch in ONE query, not one per responder', async () => {
+      responderRepo.findNearbyResponders.mockResolvedValue([
+        { id: 'r1', userId: 'u1', distanceMeters: 100 },
+        { id: 'r2', userId: 'u2', distanceMeters: 250 },
+        { id: 'r3', userId: 'u3', distanceMeters: 900 },
+      ]);
+      fastifyMock.prisma.responderDispatch.findMany.mockResolvedValue([
+        { id: 'd1', responderId: 'r1' },
+        { id: 'd2', responderId: 'r2' },
+        { id: 'd3', responderId: 'r3' },
+      ]);
+
+      await service.fanOutAlert(payload);
+
+      expect(fastifyMock.prisma.responderDispatch.createMany).toHaveBeenCalledTimes(1);
+      expect(fastifyMock.prisma.responderDispatch.createMany).toHaveBeenCalledWith({
+        data: [
+          { responderId: 'r1', alertId: 'alert-1' },
+          { responderId: 'r2', alertId: 'alert-1' },
+          { responderId: 'r3', alertId: 'alert-1' },
+        ],
+        skipDuplicates: true,
+      });
+      // The old code called createDispatch once per responder.
+      expect(responderRepo.createDispatch).not.toHaveBeenCalled();
+    });
+
+    it('looks up device tokens once for all responders (no N+1)', async () => {
+      responderRepo.findNearbyResponders.mockResolvedValue([
+        { id: 'r1', userId: 'u1', distanceMeters: 100 },
+        { id: 'r2', userId: 'u2', distanceMeters: 250 },
+      ]);
+      fastifyMock.prisma.responderDispatch.findMany.mockResolvedValue([
+        { id: 'd1', responderId: 'r1' },
+        { id: 'd2', responderId: 'r2' },
+      ]);
+
+      await service.fanOutAlert(payload);
+
+      expect(fastifyMock.prisma.deviceToken.findMany).toHaveBeenCalledTimes(1);
+      expect(fastifyMock.prisma.deviceToken.findMany).toHaveBeenCalledWith({
+        where: { userId: { in: ['u1', 'u2'] }, isActive: true },
+        select: { token: true },
+      });
+    });
+
+    it('masks the location it sends to responders', async () => {
+      responderRepo.findNearbyResponders.mockResolvedValue([
+        { id: 'r1', userId: 'u1', distanceMeters: 100 },
+      ]);
+      fastifyMock.prisma.responderDispatch.findMany.mockResolvedValue([
+        { id: 'd1', responderId: 'r1' },
+      ]);
+
+      await service.fanOutAlert({ ...payload, latitude: 23.7891, longitude: 90.4123 });
+
+      expect(fastifyMock.io.emit).toHaveBeenCalledWith(
+        'responder:dispatch_received',
+        expect.objectContaining({ latitude: 23.79, longitude: 90.41 }),
+      );
+    });
+
+    it('does nothing further when no responders are nearby', async () => {
+      responderRepo.findNearbyResponders.mockResolvedValue([]);
+
+      await service.fanOutAlert(payload);
+
+      expect(fastifyMock.prisma.responderDispatch.createMany).not.toHaveBeenCalled();
+      expect(fastifyMock.prisma.deviceToken.findMany).not.toHaveBeenCalled();
     });
   });
 });

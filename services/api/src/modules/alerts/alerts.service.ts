@@ -10,8 +10,33 @@ import { ForbiddenError } from '@/utils/errors';
 import { EmergencyAlert } from '@prisma/client';
 import { env } from '@/config/env';
 import { generateTrackingToken } from './alerts.tokens';
+import { sendExpoPushBatch } from '../notifications/providers/expo-push.provider';
 
 import { CasesService } from '../cases/cases.service';
+
+/** Responders are dispatched within this radius of the alert. */
+const RESPONDER_DISPATCH_RADIUS_M = 5000;
+/**
+ * Cap on how many responders one alert notifies. Paging every responder in a
+ * 5 km radius is noise, not coverage — the nearest few are the ones who can
+ * actually arrive, and an unbounded fan-out is an unbounded amount of work.
+ */
+const RESPONDER_DISPATCH_LIMIT = 20;
+
+/**
+ * Everything the 'dispatch' worker needs to complete an SOS fan-out without
+ * re-reading the alert. Kept flat and JSON-serialisable because it crosses a
+ * BullMQ job boundary.
+ */
+export interface AlertFanOutPayload {
+  alertId: string;
+  userId: string;
+  latitude: number;
+  longitude: number;
+  stationId: string | null;
+  alertType: string;
+  ipAddress?: string;
+}
 
 /** Great-circle distance in metres between two lat/lng points. */
 function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -116,38 +141,41 @@ export class AlertsService {
     return { ...alert, trackingToken, contactPhones };
   }
 
+  /**
+   * Request-path dispatch — deliberately tiny.
+   *
+   * This used to run the whole fan-out inline: an audit-log insert, a case
+   * insert, a nearby-responder scan, then per responder a dispatch insert, a
+   * device-token query (N+1) and an un-awaited HTTPS call to Expo. Around
+   * fifteen sequential round trips before the citizen's phone got a reply, on
+   * the one code path in the system where latency is the whole point.
+   *
+   * What is left here is only what must happen before the caller returns:
+   *   - queue the trusted-contact notifications (a Redis push, ~1 ms — kept on
+   *     the request path so it can never be lost, since it is the most
+   *     time-critical downstream action)
+   *   - light up the police portal over WebSocket (in-memory, immediate)
+   *   - hand the rest to the 'dispatch' queue
+   */
   private async dispatchConfirmedAlert(
     alert: EmergencyAlert,
     data: { latitude: number; longitude: number; accuracy?: number },
     ipAddress?: string,
-    nearestStation?: any
-  ) {
-    // 4. Save audit log
-    await this.repo.createAuditLog({
-      userId: alert.userId,
-      action: 'sos_triggered',
-      entityType: 'alert',
-      entityId: alert.id,
-      metadata: {
-        alertType: alert.type,
-        status: 'confirmed',
-        nearestStationId: nearestStation?.id,
-      },
-      ipAddress,
-    });
-
-    // 5. Enqueue notification jobs for trusted contacts
+    nearestStation?: { id: string } | null,
+  ): Promise<void> {
+    // ── 1. Trusted contacts (SMS + push) ────────────────────────────────
     if (this.fastify.queues?.notifications) {
-      // The worker will find the trusted contacts and send SMS/Push
-      await this.fastify.queues.notifications.add('notify_trusted_contacts', {
-        alertId: alert.id,
-        userId: alert.userId,
-      });
+      await this.fastify.queues.notifications.add(
+        'notify_trusted_contacts',
+        { alertId: alert.id, userId: alert.userId },
+        // Idempotent: re-triggering the same alert cannot double-notify.
+        { jobId: `fanout:${alert.id}` },
+      );
     } else {
       this.fastify.log.warn('Notifications queue is not initialized. Skipping trusted contact notifications.');
     }
 
-    // 6. Notify police portal via WebSocket
+    // ── 2. Police portal, immediately ───────────────────────────────────
     if (this.fastify.io) {
       const eventPayload = {
         alertId: alert.id,
@@ -156,79 +184,146 @@ export class AlertsService {
         longitude: data.longitude,
         timestamp: new Date().toISOString(),
       };
-
-      // Notify the specific station if matched, and ALWAYS notify general police dispatch (for Admin/Global)
       if (nearestStation) {
         this.fastify.io.to(`station:${nearestStation.id}`).emit('alert:created', eventPayload);
       }
+      // Always notify general dispatch (admin / global view).
       this.fastify.io.to('station:dispatch').emit('alert:created', eventPayload);
     } else {
       this.fastify.log.warn('WebSocket is not initialized. Skipping police portal notification.');
     }
 
-    // 6.5. Auto-create police case if station is matched
-    if (nearestStation) {
+    // ── 3. Everything else, off the request path ────────────────────────
+    const fanOut: AlertFanOutPayload = {
+      alertId: alert.id,
+      userId: alert.userId,
+      latitude: data.latitude,
+      longitude: data.longitude,
+      stationId: nearestStation?.id ?? null,
+      alertType: alert.type,
+      ipAddress,
+    };
+
+    if (this.fastify.queues?.dispatch) {
+      await this.fastify.queues.dispatch.add('fan_out_alert', fanOut, {
+        // Idempotent: a retried SOS request cannot double-dispatch responders.
+        jobId: `dispatch:${alert.id}`,
+      });
+    } else {
+      // No queue available (unit tests, or a degraded boot). Run inline rather
+      // than silently dropping the dispatch — correctness beats latency here.
+      this.fastify.log.warn('Dispatch queue is not initialized. Running fan-out inline.');
+      await this.fanOutAlert(fanOut);
+    }
+  }
+
+  /**
+   * The heavy half of an SOS: audit trail, police case, responder dispatch.
+   *
+   * Runs in the BullMQ 'dispatch' worker (see plugins/worker.ts). Safe to
+   * retry — the audit log is append-only, case creation is guarded, and
+   * responder dispatches are de-duplicated by the unique
+   * (alert_id, responder_id) index.
+   */
+  async fanOutAlert(payload: AlertFanOutPayload): Promise<void> {
+    const { alertId, userId, latitude, longitude, stationId, alertType, ipAddress } = payload;
+
+    // ── 1. Audit trail ──────────────────────────────────────────────────
+    await this.repo.createAuditLog({
+      userId,
+      action: 'sos_triggered',
+      entityType: 'alert',
+      entityId: alertId,
+      metadata: { alertType, status: 'confirmed', nearestStationId: stationId },
+      ipAddress,
+    });
+
+    // ── 2. Police case ──────────────────────────────────────────────────
+    if (stationId) {
       try {
-        await this.casesService.createCaseFromAlert(alert.id, nearestStation.id);
+        await this.casesService.createCaseFromAlert(alertId, stationId);
       } catch (err) {
         this.fastify.log.error(err instanceof Error ? err : { err }, 'Failed to auto-create case for alert');
       }
     }
-  
-    // 7. Dispatch to nearby responders (within 5km)
+
+    // ── 3. Nearby responders ────────────────────────────────────────────
     try {
-      const radiusMeters = 5000;
-      const nearbyResponders = await this.responderRepo.findNearbyResponders(data.latitude, data.longitude, radiusMeters);
-      
-      for (const responder of nearbyResponders) {
-        // Create dispatch record
-        const dispatch = await this.responderRepo.createDispatch(responder.id, alert.id);
-        const dispatchPayload = {
-          dispatchId: dispatch.id,
-          alertId: alert.id,
-          latitude: Math.round(data.latitude * 100) / 100, // Masked location
-          longitude: Math.round(data.longitude * 100) / 100,
-          timestamp: new Date().toISOString(),
-          screen: 'ResponderHub'
-        };
+      const responders = await this.responderRepo.findNearbyResponders(
+        latitude,
+        longitude,
+        RESPONDER_DISPATCH_RADIUS_M,
+        RESPONDER_DISPATCH_LIMIT,
+      );
+      if (responders.length === 0) {
+        this.fastify.log.info({ alertId }, 'No available responders within dispatch radius');
+        return;
+      }
 
-        // Notify responder via websocket
-        if (this.fastify.io) {
-          this.fastify.io.to(`user:${responder.userId}`).emit('responder:dispatch_received', dispatchPayload);
-        }
+      const responderIds = responders.map((r) => r.id);
+      const responderUserIds = responders.map((r) => r.userId);
 
-        // Notify responder via Expo Push Notifications
-        try {
-          const deviceTokens = await this.fastify.prisma.deviceToken.findMany({
-            where: { userId: responder.userId, isActive: true }
-          });
-          
-          if (deviceTokens.length > 0) {
-            const messages = deviceTokens.map(dt => ({
-              to: dt.token,
-              sound: 'default',
-              title: '🚨 EMERGENCY DISPATCH',
-              body: 'A citizen nearby has triggered an SOS! Tap to respond.',
-              data: dispatchPayload,
-            }));
+      // 3a. One INSERT for every dispatch, not one per responder.
+      //     skipDuplicates + the unique (alert_id, responder_id) index make a
+      //     job retry a no-op instead of a second dispatch.
+      await this.fastify.prisma.responderDispatch.createMany({
+        data: responderIds.map((responderId) => ({ responderId, alertId })),
+        skipDuplicates: true,
+      });
 
-            // Use Expo Push API
-            fetch('https://exp.host/--/api/v2/push/send', {
-              method: 'POST',
-              headers: {
-                'Accept': 'application/json',
-                'Accept-encoding': 'gzip, deflate',
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(messages),
-            }).catch(err => this.fastify.log.error(err, 'Error sending Expo push'));
-          }
-        } catch (pushErr) {
-          this.fastify.log.error(pushErr instanceof Error ? pushErr : { pushErr }, 'Failed to query device tokens or send push');
-        }
+      // 3b. Read the ids back in one query (covers both freshly inserted rows
+      //     and rows from a previous attempt).
+      const dispatches = await this.fastify.prisma.responderDispatch.findMany({
+        where: { alertId, responderId: { in: responderIds } },
+        select: { id: true, responderId: true },
+      });
+      const dispatchIdByResponder = new Map(dispatches.map((d) => [d.responderId, d.id]));
+
+      // 3c. Notify each responder over WebSocket. Location is coarsened to
+      //     ~1 km until the responder accepts.
+      const maskedLatitude = Math.round(latitude * 100) / 100;
+      const maskedLongitude = Math.round(longitude * 100) / 100;
+      const timestamp = new Date().toISOString();
+
+      for (const responder of responders) {
+        const dispatchId = dispatchIdByResponder.get(responder.id);
+        if (!dispatchId) continue;
+        this.fastify.io?.to(`user:${responder.userId}`).emit('responder:dispatch_received', {
+          dispatchId,
+          alertId,
+          latitude: maskedLatitude,
+          longitude: maskedLongitude,
+          distanceMeters: Math.round(responder.distanceMeters),
+          timestamp,
+          screen: 'ResponderHub',
+        });
+      }
+
+      // 3d. ONE device-token query for all responders (was N+1), and ONE
+      //     batched Expo request (was one un-awaited fetch per responder).
+      const deviceTokens = await this.fastify.prisma.deviceToken.findMany({
+        where: { userId: { in: responderUserIds }, isActive: true },
+        select: { token: true },
+      });
+
+      if (deviceTokens.length > 0) {
+        const pushResult = await sendExpoPushBatch(
+          deviceTokens.map((d) => d.token),
+          {
+            title: '🚨 EMERGENCY DISPATCH',
+            body: 'A citizen nearby has triggered an SOS! Tap to respond.',
+            data: { alertId, latitude: maskedLatitude, longitude: maskedLongitude, screen: 'ResponderHub' },
+          },
+          this.fastify.log,
+        );
+        this.fastify.log.info(
+          { alertId, responders: responders.length, ...pushResult },
+          'Responder dispatch push sent',
+        );
       }
     } catch (err) {
       this.fastify.log.error(err instanceof Error ? err : { err }, 'Failed to dispatch to nearby responders');
+      throw err; // let BullMQ retry the fan-out
     }
   }
 

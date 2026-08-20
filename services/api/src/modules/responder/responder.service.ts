@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ResponderRepository } from './responder.repository';
 import { ResponderStatus, ResponderAvailability } from '@prisma/client';
+import { emitToAlert } from '@/utils/alert-rooms';
 
 export class ResponderService {
   constructor(
@@ -59,11 +60,16 @@ export class ResponderService {
           details: { message: 'Responder accepted dispatch' } as any
         } as any
       });
-      // Emit to police portal that responder accepted
-      this.fastify.io.emit('responder_accepted', {
-        alertId: dispatch.alertId,
-        responderId: dispatch.responderId,
-      });
+      // Emit to the police portal that a responder accepted. Scoped to the
+      // alert room, the handling station and global dispatch — the previous
+      // bare io.emit() told every connected client on the platform.
+      emitToAlert(
+        this.fastify,
+        dispatch.alertId,
+        dispatch.alert?.assignedStationId,
+        'responder_accepted',
+        { alertId: dispatch.alertId, responderId: dispatch.responderId },
+      );
     }
 
     return updated;

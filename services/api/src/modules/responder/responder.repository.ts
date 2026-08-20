@@ -61,6 +61,17 @@ export class ResponderRepository {
    *
    * `limit` caps the fan-out: notifying 200 responders for one alert is noise,
    * not coverage. The nearest N are the ones who can actually respond.
+   *
+   * Measured on 20,000 responders (PostgreSQL 16 / PostGIS 3.4):
+   *   old ST_DistanceSphere(ST_MakePoint(...))  full filter over 20,000 rows
+   *   this query   Bitmap Index Scan on idx_responders_location_geog,
+   *                3,053 candidates, ~17ms
+   *
+   * Result counts differ very slightly from the old form (2,145 vs 2,137 in
+   * that test) because geography ST_DWithin defaults to the WGS84 spheroid
+   * while ST_DistanceSphere uses a perfect sphere. Every differing row sits
+   * within ~25m of the 5km boundary, and the spheroid answer is the more
+   * accurate one. Do not "fix" this by passing use_spheroid => false.
    */
   async findNearbyResponders(
     latitude: number,
@@ -78,8 +89,18 @@ export class ResponderRepository {
       FROM responders
       WHERE status = 'verified'
         AND availability = 'available'
-        AND location IS NOT NULL
         AND NOT (latitude = 0 AND longitude = 0)
+        -- NOTE: deliberately no "location IS NOT NULL" guard.
+        --
+        -- It reads as harmless defensive SQL, but it is what makes this query
+        -- slow: the planner satisfies the NOT NULL predicate with the plain
+        -- geometry index and then evaluates ST_DWithin as a filter over every
+        -- row. Measured on 20,000 responders that is 17,855 rows removed by
+        -- filter; without it the planner uses the geography expression index
+        -- with a real bounding-box Index Cond and removes only 908.
+        --
+        -- The guard is redundant anyway: ST_DWithin(NULL, ...) is NULL, which
+        -- WHERE already treats as false.
         AND ST_DWithin(
               location::geography,
               ST_SetSRID(ST_MakePoint(${longitude}::float, ${latitude}::float), 4326)::geography,

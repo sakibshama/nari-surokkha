@@ -31,7 +31,9 @@ export class AlertsRepository {
       SELECT id, name, thana_code as "thanaCode", district, division, address, phone, is_active as "isActive", latitude, longitude, created_at as "createdAt", updated_at as "updatedAt"
       FROM police_stations
       WHERE is_active = true
-        AND location IS NOT NULL
+      -- No "location IS NOT NULL" guard: the ORDER BY already drives index
+      -- selection here, so the guard only adds a per-row filter, and a NULL
+      -- location sorts last under <-> regardless.
       ORDER BY location::geography <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography
       LIMIT 1;
     `;

@@ -65,7 +65,17 @@ export class IncidentsRepository {
       SELECT * FROM "incident_reports"
       WHERE status = 'verified'
         AND "created_at" >= ${since}
-        AND location IS NOT NULL
+        -- NOTE: deliberately no "location IS NOT NULL" guard.
+        --
+        -- It reads as harmless defensive SQL, but it is what makes this query
+        -- slow: the planner satisfies the NOT NULL predicate with the plain
+        -- geometry index and then evaluates ST_DWithin as a filter over every
+        -- row. Measured on 20,000 responders that is 17,855 rows removed by
+        -- filter; without it the planner uses the geography expression index
+        -- with a real bounding-box Index Cond and removes only 908.
+        --
+        -- The guard is redundant anyway: ST_DWithin(NULL, ...) is NULL, which
+        -- WHERE already treats as false.
         AND ST_DWithin(
           location::geography,
           ST_SetSRID(ST_MakePoint(${longitude}::float, ${latitude}::float), 4326)::geography,

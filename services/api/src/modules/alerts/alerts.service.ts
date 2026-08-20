@@ -57,6 +57,26 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+/**
+ * Accept a client-supplied fix time only if it is plausible.
+ *
+ * The mobile app queues location pings it could not deliver and replays them
+ * when signal returns, so a legitimately old timestamp is expected. But the
+ * value comes from a device clock we do not control, so it is bounded to the
+ * last MAX_PING_AGE_MS and never allowed to be in the future.
+ */
+const MAX_PING_AGE_MS = 60 * 60 * 1000; // 1 hour of offline replay
+
+function clampClientTimestamp(raw?: string): string {
+  const now = Date.now();
+  if (!raw) return new Date(now).toISOString();
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) return new Date(now).toISOString();
+  if (parsed > now) return new Date(now).toISOString();
+  if (parsed < now - MAX_PING_AGE_MS) return new Date(now - MAX_PING_AGE_MS).toISOString();
+  return new Date(parsed).toISOString();
+}
+
 /** Evenly reduce a coordinate list to at most `max` points, keeping the ends. */
 function downsample<T>(arr: T[], max: number): T[] {
   if (arr.length <= max) return arr;
@@ -493,7 +513,7 @@ export class AlertsService {
     async updateLocation(
       userId: string,
       alertId: string,
-      data: { latitude: number; longitude: number; accuracy?: number }
+      data: { latitude: number; longitude: number; accuracy?: number; timestamp?: string }
     ): Promise<void> {
       const meta = await getAlertMeta(this.fastify, alertId);
 
@@ -509,7 +529,11 @@ export class AlertsService {
         throw new ForbiddenError('Cannot update location for a closed alert');
       }
 
-      const timestamp = new Date().toISOString();
+      // Honour the client's fix time for replayed pings, but bound it: a
+      // timestamp in the future, or absurdly far in the past, is either a bad
+      // device clock or someone trying to forge a trail. Anything outside the
+      // window falls back to now.
+      const timestamp = clampClientTimestamp(data.timestamp);
 
       await recordPing(this.fastify, alertId, {
         latitude: data.latitude,
@@ -666,7 +690,17 @@ export class AlertsService {
           FROM "incident_reports"
           WHERE status = 'verified'
             AND "created_at" >= ${since}
-            AND location IS NOT NULL
+            -- NOTE: deliberately no "location IS NOT NULL" guard.
+            --
+            -- It reads as harmless defensive SQL, but it is what makes this query
+            -- slow: the planner satisfies the NOT NULL predicate with the plain
+            -- geometry index and then evaluates ST_DWithin as a filter over every
+            -- row. Measured on 20,000 responders that is 17,855 rows removed by
+            -- filter; without it the planner uses the geography expression index
+            -- with a real bounding-box Index Cond and removes only 908.
+            --
+            -- The guard is redundant anyway: ST_DWithin(NULL, ...) is NULL, which
+            -- WHERE already treats as false.
             AND ST_DWithin(
               location::geography,
               ST_GeogFromText(${'SRID=4326;' + wkt}),

@@ -11,6 +11,8 @@ import { CasesService } from '@/modules/cases/cases.service';
 import type { AlertFanOutPayload } from '@/modules/alerts/alerts.service';
 import { RUNS_WORKERS } from '@/config/env';
 import { flushLocationBuffers } from '@/modules/alerts/alert-location.buffer';
+import { EvidenceRepository } from '@/modules/evidence/evidence.repository';
+import { env } from '@/config/env';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -158,6 +160,33 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
   // retention at all. prune_old_records() (migration 20260819100000) deletes in
   // chunks so it never takes a long lock, and never touches location trails for
   // alerts whose case is still open.
+  // Evidence purge runs alongside the row-level sweep. It is separate because
+  // it must delete the stored OBJECT as well as the row — a database-only
+  // retention policy would leave the actual recordings in the bucket forever,
+  // which is the part that matters for this data class.
+  const evidenceRepo = new EvidenceRepository(fastify.prisma);
+
+  async function purgeExpiredEvidence(): Promise<number> {
+    const cutoff = new Date(Date.now() - env.EVIDENCE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    let purged = 0;
+
+    // Batched: a large backlog must not hold a transaction or the event loop.
+    for (;;) {
+      const batch = await evidenceRepo.findExpiredEvidence(cutoff, 200);
+      if (batch.length === 0) break;
+
+      // Storage first. If this fails we keep the row, so the object is retried
+      // next run rather than being orphaned with no record of its existence.
+      const deleted = await fastify.storage.deleteFiles(batch.map((e) => e.fileKey));
+      for (const e of batch) {
+        await evidenceRepo.deleteEvidence(e.id);
+      }
+      purged += deleted;
+      if (batch.length < 200) break;
+    }
+    return purged;
+  }
+
   const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
   const retentionSweep = setInterval(() => {
     void (async () => {
@@ -165,11 +194,14 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
         const [result] = await fastify.prisma.$queryRaw<
           Array<{ deleted_locations: bigint; deleted_notifications: bigint; deleted_audits: bigint }>
         >`SELECT * FROM prune_old_records();`;
+        const evidencePurged = await purgeExpiredEvidence();
         fastify.log.info(
           {
             locations: Number(result?.deleted_locations ?? 0),
             notifications: Number(result?.deleted_notifications ?? 0),
             audits: Number(result?.deleted_audits ?? 0),
+            evidenceFiles: evidencePurged,
+            evidenceRetentionDays: env.EVIDENCE_RETENTION_DAYS,
           },
           'Retention sweep complete',
         );

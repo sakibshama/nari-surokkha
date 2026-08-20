@@ -2,7 +2,7 @@
   "name": "@nari-surokkha/api",
   "version": "0.1.0",
   "private": true,
-  "description": "Nari Surokkha \u2014 Fastify Backend API",
+  "description": "Nari Surokkha — Fastify Backend API",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
+    "@aws-sdk/lib-storage": "^3.1114.0",
     "@aws-sdk/s3-request-presigner": "^3.1075.0",
     "@bull-board/api": "^9.3.2",
     "@bull-board/fastify": "^9.3.2",

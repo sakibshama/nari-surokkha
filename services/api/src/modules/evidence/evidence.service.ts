@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { EvidenceRepository } from './evidence.repository';
 import { EvidenceType } from '@prisma/client';
+import type { Readable } from 'stream';
 import { emitToAlert } from '@/utils/alert-rooms';
 
 export class EvidenceService {
@@ -10,11 +11,11 @@ export class EvidenceService {
   ) {}
 
   async processUpload(
-    alertId: string, 
+    alertId: string,
     userId: string,
-    fileBuffer: Buffer, 
-    originalName: string, 
-    mimeType: string
+    fileStream: Readable,
+    originalName: string,
+    mimeType: string,
   ) {
     // 1. Verify alert exists and belongs to user (or user is authorized)
     const alert = await this.fastify.prisma.emergencyAlert.findUnique({
@@ -35,8 +36,12 @@ export class EvidenceService {
     else if (mimeType.startsWith('audio/')) type = 'audio';
     else if (mimeType.startsWith('video/')) type = 'video';
 
-    // 3. Upload via Storage Plugin
-    const { fileKey, sizeBytes, checksum } = await this.fastify.storage.uploadFile(fileBuffer, originalName, mimeType);
+    // 3. Stream straight to storage — nothing is buffered whole in memory.
+    const { fileKey, sizeBytes, checksum } = await this.fastify.storage.uploadStream(
+      fileStream,
+      originalName,
+      mimeType,
+    );
 
     // 4. Save Metadata
     const evidence = await this.repository.saveEvidence({
@@ -154,4 +159,62 @@ export class EvidenceService {
 
     return { url, expiresIn };
   }
+  /**
+   * Roll back an upload that turned out to be invalid (e.g. truncated).
+   * Removes both the database row and the stored object, so a partial file
+   * never lingers as evidence anyone might later rely on.
+   */
+  async discardUpload(evidenceId: string, fileKey: string): Promise<void> {
+    await Promise.allSettled([
+      this.repository.deleteEvidence(evidenceId),
+      this.fastify.storage.deleteFile(fileKey),
+    ]);
+    this.fastify.log.warn({ evidenceId, fileKey }, 'Discarded invalid evidence upload');
+  }
+
+  /**
+   * Permanently erase a piece of evidence at the owner's request.
+   *
+   * Only the owner may do this, and only while no case is open against the
+   * alert — once police are working a case, the evidence is part of an
+   * investigation and is not the uploader's alone to delete. The deletion
+   * itself is recorded in the audit log.
+   */
+  async deleteOwnEvidence(evidenceId: string, requestUser: { id: string; role: string }): Promise<void> {
+    const evidence = await this.repository.getEvidenceById(evidenceId);
+    if (!evidence) {
+      throw this.fastify.httpErrors.notFound('Evidence not found');
+    }
+
+    const alert = (evidence as unknown as { alert: { id: string; userId: string } }).alert;
+    if (alert.userId !== requestUser.id) {
+      throw this.fastify.httpErrors.forbidden('You can only delete your own evidence');
+    }
+
+    const openCase = await this.fastify.prisma.case.findFirst({
+      where: { alertId: alert.id, status: { notIn: ['closed', 'false_alarm'] } },
+      select: { id: true, caseNumber: true },
+    });
+    if (openCase) {
+      throw this.fastify.httpErrors.conflict(
+        `This evidence is attached to an open police case (${openCase.caseNumber}) and cannot be deleted yet.`,
+      );
+    }
+
+    await this.fastify.storage.deleteFile(evidence.fileKey);
+    await this.repository.deleteEvidence(evidenceId);
+
+    await this.fastify.prisma.auditLog.create({
+      data: {
+        userId: requestUser.id,
+        action: 'deleted',
+        entityType: 'evidence',
+        entityId: evidenceId,
+        metadata: { reason: 'subject_erasure_request', alertId: alert.id },
+      },
+    });
+
+    this.fastify.log.info({ evidenceId, userId: requestUser.id }, 'Evidence erased at owner request');
+  }
+
 }

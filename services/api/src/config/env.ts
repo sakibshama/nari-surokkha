@@ -22,6 +22,10 @@ const EnvSchema = z.object({
   // Migrations bypass PgBouncer — DDL and advisory locks cannot go through a
   // transaction pooler. Optional: falls back to DATABASE_URL when unset.
   DIRECT_DATABASE_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  // Optional read replica. When set, analytics and audit-log reads are routed
+  // here so a heavy dashboard query cannot compete with an SOS write on the
+  // primary. Unset = everything uses the primary (current behaviour).
+  REPLICA_DATABASE_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
   DATABASE_POOL_MIN: z.coerce.number().int().positive().default(2),
   // Prisma takes its pool size from ?connection_limit= on the connection
   // string, so this value was previously validated and then ignored. It is now
@@ -89,7 +93,16 @@ const EnvSchema = z.object({
   CONFIG_ENCRYPTION_KEY: z.string().optional(),
 
   // ─── Storage ───────────────────────────────────────────────
-  STORAGE_PROVIDER: z.enum(['minio', 'aws-s3', 'cloudflare-r2']).default('minio'),
+  // 'local' keeps evidence on the container's disk (development, or a
+  // deliberate single-host deployment). Anything else routes to object
+  // storage, which is what allows more than one API host.
+  STORAGE_PROVIDER: z.enum(['local', 'minio', 'aws-s3', 'cloudflare-r2']).default('minio'),
+  // Server-side encryption for evidence at rest. Unset = SSE-S3 (AES256);
+  // set to a KMS key id for a customer-managed key with its own audit trail.
+  S3_KMS_KEY_ID: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  // How long evidence is retained after its alert is closed. Evidence for an
+  // OPEN case is never purged regardless of age.
+  EVIDENCE_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
   // Local-disk storage (used when AWS_S3_BUCKET is not set). Absolute path
   // recommended in production, e.g. /var/lib/nari-surokkha/uploads. When empty,
   // defaults to "<api-working-dir>/uploads".
@@ -104,6 +117,18 @@ const EnvSchema = z.object({
   // ─── ML Service ────────────────────────────────────────────
   ML_SERVICE_URL: z.string().url().default('http://localhost:8000'),
   ML_SERVICE_API_KEY: z.string().optional(),
+  //
+  // NOTE (2026-08-19): ML_SERVICE_URL and ML_SERVICE_API_KEY are declared here
+  // but referenced NOWHERE else in the API. Detection runs on-device (TFLite
+  // in the mobile app); the `ml` module is only a model registry and training
+  // sample collector, and never calls the FastAPI service.
+  //
+  // So the ml-service container in docker-compose currently serves no traffic
+  // from us. Before adding key rotation here, decide which is true:
+  //   (a) it is genuinely unused  -> drop the service and these two vars, or
+  //   (b) it is meant to be used  -> wire the calls, THEN add rotation.
+  // Adding rotation for a call that does not exist would just be more dead
+  // config of exactly the kind this file already accumulated.
 
   // ─── Live tracking ─────────────────────────────────────────
   // Public base URL for the SOS tracking link sent in SMS (e.g.

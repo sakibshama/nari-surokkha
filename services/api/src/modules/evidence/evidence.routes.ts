@@ -36,7 +36,38 @@ export async function evidenceRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    (req: any, reply: any) => controller.uploadEvidence(req, reply),
+    controller.uploadEvidence as any,
+  );
+
+  // Right to erasure: the uploader deleting their own evidence. Blocked while
+  // a police case is open against the alert (see EvidenceService).
+  fastify.delete(
+    '/:id',
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        tags: ['Evidence'],
+        summary: 'Permanently delete your own evidence',
+        description:
+          'Removes the stored file and its database record. Refused with 409 while a ' +
+          'police case is still open against the alert. The deletion is audit-logged.',
+      },
+    },
+    controller.deleteEvidence as any,
+  );
+
+  // Personal evidence library — the caller's own evidence across all alerts.
+  // Registered before the '/:id/url' param route; distinct path, no conflict.
+  fastify.get(
+    '/my',
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        tags: ['Evidence'],
+        summary: "List the current user's personal evidence library",
+      },
+    },
+    controller.listMyEvidence as any,
   );
 
   fastify.get(
@@ -52,7 +83,7 @@ export async function evidenceRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    (req: any, reply: any) => controller.listEvidence(req, reply),
+    controller.listEvidence as any,
   );
 
   fastify.get(
@@ -66,7 +97,21 @@ export async function evidenceRoutes(fastify: FastifyInstance) {
         // No strict response schema — lets the raw { url, expiresIn } object pass through
       },
     },
-    (req: any, reply: any) => controller.getEvidenceUrl(req, reply),
+    controller.getEvidenceUrl as any,
+  );
+
+  // Stream the raw bytes (access-controlled) — the reliable path for the app.
+  fastify.get(
+    '/:id/raw',
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        tags: ['Evidence'],
+        summary: 'Stream raw evidence file bytes',
+        params: getEvidenceUrlParamsSchema,
+      },
+    },
+    controller.getRaw as any,
   );
 
   // MOCK S3 route for serving local files in development

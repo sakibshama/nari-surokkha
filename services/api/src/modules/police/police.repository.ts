@@ -130,9 +130,20 @@ export class PoliceRepository {
     });
   }
 
-  // Create a minimal case
-  async createCase(alertId: string, stationId: string, assignedOfficerId: string): Promise<Case> {
-    const caseNumber = `CASE-${Date.now()}`;
+  /**
+   * Create a minimal case with a caller-supplied case number.
+   *
+   * This used to mint its own `CASE-${Date.now()}`, a second and incompatible
+   * numbering scheme competing with cases.service for the same UNIQUE column.
+   * There is now exactly one allocator — CasesService.nextCaseNumber(), backed
+   * by case_number_seq — and it is passed in.
+   */
+  async createCase(
+    alertId: string,
+    stationId: string,
+    assignedOfficerId: string,
+    caseNumber: string,
+  ): Promise<Case> {
     return this.db.case.create({
       data: {
         alertId,

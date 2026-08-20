@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { CasesRepository } from './cases.repository';
 import { CaseStatus } from '@prisma/client';
 import { NotFoundError, ForbiddenError } from '@/utils/errors';
-import { randomBytes } from 'crypto';
+import { nextCaseNumber } from '@/utils/case-number';
 
 export class CasesService {
   constructor(
@@ -11,11 +11,7 @@ export class CasesService {
   ) {}
 
   async createCaseFromAlert(alertId: string, stationId: string) {
-    // Generate unique case number e.g. CASE-2026-ABCD
-    const year = new Date().getFullYear();
-    const randomChars = randomBytes(2).toString('hex').toUpperCase();
-    const caseNumber = `CASE-${year}-${randomChars}`;
-    
+    const caseNumber = await nextCaseNumber(this.fastify.prisma);
     const newCase = await this.repo.createCase(alertId, stationId, caseNumber);
     this.fastify.log.info(`Created case ${caseNumber} for alert ${alertId}`);
     return newCase;

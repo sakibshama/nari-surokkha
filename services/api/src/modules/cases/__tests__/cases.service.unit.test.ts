@@ -22,23 +22,48 @@ describe('CasesService', () => {
         info: vi.fn(),
         warn: vi.fn(),
         error: vi.fn(),
+        debug: vi.fn(),
+      },
+      // Case numbers now come from the case_number_seq sequence rather than
+      // from random hex, so the service needs a queryable Prisma client.
+      prisma: {
+        $queryRaw: vi.fn().mockResolvedValue([{ n: BigInt(42) }]),
       },
     };
     service = new CasesService(mockRepo as unknown as CasesRepository, mockFastify as unknown as FastifyInstance);
   });
 
   describe('createCaseFromAlert', () => {
-    it('generates a unique case number and creates a case', async () => {
-      mockRepo.createCase.mockResolvedValue({ id: 'case-123', caseNumber: 'CASE-2026-ABCD' });
-      
+    it('allocates a sequential case number and creates a case', async () => {
+      mockRepo.createCase.mockResolvedValue({ id: 'case-123', caseNumber: 'CASE-2026-000042' });
+
       const result = await service.createCaseFromAlert('alert-1', 'station-1');
-      
+
       expect(mockRepo.createCase).toHaveBeenCalledWith(
         'alert-1',
         'station-1',
-        expect.stringMatching(/^CASE-\d{4}-[0-9A-F]{4}$/)
+        expect.stringMatching(/^CASE-\d{4}-\d{6}$/),
+      );
+      expect(mockRepo.createCase).toHaveBeenCalledWith(
+        'alert-1',
+        'station-1',
+        'CASE-' + new Date().getFullYear() + '-000042',
       );
       expect(result.id).toBe('case-123');
+    });
+
+    it('never reuses a number, because the sequence never repeats', async () => {
+      mockFastify.prisma.$queryRaw
+        .mockResolvedValueOnce([{ n: BigInt(1) }])
+        .mockResolvedValueOnce([{ n: BigInt(2) }]);
+      mockRepo.createCase.mockResolvedValue({ id: 'c' });
+
+      await service.createCaseFromAlert('alert-1', 'station-1');
+      await service.createCaseFromAlert('alert-2', 'station-1');
+
+      const first = mockRepo.createCase.mock.calls[0][2];
+      const second = mockRepo.createCase.mock.calls[1][2];
+      expect(first).not.toBe(second);
     });
   });
 

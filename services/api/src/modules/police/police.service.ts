@@ -8,6 +8,7 @@ import { FastifyInstance } from 'fastify';
 import { PoliceRepository } from './police.repository';
 import { UnauthorizedError, ForbiddenError } from '@/utils/errors';
 import { env } from '@/config/env';
+import { nextCaseNumber } from '@/utils/case-number';
 
 export class PoliceService {
   constructor(
@@ -83,9 +84,22 @@ export class PoliceService {
   async updateAlertStatus(alertId: string, status: string, stationId: string, officerId: string) {
     const alert = await this.repo.updateAlertStatus(alertId, status);
     
-    // Auto-create case if status becomes in_progress
+    // Auto-create a case when the alert moves to in_progress -- but only once.
+    // Without this guard, an officer toggling the status back and forth opened
+    // a second, third, nth case against the same alert.
     if (status === 'in_progress') {
-      await this.repo.createCase(alertId, stationId, officerId);
+      const existing = await this.fastify.prisma.case.findFirst({
+        where: { alertId },
+        select: { id: true },
+      });
+      if (!existing) {
+        await this.repo.createCase(
+          alertId,
+          stationId,
+          officerId,
+          await nextCaseNumber(this.fastify.prisma),
+        );
+      }
     }
     
     // Broadcast status update

@@ -23,6 +23,12 @@ describe('PoliceService', () => {
         to: vi.fn().mockReturnThis(),
         emit: vi.fn(),
       },
+      // Case numbers come from case_number_seq, and the service checks for an
+      // existing case before opening a new one.
+      prisma: {
+        case: { findFirst: vi.fn().mockResolvedValue(null) },
+        $queryRaw: vi.fn().mockResolvedValue([{ n: BigInt(7) }]),
+      },
     };
 
     service = new PoliceService(repoMock as unknown as PoliceRepository, fastifyMock);
@@ -32,7 +38,7 @@ describe('PoliceService', () => {
     repoMock.findPoliceUserByIdentifier.mockResolvedValue(null);
     vi.mocked(argon2.verify).mockResolvedValue(false);
 
-    await expect(service.login('invalid', 'pass')).rejects.toThrow('Invalid badge number or password.');
+    await expect(service.login('invalid', 'pass')).rejects.toThrow('Invalid credentials.');
   });
 
   it('authenticates valid police user', async () => {
@@ -53,12 +59,28 @@ describe('PoliceService', () => {
 
   it('updates alert status to in_progress and creates case', async () => {
     repoMock.updateAlertStatus.mockResolvedValue({ id: 'alert-1', status: 'in_progress' });
-    
+
     await service.updateAlertStatus('alert-1', 'in_progress', 'station-1', 'police-1');
-    
+
     expect(repoMock.updateAlertStatus).toHaveBeenCalledWith('alert-1', 'in_progress');
-    expect(repoMock.createCase).toHaveBeenCalledWith('alert-1', 'station-1', 'police-1');
+    // The case number is now allocated from the sequence and passed in, rather
+    // than minted inside the repository from Date.now().
+    expect(repoMock.createCase).toHaveBeenCalledWith(
+      'alert-1',
+      'station-1',
+      'police-1',
+      expect.stringMatching(/^CASE-\d{4}-\d{6}$/),
+    );
     expect(fastifyMock.io.to).toHaveBeenCalledWith('station:station-1');
     expect(fastifyMock.io.emit).toHaveBeenCalledWith('alert_status_update', expect.any(Object));
+  });
+
+  it('does not open a second case when the alert already has one', async () => {
+    repoMock.updateAlertStatus.mockResolvedValue({ id: 'alert-1', status: 'in_progress' });
+    fastifyMock.prisma.case.findFirst.mockResolvedValue({ id: 'existing-case' });
+
+    await service.updateAlertStatus('alert-1', 'in_progress', 'station-1', 'police-1');
+
+    expect(repoMock.createCase).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,118 @@
+# Alert rules for Nari Surokkha.
+#
+# These are deliberately few. An alert that does not correspond to "a person in
+# danger is not getting help" or "the system is about to stop working" is noise,
+# and noisy alerting is how real pages get ignored.
+groups:
+  - name: sos-critical
+    interval: 30s
+    rules:
+      # ── The core SLO ────────────────────────────────────────────────────
+      - alert: SosTriggerLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(sos_trigger_duration_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "SOS trigger p95 above 500ms"
+          description: "p95 is {{ $value | humanizeDuration }}. The panic button is slow."
+
+      - alert: SosDispatchLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(sos_dispatch_duration_seconds_bucket[5m])) by (le)
+          ) > 10
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "SOS dispatch p95 above 10s"
+          description: "Time from alert creation to police/responders being told is {{ $value | humanizeDuration }}."
+
+      - alert: SosDispatchFailing
+        expr: |
+          sum(rate(sos_dispatch_duration_seconds_count{outcome="failure"}[5m]))
+            /
+          clamp_min(sum(rate(sos_dispatch_duration_seconds_count[5m])), 0.001)
+            > 0.05
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "More than 5% of SOS fan-outs are failing"
+
+      # ── Delivery ────────────────────────────────────────────────────────
+      - alert: NotificationFailureRateHigh
+        expr: |
+          sum(rate(notifications_total{status="failed"}[10m])) by (channel)
+            /
+          clamp_min(sum(rate(notifications_total[10m])) by (channel), 0.001)
+            > 0.2
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.channel }} delivery failing for >20% of notifications"
+          description: "Trusted contacts are not being reached. Check the SMS provider credentials and balance."
+
+      - alert: NoRespondersEverDispatched
+        expr: |
+          sum(rate(responders_dispatched_per_alert_sum[30m]))
+            == 0
+          and
+          sum(rate(alerts_total[30m])) > 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Alerts are being created but zero responders are ever paged"
+          description: "Either no responders are marked available, or dispatch is silently broken."
+
+      # ── Queues ──────────────────────────────────────────────────────────
+      - alert: QueueBacklogGrowing
+        expr: queue_depth{state="waiting"} > 100
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.queue }} queue has {{ $value }} jobs waiting"
+
+      - alert: QueueJobsFailing
+        expr: increase(queue_depth{state="failed"}[15m]) > 10
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.queue }} queue is accumulating failed jobs"
+
+  - name: platform
+    interval: 30s
+    rules:
+      - alert: ApiDown
+        expr: up{job=~"api|worker"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.component }} is not being scraped — it may be down"
+
+      - alert: ApiErrorRateHigh
+        expr: |
+          sum(rate(http_request_duration_seconds_count{status_code=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(http_request_duration_seconds_count[5m])), 0.001)
+            > 0.01
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "API 5xx rate above 1%"
+
+      - alert: EventLoopLagHigh
+        expr: nodejs_eventloop_lag_p99_seconds > 0.5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Event loop p99 lag above 500ms — the process is CPU-saturated"
+
+      - alert: WebSocketConnectionsDropped
+        expr: |
+          sum(websocket_connections) < 0.5 * sum(sum_over_time(websocket_connections[1h]) / count_over_time(websocket_connections[1h]))
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Connected clients fell to less than half the hourly average"

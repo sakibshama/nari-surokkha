@@ -1,9 +1,12 @@
 import fp from 'fastify-plugin';
 import { FastifyInstance } from 'fastify';
 import { Server as SocketIOServer, Socket } from 'socket.io';
+// @ts-ignore
+import { createAdapter } from '@socket.io/redis-adapter';
 import jwt from 'jsonwebtoken';
 import { env } from '@/config/env';
 import type { JwtAccessPayload } from '@/types/index';
+import { wsConnections } from '@/plugins/metrics';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -37,6 +40,24 @@ async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
       credentials: true,
     },
   });
+
+  // ─── Horizontal scaling: Redis adapter ─────────────────────
+  // Broadcasts (alert rooms, WebRTC signalling, location updates) are relayed
+  // through Redis pub/sub, so multiple API instances behind a load balancer all
+  // deliver to the right sockets. Uses dedicated duplicated clients (the sub
+  // client blocks on SUBSCRIBE, so it must not be the shared app client).
+  try {
+    const pubClient = fastify.redis.duplicate();
+    const subClient = fastify.redis.duplicate();
+    io.adapter(createAdapter(pubClient, subClient));
+    fastify.addHook('onClose', async () => {
+      await Promise.allSettled([pubClient.quit(), subClient.quit()]);
+    });
+    fastify.log.info('✅ Socket.IO Redis adapter enabled (multi-instance ready)');
+  } catch (err) {
+    // Non-fatal: fall back to the in-memory adapter (single-instance only).
+    fastify.log.warn({ err }, 'Socket.IO Redis adapter unavailable — using in-memory adapter');
+  }
 
   // ─── Handshake authentication ──────────────────────────────
   // Every connection MUST present a valid access token. Emergency location
@@ -75,6 +96,7 @@ async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
     const socket = rawSocket as AuthedSocket;
     const user = socket.data.user;
     fastify.log.info(`WebSocket client connected: ${socket.id} (user=${user.id}, role=${user.role})`);
+    wsConnections.inc({ role: user.role });
 
     // ─── Room joins (authorized) ─────────────────────────────
     // Citizens may only join rooms scoped to their own identity/alerts.
@@ -150,6 +172,7 @@ async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
 
     socket.on('disconnect', () => {
       fastify.log.info(`WebSocket client disconnected: ${socket.id}`);
+      wsConnections.dec({ role: user.role });
     });
   });
 
@@ -183,6 +206,7 @@ async function ownsAlert(fastify: FastifyInstance, alertId: string, userId: stri
 export default fp(websocketPlugin, {
   name: 'websocket',
   fastify: '5.x',
-  // prisma must be available for alert-ownership checks on room joins
-  dependencies: ['database'],
+  // prisma must be available for alert-ownership checks on room joins;
+  // redis powers the multi-instance Socket.IO adapter.
+  dependencies: ['database', 'redis'],
 });

@@ -11,6 +11,13 @@ import { EmergencyAlert } from '@prisma/client';
 import { env } from '@/config/env';
 import { generateTrackingToken } from './alerts.tokens';
 import { sendExpoPushBatch } from '../notifications/providers/expo-push.provider';
+import { alertsTotal, respondersDispatched, sosDispatchDuration } from '@/plugins/metrics';
+import {
+  CLOSED_STATUSES,
+  getAlertMeta,
+  invalidateAlertMeta,
+  recordPing,
+} from './alert-location.buffer';
 
 import { CasesService } from '../cases/cases.service';
 
@@ -133,6 +140,8 @@ export class AlertsService {
       status: 'confirmed',
     });
 
+    alertsTotal.inc({ type: 'manual', has_station: nearestStation ? 'yes' : 'no' });
+
     await this.dispatchConfirmedAlert(alert, data, ipAddress, nearestStation);
 
     const trackingToken = generateTrackingToken(alert.id);
@@ -226,6 +235,20 @@ export class AlertsService {
    * (alert_id, responder_id) index.
    */
   async fanOutAlert(payload: AlertFanOutPayload): Promise<void> {
+    // sos_dispatch_duration_seconds is THE service-level indicator for this
+    // system: how long after someone presses the button does help actually get
+    // told. Alert on its p95, not on CPU.
+    const endTimer = sosDispatchDuration.startTimer();
+    try {
+      await this.doFanOutAlert(payload);
+      endTimer({ outcome: 'success' });
+    } catch (err) {
+      endTimer({ outcome: 'failure' });
+      throw err;
+    }
+  }
+
+  private async doFanOutAlert(payload: AlertFanOutPayload): Promise<void> {
     const { alertId, userId, latitude, longitude, stationId, alertType, ipAddress } = payload;
 
     // ── 1. Audit trail ──────────────────────────────────────────────────
@@ -255,8 +278,11 @@ export class AlertsService {
         RESPONDER_DISPATCH_RADIUS_M,
         RESPONDER_DISPATCH_LIMIT,
       );
+      respondersDispatched.observe(responders.length);
       if (responders.length === 0) {
-        this.fastify.log.info({ alertId }, 'No available responders within dispatch radius');
+        // A persistent zero here means dispatch is silently broken — which is
+        // exactly the class of failure that used to go unnoticed.
+        this.fastify.log.warn({ alertId }, 'No available responders within dispatch radius');
         return;
       }
 
@@ -359,6 +385,8 @@ export class AlertsService {
       this.fastify.log.info({ alertId: alert.id }, 'Scheduled auto-escalation for soft alert');
     }
 
+    alertsTotal.inc({ type: 'sensor_triggered', has_station: nearestStation ? 'yes' : 'no' });
+
     return alert;
   }
 
@@ -376,6 +404,9 @@ export class AlertsService {
       softAlertCancelledAt: new Date(),
       closedAt: new Date(),
     });
+    // The cached authorisation record carries status — drop it, or the alert
+    // would keep accepting location pings after being cancelled.
+    await invalidateAlertMeta(this.fastify, alertId);
   }
 
   async confirmSoftAlert(userId: string, alertId: string): Promise<EmergencyAlert & { trackingToken?: string; contactPhones?: string[] }> {
@@ -398,6 +429,7 @@ export class AlertsService {
       status: 'confirmed',
       confirmedAt: new Date(),
     });
+    await invalidateAlertMeta(this.fastify, alertId);
 
     const nearestStation = updatedAlert.assignedStationId 
       ? { id: updatedAlert.assignedStationId } 
@@ -429,6 +461,7 @@ export class AlertsService {
       status: 'false_alarm',
       closedAt: new Date(),
     });
+    await invalidateAlertMeta(this.fastify, alertId);
 
     if (this.fastify.io) {
       const eventPayload = { alertId, status: 'false_alarm' };
@@ -439,41 +472,63 @@ export class AlertsService {
     }
   }
   
+    /**
+     * Record a live position during an active SOS.
+     *
+     * This is the highest-frequency write path in the system — a phone streams
+     * one of these every 10 seconds for the whole duration of an emergency.
+     * It used to cost three database round trips per ping (authorise, insert
+     * trail row, update denormalised position), with the last two not even in
+     * a transaction.
+     *
+     * Now it costs zero database round trips on the happy path:
+     *   - authorisation comes from a Redis-cached record (the owner never
+     *     changes; status changes invalidate it)
+     *   - the position is written to Redis and appended to a flush buffer
+     *   - the worker batches the buffer into Postgres on an interval
+     *
+     * The WebSocket emit still happens inline, so the police portal sees the
+     * movement immediately — liveness is unchanged, only the write is deferred.
+     */
     async updateLocation(
       userId: string,
       alertId: string,
       data: { latitude: number; longitude: number; accuracy?: number }
     ): Promise<void> {
-      const alert = await this.repo.getAlertById(alertId);
-  
-      if (!alert) {
+      const meta = await getAlertMeta(this.fastify, alertId);
+
+      if (!meta) {
         throw new ForbiddenError('Alert not found');
       }
-  
-      if (alert.userId !== userId) {
+
+      if (meta.userId !== userId) {
         throw new ForbiddenError('You can only update locations for your own alerts');
       }
-  
-      const closedStatuses = ['closed', 'cancelled', 'false_alarm', 'resolved'];
-      if (closedStatuses.includes(alert.status)) {
+
+      if (CLOSED_STATUSES.includes(meta.status)) {
         throw new ForbiddenError('Cannot update location for a closed alert');
       }
-  
-      await this.repo.addLocationUpdate(alertId, data.latitude, data.longitude, data.accuracy);
-  
+
+      const timestamp = new Date().toISOString();
+
+      await recordPing(this.fastify, alertId, {
+        latitude: data.latitude,
+        longitude: data.longitude,
+        accuracy: data.accuracy,
+        timestamp,
+      });
+
       if (this.fastify.io) {
         const eventPayload = {
           alertId,
           latitude: data.latitude,
           longitude: data.longitude,
-          timestamp: new Date().toISOString(),
+          timestamp,
         };
-  
-        if (alert.assignedStationId) {
-          this.fastify.io.to(`station:${alert.assignedStationId}`).emit('alert:location_update', eventPayload);
-        }
-        // Always send to dispatch for global admin tracking
-        this.fastify.io.to('station:dispatch').emit('alert:location_update', eventPayload);
+
+        const rooms = [`alert:${alertId}`, 'station:dispatch'];
+        if (meta.assignedStationId) rooms.push(`station:${meta.assignedStationId}`);
+        this.fastify.io.to(rooms).emit('alert:location_update', eventPayload);
       }
     }
   
@@ -672,14 +727,48 @@ export class AlertsService {
       };
     }
 
-    async updateRouteLocation(userId: string, routeId: string, latitude: number, longitude: number) {
+    /**
+     * A route's owner and waypoints are immutable once created, so they are
+     * safe to cache for the life of the walk. Only `status` mutates, and that
+     * is written straight through below.
+     */
+    private async getCachedRoute(
+      routeId: string,
+    ): Promise<{ userId: string; waypoints: Array<{ lat: number; lng: number }> } | null> {
+      const key = `route:${routeId}`;
+      try {
+        const cached = await this.fastify.redis.get(key);
+        if (cached) return JSON.parse(cached);
+      } catch {
+        /* fall through to the database */
+      }
+
       const route = await this.fastify.prisma.activeRoute.findUnique({ where: { id: routeId } });
+      if (!route) return null;
+
+      const value = {
+        userId: route.userId,
+        waypoints: (route.waypoints as Array<{ lat: number; lng: number }>) ?? [],
+      };
+      try {
+        await this.fastify.redis.set(key, JSON.stringify(value), 'EX', 6 * 3600);
+      } catch {
+        /* best-effort */
+      }
+      return value;
+    }
+
+    async updateRouteLocation(userId: string, routeId: string, latitude: number, longitude: number) {
+      // The background task posts here on the SAME 10-second tick as the SOS
+      // location ping, so this used to double the query cost of tracking. A
+      // route's owner and waypoints never change after creation, so cache them.
+      const route = await this.getCachedRoute(routeId);
       if (!route || route.userId !== userId) throw new ForbiddenError('Route not found');
 
       // Deviation = shortest distance from the user to the route LINE (not just
       // the nearest vertex) exceeds the threshold.
       const DEVIATION_THRESHOLD_M = 500;
-      const waypoints = (route.waypoints as Array<{ lat: number; lng: number }>) ?? [];
+      const waypoints = route.waypoints;
       const distanceM = pointToPathMeters(latitude, longitude, waypoints);
       const isDeviated = distanceM > DEVIATION_THRESHOLD_M;
 

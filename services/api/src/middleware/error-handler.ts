@@ -15,6 +15,7 @@ import { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fas
 import { ZodError } from 'zod';
 import { isAppError } from '@/utils/errors';
 import { buildError } from '@/utils/response';
+import { captureError, isReportable } from '@/plugins/sentry';
 import { HTTP_STATUS } from '@nari-surokkha/shared';
 
 export function registerErrorHandler(fastify: FastifyInstance): void {
@@ -56,8 +57,9 @@ export function registerErrorHandler(fastify: FastifyInstance): void {
             error.message,
           );
         } else {
-          // Non-operational (e.g., InternalError) — log as error
+          // Non-operational (e.g., InternalError) — log as error, and page.
           request.log.error({ err: error, path: request.url }, error.message);
+          if (isReportable(error)) captureError(error, request);
         }
 
         void reply.status(error.statusCode).send(
@@ -72,6 +74,10 @@ export function registerErrorHandler(fastify: FastifyInstance): void {
         { err: error, path: request.url, method: request.method },
         'Unexpected error',
       );
+
+      // An unexpected error on a safety-critical path is an incident. Send it
+      // somewhere a human will actually see it, not just the container log.
+      captureError(error, request);
 
       // Never expose internal error details to clients
       void reply.status(HTTP_STATUS.INTERNAL_ERROR).send(

@@ -12,6 +12,7 @@ import { SmsProvider } from './providers/sms/sms.provider';
 import { renderSmsTemplate } from '../settings/settings.types';
 import { env } from '@/config/env';
 import { phoneVariants } from '@/utils/phone';
+import { contactNotifyDuration, notificationsTotal } from '@/plugins/metrics';
 import crypto from 'crypto';
 
 const TRACKING_TTL_SECONDS = 24 * 60 * 60; // 24h
@@ -174,8 +175,8 @@ export class NotificationsService {
     // SMS and push are independent channels — run them concurrently. Neither
     // should be delayed by the other's provider.
     const outcomes = await Promise.allSettled([
-      this.deliverSms(alert.id, contact.phone, message),
-      this.deliverPush(alert.id, contact.phone, userName, message),
+      this.deliverSms(alert.id, contact.phone, message, alert.createdAt),
+      this.deliverPush(alert.id, contact.phone, userName, message, alert.createdAt),
     ]);
 
     const failures = outcomes.filter(
@@ -210,7 +211,12 @@ export class NotificationsService {
   }
 
   /** SMS — the primary channel, since most contacts will not have the app. */
-  private async deliverSms(alertId: string, phone: string, message: string): Promise<void> {
+  private async deliverSms(
+    alertId: string,
+    phone: string,
+    message: string,
+    alertCreatedAt?: Date,
+  ): Promise<void> {
     const smsProvider = await this.resolveSmsProvider();
     if (!smsProvider) return; // SMS disabled in admin settings
 
@@ -222,12 +228,18 @@ export class NotificationsService {
     const log = await this.createNotificationLog(alertId, 'sms', phone, message);
     try {
       const result = await smsProvider.sendSms(phone, message);
-      await this.updateNotificationLog(log.id, result.success ? 'sent' : 'failed', result.error);
+      await this.updateNotificationLog(
+        log.id,
+        result.success ? 'sent' : 'failed',
+        result.error,
+        'sms',
+        alertCreatedAt,
+      );
       if (!result.success) {
         throw new Error(`SMS to ${phone} failed: ${result.error}`);
       }
     } catch (err: any) {
-      await this.updateNotificationLog(log.id, 'failed', err?.message);
+      await this.updateNotificationLog(log.id, 'failed', err?.message, 'sms');
       throw err;
     }
   }
@@ -245,6 +257,7 @@ export class NotificationsService {
     phone: string,
     userName: string,
     message: string,
+    alertCreatedAt?: Date,
   ): Promise<void> {
     const contactUser = await this.db.user.findFirst({
       where: { phone: { in: phoneVariants(phone) } },
@@ -266,14 +279,20 @@ export class NotificationsService {
             `SOS Alert: ${userName}`,
             message,
           );
-          await this.updateNotificationLog(log.id, result.success ? 'sent' : 'failed', result.error);
+          await this.updateNotificationLog(
+            log.id,
+            result.success ? 'sent' : 'failed',
+            result.error,
+            'push',
+            alertCreatedAt,
+          );
           if (!result.success) {
             errors.push(
               new Error(`Push to token ${device.token.substring(0, 5)}… failed: ${result.error}`),
             );
           }
         } catch (err: any) {
-          await this.updateNotificationLog(log.id, 'failed', err?.message);
+          await this.updateNotificationLog(log.id, 'failed', err?.message, 'push');
           errors.push(err);
         }
       }),
@@ -303,10 +322,23 @@ export class NotificationsService {
   }
 
   private async updateNotificationLog(
-    logId: string, 
-    status: NotificationStatus, 
-    error?: string
+    logId: string,
+    status: NotificationStatus,
+    error?: string,
+    channel?: NotificationChannel,
+    alertCreatedAt?: Date,
   ) {
+    if (channel) {
+      notificationsTotal.inc({ channel, status });
+      // Time-to-notify is the number a family actually experiences: how long
+      // after the button was pressed did the phone buzz.
+      if (status === 'sent' && alertCreatedAt) {
+        contactNotifyDuration.observe(
+          { channel, outcome: 'success' },
+          (Date.now() - alertCreatedAt.getTime()) / 1000,
+        );
+      }
+    }
     return this.db.notificationLog.update({
       where: { id: logId },
       data: {

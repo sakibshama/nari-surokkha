@@ -20,6 +20,8 @@ import sensible from '@fastify/sensible';
 
 import { env } from '@/config/env';
 import databasePlugin from '@/plugins/database';
+import sentryPlugin from '@/plugins/sentry';
+import metricsPlugin from '@/plugins/metrics';
 import redisPlugin from '@/plugins/redis';
 import corsPlugin from '@/plugins/cors';
 import rateLimitPlugin from '@/plugins/rate-limit';
@@ -29,6 +31,7 @@ import websocketPlugin from '@/plugins/websocket';
 import workerPlugin from '@/plugins/worker';
 import firebasePlugin from '@/plugins/firebase';
 import { healthRoutes } from '@/routes/health.route';
+import { trackingRoutes } from '@/routes/tracking.route';
 import { registerErrorHandler } from '@/middleware/error-handler';
 import { setupAuthenticateMiddleware } from '@/middleware/authenticate';
 import { authRoutes } from '@/modules/auth/auth.routes';
@@ -84,6 +87,9 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   });
 
+  // ─── Error tracking (first, so it sees boot failures) ───
+  await fastify.register(sentryPlugin);
+
   // ─── Core Security (helmet) ─────────────────────────────
   await fastify.register(helmet, {
     // Content security policy for API responses
@@ -124,6 +130,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   await fastify.register(workerPlugin);
   await fastify.register(firebasePlugin);
 
+  // ─── Metrics (after queues, which it samples) ───────────
+  await fastify.register(metricsPlugin);
+
   // ─── API Documentation (dev/staging only) ───────────────
   await fastify.register(swaggerPlugin);
 
@@ -135,6 +144,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   // ─── Routes ─────────────────────────────────────────────
   // Health check (public — no prefix)
   await fastify.register(healthRoutes);
+
+  // Public SOS live-tracking page (short link sent in SMS: /t/:token)
+  await fastify.register(trackingRoutes);
 
   // All API routes are prefixed with /api/v1
   await fastify.register(
@@ -174,27 +186,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   // ─── Global Error Handler (must be last) ────────────────
   registerErrorHandler(fastify);
 
-  // ─── Request / Response Logging Hooks ───────────────────
-  fastify.addHook('onRequest', (request, _reply, done) => {
-    request.log.info(
-      { method: request.method, url: request.url },
-      'Incoming request',
-    );
-    done();
-  });
-
-  fastify.addHook('onResponse', (request, reply, done) => {
-    request.log.info(
-      {
-        method: request.method,
-        url: request.url,
-        statusCode: reply.statusCode,
-        responseTime: reply.elapsedTime,
-      },
-      'Request completed',
-    );
-    done();
-  });
+  // ─── Request / Response Logging ─────────────────────────
+  // Deliberately NOT re-implemented here. Fastify's own logger already emits
+  // an "incoming request" line (with reqId, method, url) and a "request
+  // completed" line (with statusCode and responseTime). The hooks that used to
+  // live here duplicated both, so every request produced four log lines and
+  // four JSON serialisations instead of two — pure overhead, and on a
+  // json-file driver with no size cap, a slow disk-fill.
+  //
+  // Per-route detail now comes from Prometheus (plugins/metrics), which is
+  // both cheaper and queryable.
 
   return fastify;
 }

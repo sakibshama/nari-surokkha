@@ -19,7 +19,13 @@ const EnvSchema = z.object({
 
   // ─── Database ──────────────────────────────────────────────
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  // Migrations bypass PgBouncer — DDL and advisory locks cannot go through a
+  // transaction pooler. Optional: falls back to DATABASE_URL when unset.
+  DIRECT_DATABASE_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
   DATABASE_POOL_MIN: z.coerce.number().int().positive().default(2),
+  // Prisma takes its pool size from ?connection_limit= on the connection
+  // string, so this value was previously validated and then ignored. It is now
+  // applied in plugins/database.ts when the URL does not already specify one.
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
 
   // ─── Redis ─────────────────────────────────────────────────
@@ -50,9 +56,11 @@ const EnvSchema = z.object({
     .transform((val) => (val === '*' ? '*' : val.split(',').map((o) => o.trim()))),
 
   // ─── Firebase ──────────────────────────────────────────────
-  FIREBASE_PROJECT_ID: z.string().optional(),
-  FIREBASE_CLIENT_EMAIL: z.string().email().optional(),
-  FIREBASE_PRIVATE_KEY: z.string().optional(),
+  // preprocess: treat empty strings (e.g. `FIREBASE_CLIENT_EMAIL=` in an env
+  // file) as "not set" so optional fields don't fail format validation.
+  FIREBASE_PROJECT_ID: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  FIREBASE_CLIENT_EMAIL: z.preprocess((v) => (v === '' ? undefined : v), z.string().email().optional()),
+  FIREBASE_PRIVATE_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
 
   // ─── AWS S3 ────────────────────────────────────────────────
   AWS_S3_BUCKET: z.string().optional(),
@@ -97,6 +105,28 @@ const EnvSchema = z.object({
   ML_SERVICE_URL: z.string().url().default('http://localhost:8000'),
   ML_SERVICE_API_KEY: z.string().optional(),
 
+  // ─── Live tracking ─────────────────────────────────────────
+  // Public base URL for the SOS tracking link sent in SMS (e.g.
+  // https://api.mystrix-soft.com). Falls back to API_BASE_URL. Must be a host
+  // reachable from a recipient's phone browser.
+  PUBLIC_TRACKING_URL: z.string().url().optional(),
+
+  // ─── WebRTC ICE (STUN/TURN) ────────────────────────────────
+  // Served to clients via GET /config/ice-servers so the TURN credential lives
+  // in ONE place (here) and never drifts out of sync with the coturn container.
+  // TURN is required for streaming across different networks (cellular ↔ wifi).
+  STUN_URL: z.string().default('stun:stun.l.google.com:19302'),
+  TURN_HOST: z.string().optional(),      // e.g. api.mystrix-soft.com
+  TURN_PORT: z.coerce.number().int().positive().default(3478),
+  TURN_USERNAME: z.string().default('nari'),
+  TURN_PASSWORD: z.string().optional(),  // same value passed to the coturn container
+
+  // ─── Safe Route routing engine ─────────────────────────────
+  // OSRM (Open Source Routing Machine). Default is the public demo server —
+  // fine for a pilot; self-host for production (docker: osrm/osrm-backend).
+  // Profile in the path (…/route/v1/walking/…) is chosen in code.
+  OSRM_URL: z.string().url().default('https://router.project-osrm.org'),
+
   // ─── Rate Limiting ─────────────────────────────────────────
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_LOGIN_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
@@ -111,7 +141,38 @@ const EnvSchema = z.object({
     .transform((val) => val === 'true'),
 
   // ─── Sentry ────────────────────────────────────────────────
-  SENTRY_DSN: z.string().optional(),
+  SENTRY_DSN: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  // Fraction of requests traced. 0.1 is a sane production default; tracing
+  // every request on a safety-critical path costs latency for little insight.
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
+
+  // ─── Process role ──────────────────────────────────────────
+  // The API and the background workers run the same image. WORKER_MODE decides
+  // which half of it is active:
+  //   false -> HTTP only  (services/api entrypoint: dist/server.js)
+  //   true  -> jobs only  (worker  entrypoint: dist/worker.js)
+  // Defaults to true outside production so `npm run dev` remains a single
+  // process that both serves and processes jobs.
+  WORKER_MODE: z.preprocess(
+    (v) => (v === undefined || v === '' ? undefined : v === 'true' || v === true),
+    z.boolean().optional(),
+  ),
+
+  // ─── Metrics ───────────────────────────────────────────────
+  // Prometheus scrapes /metrics on a SEPARATE port so it is never reachable
+  // through the public nginx server block.
+  METRICS_ENABLED: z
+    .preprocess((v) => (v === undefined ? true : v === 'true' || v === true), z.boolean())
+    .default(true),
+  METRICS_PORT: z.coerce.number().int().positive().default(9091),
+  METRICS_HOST: z.string().default('0.0.0.0'),
+  // Bull Board (queue inspector) is mounted on the metrics port too, behind
+  // basic auth. Leave the password unset to disable it entirely.
+  BULLBOARD_ENABLED: z
+    .preprocess((v) => (v === undefined ? false : v === 'true' || v === true), z.boolean())
+    .default(false),
+  BULLBOARD_USER: z.string().default('admin'),
+  BULLBOARD_PASSWORD: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
 
   // ─── WebSocket ─────────────────────────────────────────────
   WS_CORS_ORIGINS: z
@@ -159,3 +220,14 @@ function validateEnv(): Env {
 
 // Singleton — validated once on first import
 export const env = validateEnv();
+
+/**
+ * Should THIS process run the BullMQ workers?
+ *
+ * In production the API and worker are separate containers and WORKER_MODE is
+ * set explicitly on each. In development it is usually unset, and a single
+ * `npm run dev` process should both serve HTTP and drain the queues — so the
+ * default there is "yes".
+ */
+export const RUNS_WORKERS: boolean =
+  env.WORKER_MODE ?? env.NODE_ENV !== 'production';

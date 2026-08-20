@@ -10,6 +10,7 @@
 
 import { buildApp } from './app';
 import { env } from './config/env';
+import { startMetricsServer } from './observability/metrics-server';
 
 async function main(): Promise<void> {
   const app = await buildApp();
@@ -20,6 +21,9 @@ async function main(): Promise<void> {
     host: env.HOST,
   });
 
+  // Internal-only metrics/queue-inspector server on its own port.
+  const metricsServer = await startMetricsServer(app);
+
   app.log.info(`🚀 Nari Surokkha API running on ${env.API_BASE_URL}`);
   app.log.info(`📚 API docs: ${env.API_BASE_URL}/docs (dev/staging only)`);
   app.log.info(`❤️  Health: ${env.API_BASE_URL}/health`);
@@ -29,6 +33,9 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info(`Received ${signal}. Shutting down gracefully...`);
     try {
+      // Stop scrapes first so Prometheus fails fast rather than hanging on a
+      // half-torn-down process.
+      await metricsServer?.close();
       await app.close();  // Triggers all onClose hooks (DB disconnect, Redis quit)
       app.log.info('Server closed successfully');
       process.exit(0);

@@ -1,9 +1,14 @@
+import { FastifyInstance } from 'fastify';
 import { AdminRepository } from './admin.repository';
 import { AuditLog } from '@prisma/client';
 import { NotFoundError } from '@/utils/errors';
+import { bumpTokenVersion } from '@/utils/token-version';
 
 export class AdminService {
-  constructor(private readonly repo: AdminRepository) {}
+  constructor(
+    private readonly repo: AdminRepository,
+    private readonly fastify: FastifyInstance,
+  ) {}
 
   async listUsers(roleKey?: string, search?: string, limit?: number, offset?: number) {
     return this.repo.listUsers(roleKey, search, limit, offset);
@@ -13,16 +18,37 @@ export class AdminService {
     return this.repo.createUser(data);
   }
 
+  /**
+   * Update a user.
+   *
+   * Any change to role, permissions or status revokes the user's existing
+   * access tokens immediately. Without this, demoting an admin or suspending
+   * an account left their current token fully privileged until it expired.
+   */
   async updateUser(id: string, data: any) {
+    let updated;
     try {
-      return await this.repo.updateUser(id, data);
+      updated = await this.repo.updateUser(id, data);
     } catch (e) {
       throw new NotFoundError('User not found');
     }
+
+    // Anything that changes what this user is allowed to do invalidates every
+    // access token they currently hold.
+    const privilegeChanged =
+      data.role !== undefined || data.permissions !== undefined || data.status !== undefined;
+    if (privilegeChanged) {
+      await bumpTokenVersion(this.fastify, id);
+    }
+
+    return updated;
   }
 
   async deleteUser(id: string) {
     try {
+      // Revoke first: if the delete succeeds, any token they hold is already
+      // dead; if it fails, revoking a live user's token is the safe error.
+      await bumpTokenVersion(this.fastify, id);
       return await this.repo.deleteUser(id);
     } catch (e) {
       throw new NotFoundError('User not found');
@@ -81,9 +107,9 @@ export class AdminService {
     }
   }
 
-  async listAuditLogs(search?: string, limit?: number) {
-    const logs = await this.repo.listAuditLogs(search, limit);
-    return logs.map(log => this.maskAuditLog(log));
+  async listAuditLogs(search?: string, limit?: number, cursor?: string) {
+    const { data, nextCursor } = await this.repo.listAuditLogs(search, limit, cursor);
+    return { items: data.map((log) => this.maskAuditLog(log)), nextCursor };
   }
 
   async getHealth() {
@@ -145,7 +171,32 @@ export class AdminService {
   }
 
   // --- ANALYTICS ---
-  async getAnalyticsData() {
-    return this.repo.getAnalyticsData();
+  /**
+   * Dashboard analytics, cached for 5 minutes.
+   *
+   * The admin dashboard polls this, and several admins may have it open at
+   * once. Analytics over a 30-day window does not need to be real-time — the
+   * numbers barely move minute to minute — so serving it from Redis turns a
+   * repeated multi-table aggregation into a single GET.
+   */
+  async getAnalyticsData(days = 30) {
+    const cacheKey = `analytics:v2:${days}`;
+    const TTL_SECONDS = 300;
+
+    try {
+      const cached = await this.fastify.redis.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch (err) {
+      this.fastify.log.warn({ err }, 'analytics cache read failed');
+    }
+
+    const data = await this.repo.getAnalyticsData(days);
+
+    try {
+      await this.fastify.redis.set(cacheKey, JSON.stringify(data), 'EX', TTL_SECONDS);
+    } catch {
+      /* best-effort */
+    }
+    return data;
   }
 }

@@ -63,8 +63,28 @@ export class PoliceRepository {
     });
   }
 
-  async getActiveAlertsForStation(stationId: string): Promise<EmergencyAlert[]> {
+  /**
+   * Active alerts for a station's dashboard.
+   *
+   * This had no `take` at all, so a busy station's dashboard fetched every
+   * open alert plus a join to users and profiles, growing without limit. The
+   * result also feeds a live map, so an unbounded response is a slow page at
+   * exactly the moment it needs to be fast.
+   *
+   * Bounded and cursor-paginated. The (assigned_station_id, status,
+   * created_at DESC) composite index added in 20260819000000 serves this
+   * exactly.
+   */
+  async getActiveAlertsForStation(
+    stationId: string,
+    limit = 100,
+    cursor?: string,
+  ): Promise<EmergencyAlert[]> {
     return this.db.emergencyAlert.findMany({
+      // Cursor pagination, not offset: OFFSET degrades badly past a few
+      // thousand rows because Postgres still walks everything it skips.
+      take: Math.min(limit, 200),
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       where: {
         assignedStationId: stationId,
         status: {

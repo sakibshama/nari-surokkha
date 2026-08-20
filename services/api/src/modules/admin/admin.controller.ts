@@ -3,6 +3,32 @@ import { AdminService } from './admin.service';
 
 import { ForbiddenError } from '@/utils/errors';
 
+export interface CreateUserDTO {
+  phone: string;
+  password?: string;
+  fullName: string;
+  role?: string;
+  preferredLanguage?: string;
+}
+
+export interface UpdateUserDTO {
+  phone?: string;
+  role?: string;
+  status?: string;
+  isVerified?: boolean;
+}
+
+export interface StationDTO {
+  name: string;
+  thanaCode: string;
+  district: string;
+  division: string;
+  address?: string;
+  phone?: string;
+  latitude: number;
+  longitude: number;
+}
+
 export class AdminController {
   constructor(private readonly service: AdminService) {}
 
@@ -14,8 +40,8 @@ export class AdminController {
     return reply.send({ success: true, ...result });
   };
 
-  createUser = async (req: FastifyRequest<{ Body: any }>, reply: FastifyReply) => {
-    const body = req.body as any;
+  createUser = async (req: FastifyRequest<{ Body: CreateUserDTO }>, reply: FastifyReply) => {
+    const body = req.body;
     const permissions = req.user?.permissions || [];
     if (body.role === 'admin' && !permissions.includes('manage_admins')) {
       throw new ForbiddenError('You do not have permission to create an admin user');
@@ -24,8 +50,8 @@ export class AdminController {
     return reply.send({ success: true, data: user });
   };
 
-  updateUser = async (req: FastifyRequest<{ Params: { id: string }; Body: any }>, reply: FastifyReply) => {
-    const body = req.body as any;
+  updateUser = async (req: FastifyRequest<{ Params: { id: string }; Body: UpdateUserDTO }>, reply: FastifyReply) => {
+    const body = req.body;
     const permissions = req.user?.permissions || [];
     if (body.role === 'admin' && !permissions.includes('manage_admins')) {
       throw new ForbiddenError('You do not have permission to assign the admin role');
@@ -73,12 +99,12 @@ export class AdminController {
     return reply.send({ success: true, data });
   };
 
-  createStation = async (req: FastifyRequest<{ Body: any }>, reply: FastifyReply) => {
+  createStation = async (req: FastifyRequest<{ Body: StationDTO }>, reply: FastifyReply) => {
     const station = await this.service.createStation(req.body);
     return reply.send({ success: true, data: station });
   };
 
-  updateStation = async (req: FastifyRequest<{ Params: { id: string }; Body: any }>, reply: FastifyReply) => {
+  updateStation = async (req: FastifyRequest<{ Params: { id: string }; Body: Partial<StationDTO> }>, reply: FastifyReply) => {
     const station = await this.service.updateStation(req.params.id, req.body);
     return reply.send({ success: true, data: station });
   };
@@ -89,11 +115,17 @@ export class AdminController {
   };
 
   listAuditLogs = async (
-    req: FastifyRequest<{ Querystring: { search?: string; limit?: number } }>,
+    req: FastifyRequest<{ Querystring: { search?: string; limit?: number; cursor?: string } }>,
     reply: FastifyReply,
   ) => {
-    const data = await this.service.listAuditLogs(req.query.search, req.query.limit);
-    return reply.send({ success: true, data });
+    const { items, nextCursor } = await this.service.listAuditLogs(
+      req.query.search,
+      req.query.limit,
+      req.query.cursor,
+    );
+    // `data` keeps its existing shape (an array) so the admin portal is
+    // unaffected; pass `nextCursor` back as ?cursor= to page further.
+    return reply.send({ success: true, data: items, nextCursor });
   };
 
   getHealth = async (
@@ -105,7 +137,7 @@ export class AdminController {
   };
 
   listAlerts = async (
-    req: FastifyRequest<{ Querystring: { status?: any; limit?: string | number } }>,
+    req: FastifyRequest<{ Querystring: { status?: string; limit?: string | number } }>,
     reply: FastifyReply,
   ) => {
     const limit = req.query.limit ? Number(req.query.limit) : 50;
@@ -119,7 +151,7 @@ export class AdminController {
   };
 
   listIncidents = async (
-    req: FastifyRequest<{ Querystring: { status?: any; limit?: string | number } }>,
+    req: FastifyRequest<{ Querystring: { status?: string; limit?: string | number } }>,
     reply: FastifyReply,
   ) => {
     const limit = req.query.limit ? Number(req.query.limit) : 50;
@@ -128,7 +160,7 @@ export class AdminController {
   };
 
   updateIncidentStatus = async (
-    req: FastifyRequest<{ Params: { id: string }; Body: { status: any } }>,
+    req: FastifyRequest<{ Params: { id: string }; Body: { status: string } }>,
     reply: FastifyReply,
   ) => {
     const data = await this.service.updateIncidentStatus(req.params.id, req.body.status);

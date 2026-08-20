@@ -118,10 +118,19 @@ export class CasesRepository {
     });
   }
 
-  async getAlertLocations(alertId: string) {
+  /**
+   * Location trail for a case timeline.
+   *
+   * Unbounded previously: an hour-long SOS produces ~360 points, and the
+   * timeline embedded all of them in one response. Capped at the most recent
+   * `limit`; the full trail is available through the paginated alert
+   * endpoints when an officer actually needs it.
+   */
+  async getAlertLocations(alertId: string, limit = 200) {
     return this.prisma.alertLocation.findMany({
       where: { alertId },
       orderBy: { timestamp: 'desc' },
+      take: Math.min(limit, 1000),
     });
   }
 

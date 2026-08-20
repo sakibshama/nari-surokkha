@@ -114,8 +114,11 @@ export class ResponderRepository {
     });
   }
 
-  async getDispatchesForResponder(responderId: string): Promise<any[]> {
+  /** A responder's dispatch history — bounded; it grows with their tenure. */
+  async getDispatchesForResponder(responderId: string, limit = 50, cursor?: string): Promise<any[]> {
     return this.prisma.responderDispatch.findMany({
+      take: Math.min(limit, 100),
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       where: { responderId },
       include: {
         alert: {

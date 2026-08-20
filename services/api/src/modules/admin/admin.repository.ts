@@ -298,18 +298,39 @@ export class AdminRepository {
     });
   }
 
-  async listAuditLogs(search?: string, limit: number = 50): Promise<AuditLog[]> {
+  /**
+   * Audit log listing.
+   *
+   * Previously `take: 50` with no offset or cursor, which meant anything older
+   * than the 50 most recent entries was simply unreachable through the UI —
+   * for the accountability record of a system that dispatches police, that is
+   * a real gap, not just an ergonomic one.
+   */
+  async listAuditLogs(
+    search?: string,
+    limit: number = 50,
+    cursor?: string,
+  ): Promise<{ data: AuditLog[]; nextCursor: string | null }> {
     const where: any = {};
     if (search) {
       where.OR = [
-        { entityType: { contains: search, mode: 'insensitive' } }
+        { entityType: { contains: search, mode: 'insensitive' } },
+        { action: { equals: search } },
       ];
     }
-    return this.prisma.auditLog.findMany({
+
+    const take = Math.min(limit, 200);
+    const rows = await this.prisma.auditLog.findMany({
       where,
-      take: limit,
-      orderBy: { createdAt: 'desc' }
+      // Fetch one extra to know whether another page exists, without a count.
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      orderBy: { createdAt: 'desc' },
     });
+
+    const hasMore = rows.length > take;
+    const data = hasMore ? rows.slice(0, take) : rows;
+    return { data, nextCursor: hasMore ? data[data.length - 1].id : null };
   }
 
   async getSystemHealth(): Promise<{ totalUsers: number, activeAlerts: number, verifiedResponders: number, pendingResponders: number }> {
@@ -374,63 +395,107 @@ export class AdminRepository {
   }
 
   // --- ANALYTICS ---
-  async getAnalyticsData(): Promise<any> {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  /**
+   * Dashboard analytics.
+   *
+   * This used to fetch every alert and every incident from the last 30 days
+   * into Node and count them with a JavaScript loop -- the code said as much:
+   * "Let's just fetch the last 30 days and group in memory for simplicity".
+   * At 1,000 alerts/day that is 30,000 rows transferred and parsed on every
+   * dashboard load, and it grows with usage.
+   *
+   * Postgres can do this with three GROUP BYs over BRIN-indexed ranges,
+   * returning ~30 rows instead of 30,000. generate_series fills the gaps so
+   * quiet days still appear on the chart.
+   *
+   * The heatmap no longer ships raw incident coordinates either: points are
+   * snapped to a ~250m grid server-side, which is both far less data and
+   * better for the privacy of whoever filed the report.
+   */
+  async getAnalyticsData(days = 30): Promise<any> {
+    const [incidentTypes, trends, heatmap, totals] = await Promise.all([
+      // ── Incidents by type ────────────────────────────────────────────
+      this.prisma.$queryRaw<Array<{ name: string; value: bigint }>>`
+        SELECT type::text AS name, COUNT(*)::bigint AS value
+        FROM incident_reports
+        GROUP BY type
+        ORDER BY value DESC;
+      `,
 
-    const [incidentsByType, alertsByDate, incidentsByDate] = await Promise.all([
-      this.prisma.incidentReport.groupBy({
-        by: ['type'],
-        _count: {
-          id: true
-        }
-      }),
-      // We do a raw query or simple fetch and group in memory if needed, 
-      // but Prisma makes group by date tricky without raw query in some DBs.
-      // Let's just fetch the last 30 days and group in memory for simplicity here.
-      this.prisma.emergencyAlert.findMany({
-        where: { createdAt: { gte: thirtyDaysAgo } },
-        select: { createdAt: true }
-      }),
-      this.prisma.incidentReport.findMany({
-        where: { createdAt: { gte: thirtyDaysAgo } },
-        select: { createdAt: true, latitude: true, longitude: true, type: true }
-      })
+      // ── Daily alert/incident counts, with empty days filled ──────────
+      this.prisma.$queryRaw<Array<{ date: string; alerts: bigint; incidents: bigint }>>`
+        WITH days AS (
+          SELECT generate_series(
+            (CURRENT_DATE - (${days - 1} || ' days')::INTERVAL)::date,
+            CURRENT_DATE,
+            '1 day'
+          )::date AS day
+        ),
+        a AS (
+          SELECT created_at::date AS day, COUNT(*)::bigint AS n
+          FROM emergency_alerts
+          WHERE created_at >= CURRENT_DATE - (${days - 1} || ' days')::INTERVAL
+          GROUP BY 1
+        ),
+        i AS (
+          SELECT created_at::date AS day, COUNT(*)::bigint AS n
+          FROM incident_reports
+          WHERE created_at >= CURRENT_DATE - (${days - 1} || ' days')::INTERVAL
+          GROUP BY 1
+        )
+        SELECT to_char(d.day, 'YYYY-MM-DD') AS date,
+               COALESCE(a.n, 0)::bigint AS alerts,
+               COALESCE(i.n, 0)::bigint AS incidents
+        FROM days d
+        LEFT JOIN a ON a.day = d.day
+        LEFT JOIN i ON i.day = d.day
+        ORDER BY d.day;
+      `,
+
+      // ── Heatmap, aggregated to a grid ────────────────────────────────
+      // ~0.0025 degrees is roughly 250m at this latitude. Returning a weighted
+      // grid instead of every raw point keeps the payload small and avoids
+      // handing the browser the exact location of every reported incident.
+      this.prisma.$queryRaw<Array<{ lat: number; lng: number; weight: bigint; type: string }>>`
+        SELECT ROUND(latitude::numeric  / 0.0025) * 0.0025 AS lat,
+               ROUND(longitude::numeric / 0.0025) * 0.0025 AS lng,
+               COUNT(*)::bigint AS weight,
+               MODE() WITHIN GROUP (ORDER BY type::text) AS type
+        FROM incident_reports
+        WHERE created_at >= CURRENT_DATE - (${days - 1} || ' days')::INTERVAL
+        GROUP BY 1, 2
+        ORDER BY weight DESC
+        LIMIT 2000;
+      `,
+
+      this.prisma.$queryRaw<Array<{ alerts: bigint; incidents: bigint }>>`
+        SELECT
+          (SELECT COUNT(*) FROM emergency_alerts
+             WHERE created_at >= CURRENT_DATE - (${days - 1} || ' days')::INTERVAL)::bigint AS alerts,
+          (SELECT COUNT(*) FROM incident_reports
+             WHERE created_at >= CURRENT_DATE - (${days - 1} || ' days')::INTERVAL)::bigint AS incidents;
+      `,
     ]);
 
-    // Format incidents by type
-    const incidentTypes = incidentsByType.map(i => ({
-      name: i.type,
-      value: i._count.id
-    }));
-
-    // Group alerts by date
-    const trendsMap: Record<string, { date: string, alerts: number, incidents: number }> = {};
-    
-    // Initialize last 30 days
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      trendsMap[dateStr] = { date: dateStr, alerts: 0, incidents: 0 };
-    }
-
-    alertsByDate.forEach(a => {
-      const dateStr = a.createdAt.toISOString().split('T')[0];
-      if (trendsMap[dateStr]) trendsMap[dateStr].alerts++;
-    });
-
-    incidentsByDate.forEach(i => {
-      const dateStr = i.createdAt.toISOString().split('T')[0];
-      if (trendsMap[dateStr]) trendsMap[dateStr].incidents++;
-    });
-
-    const trends = Object.values(trendsMap);
-
     return {
-      incidentTypes,
-      trends,
-      recentIncidents: incidentsByDate // useful for heatmap
+      incidentTypes: incidentTypes.map((r) => ({ name: r.name, value: Number(r.value) })),
+      trends: trends.map((r) => ({
+        date: r.date,
+        alerts: Number(r.alerts),
+        incidents: Number(r.incidents),
+      })),
+      // Kept under the old key so the existing dashboard keeps rendering.
+      recentIncidents: heatmap.map((r) => ({
+        latitude: Number(r.lat),
+        longitude: Number(r.lng),
+        weight: Number(r.weight),
+        type: r.type,
+      })),
+      totals: {
+        alerts: Number(totals[0]?.alerts ?? 0),
+        incidents: Number(totals[0]?.incidents ?? 0),
+        periodDays: days,
+      },
     };
   }
 }

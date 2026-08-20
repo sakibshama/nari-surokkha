@@ -15,11 +15,17 @@ import {
   UnauthorizedError,
   ConflictError,
   ForbiddenError,
+  TooManyRequestsError,
 } from '@/utils/errors';
 import { ERROR_CODES, MAX_LOGIN_ATTEMPTS } from '@nari-surokkha/shared';
 import type { FastifyInstance } from 'fastify';
 import type { JwtAccessPayload, JwtRefreshPayload } from '@/types/index';
 import { bumpTokenVersion, getTokenVersion } from '@/utils/token-version';
+import {
+  checkLoginThrottle,
+  clearLoginFailures,
+  recordLoginFailure,
+} from '@/utils/login-throttle';
 
 // ─── Token generation helpers ─────────────────────────────────
 
@@ -152,6 +158,18 @@ export class AuthService {
     ipAddress?: string;
     deviceInfo?: string;
   }): Promise<LoginResult> {
+    // Per-ACCOUNT backoff, checked before we spend CPU on argon2. The existing
+    // per-IP limit does nothing against credential stuffing from a botnet,
+    // where each attempt on this account comes from a different address.
+    if (this.fastify) {
+      const throttle = await checkLoginThrottle(this.fastify, data.phone);
+      if (throttle.locked) {
+        throw new TooManyRequestsError(
+          `Too many failed sign-in attempts. Try again in ${throttle.retryAfterSeconds} seconds.`,
+        );
+      }
+    }
+
     const user = await this.repo.findUserByPhone(data.phone);
 
     // Use constant-time comparison to prevent timing attacks
@@ -165,8 +183,13 @@ export class AuthService {
     );
 
     if (!user || !passwordValid) {
+      // Counted for real and unknown accounts alike — otherwise the throttle
+      // itself becomes an oracle for which phone numbers are registered.
+      if (this.fastify) await recordLoginFailure(this.fastify, data.phone);
       throw new UnauthorizedError('Invalid phone number or password.');
     }
+
+    if (this.fastify) await clearLoginFailures(this.fastify, data.phone);
 
     // Check account status
     if (user.status === 'suspended') {

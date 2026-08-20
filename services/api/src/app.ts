@@ -122,6 +122,51 @@ export async function buildApp(): Promise<FastifyInstance> {
   await fastify.register(fastifyCookie, {
     secret: env.JWT_SECRET, // using jwt secret to sign cookies if needed
     hook: 'onRequest',
+    parseOptions: {
+      // The portals authenticate by cookie, which makes every state-changing
+      // endpoint a CSRF target. SameSite=strict is the primary defence: the
+      // browser simply will not attach this cookie to a cross-site request.
+      sameSite: 'strict',
+      httpOnly: true,
+      secure: env.NODE_ENV === 'production',
+      path: '/',
+    },
+  });
+
+  // ─── CSRF defence in depth ──────────────────────────────
+  // SameSite=strict covers modern browsers, but it is one flag away from being
+  // the only thing standing between a malicious page and an authenticated
+  // write. For requests authenticated by COOKIE (never for Bearer tokens,
+  // which a cross-site page cannot read or attach), also require the Origin to
+  // be one we allow.
+  fastify.addHook('onRequest', (request, reply, done) => {
+    const method = request.method.toUpperCase();
+    const isWrite = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+    if (!isWrite) return done();
+
+    // Bearer-token requests are not CSRF-able: an attacker's page cannot read
+    // the token to attach it.
+    if (request.headers.authorization) return done();
+    if (!request.cookies?.accessToken) return done();
+
+    const origin = request.headers.origin;
+    // Same-origin form posts and non-browser clients send no Origin at all.
+    // A cross-site browser request always does.
+    if (!origin) return done();
+
+    const allowed = Array.isArray(env.CORS_ORIGINS)
+      ? env.CORS_ORIGINS
+      : String(env.CORS_ORIGINS).split(',').map((o) => o.trim());
+
+    if (!allowed.includes(origin)) {
+      request.log.warn({ origin, url: request.url }, 'Blocked cross-origin cookie-authenticated write');
+      void reply.code(403).send({
+        success: false,
+        error: { code: 'SEC_001', message: 'Cross-origin request rejected' },
+      });
+      return;
+    }
+    done();
   });
 
   // ─── Queue & Realtime ───────────────────────────────────

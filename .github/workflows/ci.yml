@@ -73,9 +73,12 @@ jobs:
           DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
         run: npx prisma migrate deploy
 
-      # Coverage thresholds live in vitest.config.ts (lines 70, functions 70,
-      # branches 60). Running with --coverage makes them a gate rather than a
-      # number nobody looks at: vitest exits non-zero when they are not met.
+      # Coverage thresholds live in vitest.config.ts. They were 70/70/60 and
+      # nothing enforced them -- `npm test` never passed --coverage -- so they
+      # were decoration. Measured and reset to a ratchet just under the real
+      # numbers; running with --coverage makes them a genuine regression gate.
+      # Note this job runs ALL projects against the live Postgres service
+      # above, so its coverage is higher than a local unit-only run.
       - name: Run tests with coverage gate
         working-directory: services/api
         env:

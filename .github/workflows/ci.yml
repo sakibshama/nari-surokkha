@@ -305,22 +305,48 @@ jobs:
           VITE_WS_URL: wss://api.example.com
         run: npm run build
 
-      # Code splitting is easy to add and easy to lose -- one stray static
-      # import of a page pulls its whole dependency tree back into the entry
-      # chunk. This fails the build if that happens.
-      - name: Bundle budget
+      # Code splitting is easy to add and easy to lose, and the obvious check
+      # does not catch losing it. Measuring the ENTRY CHUNK alone passes even
+      # when Vite emits <link rel="modulepreload"> for a lazily-imported
+      # library -- which is exactly what happened here: naming recharts in
+      # manualChunks hoisted it into the entry's graph, so 380KB of charting
+      # was preloaded on every page load while the entry chunk still read
+      # 104KB and looked fine.
+      #
+      # So this budgets what the browser ACTUALLY fetches before the user
+      # interacts: the entry script, every modulepreload, and the stylesheet.
+      - name: First-paint bundle budget
         working-directory: apps/${{ matrix.portal }}
         run: |
-          set -e
-          ENTRY=$(find dist/assets -name 'index-*.js' | head -1)
-          SIZE=$(stat -c%s "$ENTRY")
-          BUDGET=$((700 * 1024))
-          echo "entry chunk: $((SIZE / 1024)) KB (budget $((BUDGET / 1024)) KB)"
-          ls -la dist/assets/*.js | awk '{printf "  %6.1f KB  %s\n", $5/1024, $9}'
-          [ "$SIZE" -le "$BUDGET" ] || { echo "::error::Entry chunk $((SIZE/1024))KB exceeds $((BUDGET/1024))KB budget -- has a page been statically imported again?"; exit 1; }
-          CHUNKS=$(find dist/assets -name '*.js' | wc -l)
-          [ "$CHUNKS" -ge 4 ] || { echo "::error::Only $CHUNKS JS chunks -- code splitting appears to have been lost"; exit 1; }
-          echo "✅ $CHUNKS chunks, entry within budget"
+          python3 - <<'PY'
+          import re, os, sys
+          html = open('dist/index.html').read()
+          sizes = {f: os.path.getsize(f'dist/assets/{f}') for f in os.listdir('dist/assets')}
+          eager = set(re.findall(r'(?:src|href)="/assets/([^"]+)"', html))
+          first_paint = sum(sizes.get(f, 0) for f in eager)
+          deferred = sum(sizes.values()) - first_paint
+          budget = 600 * 1024
+
+          for f in sorted(eager, key=lambda x: -sizes.get(x, 0)):
+              print(f"  {sizes.get(f,0)/1024:8.1f} KB  {f}")
+          print(f"  first paint : {first_paint/1024:.1f} KB (budget {budget/1024:.0f} KB)")
+          print(f"  deferred    : {deferred/1024:.1f} KB")
+
+          fail = False
+          if first_paint > budget:
+              print(f"::error::First-paint bundle {first_paint/1024:.0f}KB exceeds {budget/1024:.0f}KB. "
+                    "A lazily-used library has most likely been added to manualChunks, "
+                    "which hoists it into the entry graph and gets it preloaded.")
+              fail = True
+          if len(sizes) < 8:
+              print(f"::error::Only {len(sizes)} build assets -- route-level code splitting appears to have been lost.")
+              fail = True
+          if deferred < first_paint * 0.5:
+              print(f"::error::Only {deferred/1024:.0f}KB is deferred vs {first_paint/1024:.0f}KB eager -- "
+                    "lazy routes are not actually deferring their dependencies.")
+              fail = True
+          sys.exit(1 if fail else 0)
+          PY
 
   # ─── Docker ─────────────────────────────────────────────────
   # CI type-checked and tested the source but never proved the images build.

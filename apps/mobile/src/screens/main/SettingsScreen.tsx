@@ -1,23 +1,27 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Switch, View } from 'react-native';
+import { Field } from '../../components/ui';
 import { showAlert } from '../../utils/notify';
 import {
   Activity,
   Bell,
+  Check,
   Languages,
   Lock,
   LogOut,
   Mic,
   Palette,
+  RotateCcw,
   Server,
   Share2,
   Shield,
+  Wand2,
 } from 'lucide-react-native';
 
 import { Screen, Card, ListRow, RowDivider, SectionLabel, Txt, Button, AppBar, FadeIn } from '../../components/ui';
 import ThemeModeControl from '../../components/ThemeModeControl';
 import LanguageToggle from '../../components/LanguageToggle';
-import api, { describeApiTarget } from '../../services/api';
+import api, { describeApiTarget, initApiTarget, probe, setApiBaseUrl } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useTheme } from '../../theme';
@@ -41,6 +45,9 @@ export default function SettingsScreen() {
   const [notifications, setNotifications] = useState(true);
   const [locationSharing, setLocationSharing] = useState(true);
   const [checking, setChecking] = useState(false);
+  const [target, setTarget] = useState(describeApiTarget());
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(describeApiTarget());
 
   /**
    * One-tap connection check. An SOS that cannot reach the server is the
@@ -48,19 +55,54 @@ export default function SettingsScreen() {
    */
   const checkConnection = async () => {
     setChecking(true);
-    const target = describeApiTarget();
+    const current = describeApiTarget();
     try {
       const res = await api.get('/ping', { timeout: 8000 });
       if (res.data?.message === 'pong') {
-        showAlert(t('Server reachable'), `${target}\n${t('The app can send an SOS.')}`);
+        showAlert(t('Server reachable'), `${current}\n${t('The app can send an SOS.')}`);
       } else {
-        showAlert(t('Unexpected reply'), `${target}\n${t('The server answered, but not as expected. Check the API URL.')}`);
+        showAlert(t('Unexpected reply'), `${current}\n${t('The server answered, but not as expected. Check the API URL.')}`);
       }
     } catch (e: any) {
       const status = e?.response?.status;
       showAlert(
         t('Cannot reach the server'),
-        `${target}\n${status ? `HTTP ${status}` : e?.message || t('No response.')}`,
+        `${current}\n${status ? `HTTP ${status}` : e?.message || t('No response.')}`,
+      );
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  /** Re-run auto-detection (clears any saved address first). */
+  const autoDetect = async () => {
+    setChecking(true);
+    try {
+      await setApiBaseUrl(null);
+      const found = await initApiTarget();
+      setTarget(found);
+      setDraft(found);
+      const ok = await probe(found);
+      showAlert(
+        ok ? t('Server reachable') : t('Cannot reach the server'),
+        `${found}\n${ok ? t('The app can send an SOS.') : t('Enter the address manually below.')}`,
+      );
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  /** Pin the address the user typed. */
+  const saveTarget = async () => {
+    setChecking(true);
+    try {
+      const saved = await setApiBaseUrl(draft);
+      setTarget(saved);
+      setEditing(false);
+      const ok = await probe(saved);
+      showAlert(
+        ok ? t('Server reachable') : t('Cannot reach the server'),
+        `${saved}\n${ok ? t('The app can send an SOS.') : t('Saved, but nothing answered there yet.')}`,
       );
     } finally {
       setChecking(false);
@@ -159,11 +201,66 @@ export default function SettingsScreen() {
       <SectionLabel>{t('Connection')}</SectionLabel>
       <Card padded={false} delay={200}>
         <ListRow
-          title={t('Check server connection')}
-          subtitle={describeApiTarget()}
+          title={t('Server address')}
+          subtitle={target}
           icon={<Server size={19} color={colors.accent} />}
+          onPress={() => {
+            setDraft(target);
+            setEditing((v) => !v);
+          }}
+        />
+
+        {editing && (
+          <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
+            <Field
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="http://192.168.0.10:3001"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              hint={t('The app adds /api/v1 for you.')}
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <Button
+                label={t('Save')}
+                onPress={saveTarget}
+                loading={checking}
+                icon={<Check size={17} color={colors.onAccent} />}
+                style={{ flex: 1 }}
+                full={false}
+              />
+              <Button
+                label={t('Reset')}
+                variant="subtle"
+                full={false}
+                style={{ flex: 1 }}
+                onPress={async () => {
+                  const reset = await setApiBaseUrl(null);
+                  setTarget(reset);
+                  setDraft(reset);
+                  setEditing(false);
+                }}
+                icon={<RotateCcw size={16} color={colors.text} />}
+              />
+            </View>
+          </View>
+        )}
+
+        <RowDivider />
+        <ListRow
+          title={t('Check server connection')}
+          subtitle={t('Confirm an SOS can reach the server')}
+          icon={<Shield size={19} color={colors.accent} />}
           onPress={checking ? undefined : checkConnection}
           right={checking ? <ActivityIndicator color={colors.accent} /> : undefined}
+        />
+        <RowDivider />
+        <ListRow
+          title={t('Detect server automatically')}
+          subtitle={t('Try this phone, your computer and the emulator')}
+          icon={<Wand2 size={19} color={colors.accent} />}
+          onPress={checking ? undefined : autoDetect}
         />
       </Card>
 

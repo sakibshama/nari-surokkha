@@ -63,11 +63,24 @@ function devHost(): string {
 
 const DEV_API_URL = `http://${devHost()}:${DEV_API_PORT}/api/v1`;
 
+/** Candidate dev servers, best guess first. Used by discoverApiUrl(). */
+function devCandidates(): string[] {
+  const list = [DEV_API_URL];
+  // USB / adb reverse, and the simulator.
+  list.push(`http://localhost:${DEV_API_PORT}/api/v1`);
+  // Android emulator's alias for the host machine.
+  if (Platform.OS === 'android') list.push(`http://10.0.2.2:${DEV_API_PORT}/api/v1`);
+  // Whatever the build was configured with (a staging/production server).
+  if (extra.apiUrl) list.push(extra.apiUrl);
+  return [...new Set(list)];
+}
+
 /**
  * Resolution order:
- *   1. EXPO_PUBLIC_API_URL          — set per EAS build profile / .env
- *   2. expo.extra.apiUrl (app.json) — the committed default, release builds
- *   3. the dev URL derived above    — only when __DEV__
+ *   1. a server address the user saved in Settings  (checked at startup)
+ *   2. EXPO_PUBLIC_API_URL                          — EAS build profile / .env
+ *   3. expo.extra.apiUrl (app.json)                 — release builds
+ *   4. the dev URL derived above                    — only when __DEV__
  */
 function resolveApiUrl(): string {
   const fromEnv = process.env['EXPO_PUBLIC_API_URL'];
@@ -81,14 +94,115 @@ function resolveApiUrl(): string {
   );
 }
 
-export const API_BASE_URL = resolveApiUrl();
+const OVERRIDE_KEY = '@api_base_url';
 
-if (__DEV__) {
-  // One line in the Metro log that answers "what is it actually calling?".
-  console.log(`[api] base URL: ${API_BASE_URL}`);
+/**
+ * The address the app is talking to RIGHT NOW.
+ *
+ * It is mutable on purpose. Guessing a dev machine's address from Metro works
+ * for Wi-Fi but not for a USB cable, a tunnel, or a standalone build — and an
+ * app that cannot be pointed at the right server is an app that cannot send an
+ * SOS. `initApiTarget()` picks the first candidate that actually answers, and
+ * Settings can pin one permanently.
+ */
+let activeBaseUrl = resolveApiUrl();
+
+/**
+ * @deprecated A snapshot taken at import time. Use `getApiBaseUrl()` — the
+ * target can change at runtime (auto-detection, or a Settings override).
+ */
+export const API_BASE_URL = activeBaseUrl;
+export const getApiBaseUrl = (): string => activeBaseUrl;
+/** Where this build talks to — shown in error messages and the connection check. */
+export const describeApiTarget = (): string => activeBaseUrl;
+export const getWsBaseUrl = (): string =>
+  process.env['EXPO_PUBLIC_WS_URL'] ?? activeBaseUrl.replace(/\/api\/v1\/?$/, '');
+
+type TargetListener = (url: string) => void;
+const targetListeners = new Set<TargetListener>();
+export function onApiTargetChange(cb: TargetListener): () => void {
+  targetListeners.add(cb);
+  return () => targetListeners.delete(cb);
 }
-export const WS_BASE_URL =
-  process.env['EXPO_PUBLIC_WS_URL'] ?? extra.wsUrl ?? API_BASE_URL.replace(/\/api\/v1$/, '');
+
+function setActive(url: string) {
+  activeBaseUrl = url.replace(/\/+$/, '');
+  api.defaults.baseURL = activeBaseUrl;
+  if (__DEV__) console.log(`[api] base URL: ${activeBaseUrl}`);
+  targetListeners.forEach((cb) => {
+    try {
+      cb(activeBaseUrl);
+    } catch {
+      /* a listener must never break the switch */
+    }
+  });
+}
+
+/** Save (or clear, with null) a server address chosen by the user. */
+export async function setApiBaseUrl(url: string | null): Promise<string> {
+  if (url) {
+    const clean = url.trim().replace(/\/+$/, '');
+    const withPath = /\/api\/v1$/.test(clean) ? clean : `${clean}/api/v1`;
+    await AsyncStorage.setItem(OVERRIDE_KEY, withPath);
+    setActive(withPath);
+    return withPath;
+  }
+  await AsyncStorage.removeItem(OVERRIDE_KEY);
+  setActive(resolveApiUrl());
+  return activeBaseUrl;
+}
+
+/** Does this server answer /ping? */
+export async function probe(baseUrl: string, timeoutMs = 2500): Promise<boolean> {
+  try {
+    const res = await axios.get(`${baseUrl.replace(/\/+$/, '')}/ping`, {
+      timeout: timeoutMs,
+      headers: { 'ngrok-skip-browser-warning': 'true', 'Bypass-Tunnel-Reminder': 'true' },
+    });
+    return res.data?.message === 'pong';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Called once at startup. Uses a saved address if there is one, otherwise (in
+ * development) tries each candidate until one answers, so the app works over
+ * Wi-Fi, USB and the emulator without anyone editing a file.
+ */
+export async function initApiTarget(): Promise<string> {
+  try {
+    const saved = await AsyncStorage.getItem(OVERRIDE_KEY);
+    if (saved) {
+      setActive(saved);
+      return activeBaseUrl;
+    }
+  } catch {
+    /* no saved address */
+  }
+
+  if (!__DEV__) {
+    setActive(resolveApiUrl());
+    return activeBaseUrl;
+  }
+
+  for (const candidate of devCandidates()) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await probe(candidate)) {
+      setActive(candidate);
+      return activeBaseUrl;
+    }
+  }
+
+  if (__DEV__) {
+    console.warn(
+      `[api] no server answered on ${devCandidates().join(', ')} — ` +
+        'start the API, or set the address in Settings → Connection.',
+    );
+  }
+  setActive(resolveApiUrl());
+  return activeBaseUrl;
+}
 
 // ─── WebRTC ICE servers ──────────────────────────────────────────────────────
 // STUN discovers the public address; TURN relays media when peer-to-peer fails
@@ -116,7 +230,7 @@ export async function fetchIceServers(): Promise<any[]> {
 }
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: activeBaseUrl,
   timeout: 20000,
   headers: {
     'Content-Type': 'application/json',
@@ -128,9 +242,6 @@ const api = axios.create({
     'Bypass-Tunnel-Reminder': 'true',
   },
 });
-
-/** Where this build talks to — shown in error messages and the connection check. */
-export const describeApiTarget = (): string => API_BASE_URL;
 
 /** True when a 2xx body is clearly not our JSON API (tunnel page, proxy error). */
 export function looksLikeNonApiResponse(data: unknown): boolean {
@@ -160,9 +271,10 @@ const getItem = async (key: string) => {
 export const getAccessToken = (): Promise<string | null> => getItem('accessToken');
 
 /** Absolute URL to stream an evidence file's raw bytes (needs the auth header). */
-export const evidenceRawUrl = (evidenceId: string): string => `${API_BASE_URL}/evidence/${evidenceId}/raw`;
+export const evidenceRawUrl = (evidenceId: string): string => `${activeBaseUrl}/evidence/${evidenceId}/raw`;
 
 api.interceptors.request.use(async (config) => {
+  config.baseURL = activeBaseUrl;
   const token = await getItem('accessToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -186,7 +298,7 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refreshToken) return null;
   try {
     // Bare axios (not `api`) so this request skips the interceptor.
-    const resp = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+    const resp = await axios.post(`${activeBaseUrl}/auth/refresh`, { refreshToken });
     const tokens = resp.data?.data ?? resp.data;
     const newAccess = tokens?.accessToken;
     const newRefresh = tokens?.refreshToken;
@@ -208,7 +320,7 @@ api.interceptors.response.use(
     // that names the URL actually being called.
     if (looksLikeNonApiResponse(response.data)) {
       const err = new Error(
-        `Expected JSON from ${API_BASE_URL} but received a web page. ` +
+        `Expected JSON from ${activeBaseUrl} but received a web page. ` +
           'Check the API URL (EXPO_PUBLIC_API_URL / expo.extra.apiUrl) or your tunnel.',
       );
       (err as any).nonApiResponse = true;
@@ -227,7 +339,7 @@ api.interceptors.response.use(
         // Name the address that failed: "connection error" with no URL is
         // impossible to act on, and this is usually a wrong host or a
         // firewall on the dev machine.
-        text2: API_BASE_URL,
+        text2: activeBaseUrl,
         position: 'top',
         visibilityTime: 5000,
       });

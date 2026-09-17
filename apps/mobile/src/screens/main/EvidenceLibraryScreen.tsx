@@ -12,7 +12,7 @@ import { useLanguage, useT, type TFunction } from '../../i18n';
 import { AppBar, Badge, Button, EmptyState, PressableScale, Shimmer, Txt } from '../../components/ui';
 import { radius, spacing, type } from '../../theme/tokens';
 import type { Palette } from '../../theme/tokens';
-import api, { getAccessToken, evidenceRawUrl, API_BASE_URL } from '../../services/api';
+import api, { getAccessToken, evidenceRawUrl, getApiBaseUrl } from '../../services/api';
 
 interface EvidenceItem {
   id: string;
@@ -34,13 +34,11 @@ const typeMeta = (colors: Palette): Record<string, { Icon: any; color: string; l
   document: { Icon: FileText, color: colors.accentText, label: 'File', tone: 'accent' },
 });
 
-const API_ORIGIN = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
-
 // Resolve the public (presigned) URL to the app's real origin for downloads.
 function resolveMediaUrl(url: string): string {
   if (!url) return url;
   const idx = url.indexOf('/api/v1/evidence/mock-s3/');
-  if (idx >= 0) return API_ORIGIN + url.slice(idx);
+  if (idx >= 0) return getApiBaseUrl().replace(/\/api\/v1\/?$/, '') + url.slice(idx);
   return url;
 }
 

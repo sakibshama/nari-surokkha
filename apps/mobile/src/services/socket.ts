@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { API_BASE_URL } from './api';
+import { getWsBaseUrl } from './api';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
@@ -58,7 +58,7 @@ class SocketService {
       return;
     }
 
-    this.socket = io(API_BASE_URL.replace('/api/v1', ''), {
+    this.socket = io(getWsBaseUrl(), {
       transports: ['websocket'],
       autoConnect: true,
       auth: { token },

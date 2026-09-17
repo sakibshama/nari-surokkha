@@ -12,6 +12,7 @@ import { ErrorBoundary } from './src/components/ErrorBoundary';
 import AnimatedSplash from './src/components/AnimatedSplash';
 import { ThemeProvider, useTheme } from './src/theme';
 import { useLanguageStore, useT } from './src/i18n';
+import { initApiTarget } from './src/services/api';
 
 LogBox.ignoreLogs(['Attempted to import the module', 'event-target-shim']);
 
@@ -31,6 +32,11 @@ function AppShell() {
   useEffect(() => {
     // Restore the saved language before the first real screen paints.
     useLanguageStore.getState().hydrate();
+    // Work out which server this app can actually reach (saved address, then
+    // the dev candidates). Fire and forget: nothing blocks the first frame.
+    initApiTarget().catch(() => {
+      /* the request itself will report the failure */
+    });
   }, []);
 
   useEffect(() => {

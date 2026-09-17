@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, Linking, RefreshControl, Modal, Dimensions } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, Platform, Linking, RefreshControl, Modal, Dimensions } from 'react-native';
 import { showAlert } from '../../utils/notify';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
@@ -24,7 +24,8 @@ interface EvidenceItem {
   uploadedAt: string;
   alertType?: string | null;
   alertDate?: string | null;
-  url: string;
+  /** Pre-signed link. Null when the storage backend could not produce one. */
+  url: string | null;
 }
 
 const typeMeta = (colors: Palette): Record<string, { Icon: any; color: string; label: string; tone: 'success' | 'info' | 'warning' | 'accent' }> => ({
@@ -35,8 +36,8 @@ const typeMeta = (colors: Palette): Record<string, { Icon: any; color: string; l
 });
 
 // Resolve the public (presigned) URL to the app's real origin for downloads.
-function resolveMediaUrl(url: string): string {
-  if (!url) return url;
+function resolveMediaUrl(url: string | null): string | null {
+  if (!url) return null;
   const idx = url.indexOf('/api/v1/evidence/mock-s3/');
   if (idx >= 0) return getApiBaseUrl().replace(/\/api\/v1\/?$/, '') + url.slice(idx);
   return url;
@@ -78,6 +79,7 @@ export default function EvidenceLibraryScreen() {
   const [error, setError] = useState<string | null>(null);
   const [failedThumbs, setFailedThumbs] = useState<Record<string, boolean>>({});
   const [token, setToken] = useState<string | null>(null);
+  const [blobUrls, setBlobUrls] = useState<Record<string, string>>({});
   const [viewer, setViewer] = useState<EvidenceItem | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
@@ -90,8 +92,17 @@ export default function EvidenceLibraryScreen() {
       // token is fresh — safe to attach to authenticated <Image> requests.
       setToken(await getAccessToken());
       setFailedThumbs({});
-    } catch {
-      setError('Could not load your evidence. Pull down to retry.');
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const msg = e?.response?.data?.error?.message;
+      if (__DEV__) console.error('[evidence] list failed', status, msg || e?.message);
+      setError(
+        msg
+          ? `${msg}${status ? ` (${status})` : ''}`
+          : status
+            ? `Could not load your evidence (${status}).`
+            : 'Could not load your evidence. Pull down to retry.',
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -100,15 +111,85 @@ export default function EvidenceLibraryScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // Authenticated image source — streams bytes from the API over the working
-  // connection (no dependency on a public URL being reachable from the device).
-  const imgSource = (it: EvidenceItem) => ({
-    uri: evidenceRawUrl(it.id),
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
+  /**
+   * Authenticated image source.
+   *
+   * Native <Image> can send an Authorization header, so it streams straight
+   * from /evidence/:id/raw and never depends on the storage backend being
+   * reachable from the phone. The web <img> element CANNOT send headers, so
+   * there the bytes are fetched with axios and handed over as a blob URL.
+   */
+  const imgSource = (it: EvidenceItem) => {
+    if (Platform.OS === 'web') {
+      return blobUrls[it.id] ? { uri: blobUrls[it.id] } : undefined;
+    }
+    return {
+      uri: evidenceRawUrl(it.id),
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    };
+  };
+
+  // Web only: pull each image through the authenticated API and keep an object
+  // URL for it. Revoked on unmount so a long session does not leak blobs.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    let cancelled = false;
+    const created: string[] = [];
+    (async () => {
+      for (const it of items) {
+        if (!isImageItem(it) || blobUrls[it.id]) continue;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const res = await api.get(`/evidence/${it.id}/raw`, { responseType: 'blob' });
+          if (cancelled) return;
+          const objectUrl = URL.createObjectURL(res.data as Blob);
+          created.push(objectUrl);
+          setBlobUrls((prev) => ({ ...prev, [it.id]: objectUrl }));
+        } catch {
+          setFailedThumbs((prev) => ({ ...prev, [it.id]: true }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      created.forEach((u) => URL.revokeObjectURL(u));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   const downloadItem = async (item: EvidenceItem) => {
+    // On web we can always save the file: pull it through the authenticated
+    // API and hand the browser a blob. No dependency on object storage being
+    // reachable from this device.
+    if (Platform.OS === 'web') {
+      try {
+        const res = await api.get(`/evidence/${item.id}/raw`, { responseType: 'blob' });
+        const objectUrl = URL.createObjectURL(res.data as Blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = item.originalName || `evidence-${item.id}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+      } catch {
+        showAlert(t('Download failed'), t('Please try again in a moment.'));
+      }
+      return;
+    }
+
     const target = resolveMediaUrl(item.url);
+    if (!target) {
+      // Storage could not produce a public link (common in development when
+      // MinIO/S3 is not running). Images still open in the in-app viewer.
+      showAlert(
+        t('Unavailable'),
+        isImageItem(item)
+          ? t('This file has no shareable link right now — tap it to view it here instead.')
+          : t('This file has no shareable link right now. Try again once storage is back.'),
+      );
+      return;
+    }
     try {
       const ok = await Linking.canOpenURL(target);
       if (ok) await Linking.openURL(target);
@@ -162,9 +243,9 @@ export default function EvidenceLibraryScreen() {
               <Animated.View key={it.id} entering={FadeInDown.delay(Math.min(index, 8) * 60).duration(350)}>
                 <PressableScale style={[styles.card, shadows.soft]} scaleTo={0.98} onPress={() => openItem(it)}>
                   <View style={styles.thumb}>
-                    {showThumb ? (
+                    {showThumb && imgSource(it) ? (
                       <Image
-                        source={imgSource(it)}
+                        source={imgSource(it)!}
                         style={styles.thumbImg}
                         resizeMode="cover"
                         onError={() => setFailedThumbs((p) => ({ ...p, [it.id]: true }))}
@@ -216,11 +297,16 @@ export default function EvidenceLibraryScreen() {
             </PressableScale>
           </View>
 
-          {viewer && (
-            <Animated.View entering={ZoomIn.duration(250)}>
-              <Image source={imgSource(viewer)} style={styles.viewerImg} resizeMode="contain" />
-            </Animated.View>
-          )}
+          {viewer &&
+            (imgSource(viewer) ? (
+              <Animated.View entering={ZoomIn.duration(250)}>
+                <Image source={imgSource(viewer)!} style={styles.viewerImg} resizeMode="contain" />
+              </Animated.View>
+            ) : (
+              <Txt variant="sm" center style={{ color: '#fff' }}>
+                {t('Loading…')}
+              </Txt>
+            ))}
 
           <PressableScale
             style={[styles.viewerDownload, { bottom: insets.bottom + spacing.xl }]}

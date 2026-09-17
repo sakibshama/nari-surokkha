@@ -99,19 +99,31 @@ export class EvidenceService {
     // 1-hour URLs so the user has time to view/download from the library.
     const expiresIn = 3600;
     return Promise.all(
-      rows.map(async (e) => ({
-        id: e.id,
-        alertId: e.alertId,
-        type: e.type,
-        originalName: e.originalName,
-        mimeType: e.mimeType,
-        sizeBytes: Number(e.sizeBytes),
-        uploadedAt: e.uploadedAt,
-        alertType: e.alert?.type ?? null,
-        alertStatus: e.alert?.status ?? null,
-        alertDate: e.alert?.createdAt ?? null,
-        url: await this.fastify.storage.getPresignedUrl(e.fileKey, expiresIn, publicBaseUrl),
-      })),
+      rows.map(async (e) => {
+        // A pre-signed URL is a convenience. If the storage backend cannot
+        // produce one (MinIO not running in dev, credentials rotated), the
+        // whole library used to fail with a 500 — even though every file is
+        // still readable through the authenticated /evidence/:id/raw stream.
+        let url: string | null = null;
+        try {
+          url = await this.fastify.storage.getPresignedUrl(e.fileKey, expiresIn, publicBaseUrl);
+        } catch (err) {
+          this.fastify.log.warn({ err, evidenceId: e.id }, 'Could not pre-sign evidence URL');
+        }
+        return {
+          id: e.id,
+          alertId: e.alertId,
+          type: e.type,
+          originalName: e.originalName,
+          mimeType: e.mimeType,
+          sizeBytes: Number(e.sizeBytes),
+          uploadedAt: e.uploadedAt,
+          alertType: e.alert?.type ?? null,
+          alertStatus: e.alert?.status ?? null,
+          alertDate: e.alert?.createdAt ?? null,
+          url,
+        };
+      }),
     );
   }
 

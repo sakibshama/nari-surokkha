@@ -25,18 +25,15 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import {
-  Activity,
   AlertTriangle,
   Archive,
-  ChevronRight,
   Map as MapIcon,
   Menu,
-  Mic,
   Navigation,
   Phone,
   PhoneCall,
+  UserRound,
   ShieldAlert,
-  ShieldCheck,
   Timer,
   Users,
 } from 'lucide-react-native';
@@ -44,7 +41,6 @@ import {
 import { MainStackParamList } from '../../navigation/MainStack';
 import { useAuthStore } from '../../store/authStore';
 import { useLocationStore } from '../../store/locationStore';
-import { useSettingsStore } from '../../store/settingsStore';
 import api, { describeApiTarget, previewBody } from '../../services/api';
 import { sensorProcessor } from '../../services/ml/SensorProcessor';
 import { audioProcessor } from '../../services/ml/AudioProcessor';
@@ -59,40 +55,37 @@ import GovStrip from '../../components/GovStrip';
 import AmbientBackground from '../../components/AmbientBackground';
 import ThemeToggle from '../../components/ThemeToggle';
 import LanguageToggle from '../../components/LanguageToggle';
-import { Breathing, FadeIn, PressableScale, PulseRings, Txt } from '../../components/ui';
+import { FadeIn, PressableScale, PulseRings, Txt } from '../../components/ui';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'Home'>;
 
-type Tint = 'accent' | 'info' | 'success' | 'warning' | 'gov';
+type Tint = 'accent' | 'info' | 'success' | 'warning' | 'gov' | 'danger';
 
 type Action = {
   id: string;
   label: string;
-  hint: string;
   icon: React.ComponentType<{ color: string; size: number }>;
   tint: Tint;
 };
 
 /**
- * Shortcuts carry their own colour so the grid reads as six distinct tools
- * rather than six identical cards — but they stay inside the palette, and none
- * of them is red. Red is the SOS button's alone.
+ * Shortcuts, ordered by how urgently they get used: the three things you reach
+ * for while something is happening, then the everyday ones.
+ *
+ * Each carries its own colour so the grid reads as nine distinct tools rather
+ * than nine identical cards. Only "Call 999" uses the emergency red, and only
+ * because it is one.
  */
-const FEATURED: Action = {
-  id: 'route',
-  label: 'Safe Route',
-  hint: 'Share your walk home and get warned if you stray off it',
-  icon: Navigation,
-  tint: 'info',
-};
-
 const ACTIONS: Action[] = [
-  { id: 'contacts', label: 'Contacts', hint: 'Who gets your SOS', icon: Users, tint: 'accent' },
-  { id: 'fakecall', label: 'Fake Call', hint: 'Excuse yourself safely', icon: PhoneCall, tint: 'warning' },
-  { id: 'silent', label: 'Silent Alert', hint: 'Countdown, no sound', icon: Timer, tint: 'gov' },
-  { id: 'map', label: 'Safety Map', hint: 'Know the area', icon: MapIcon, tint: 'success' },
-  { id: 'report', label: 'Report', hint: 'Flag an unsafe place', icon: AlertTriangle, tint: 'warning' },
-  { id: 'evidence', label: 'Evidence', hint: 'Photos you captured', icon: Archive, tint: 'accent' },
+  { id: 'call999', label: 'Call 999', icon: PhoneCall, tint: 'danger' },
+  { id: 'route', label: 'Safe Route', icon: Navigation, tint: 'info' },
+  { id: 'fakecall', label: 'Fake Call', icon: Phone, tint: 'warning' },
+  { id: 'silent', label: 'Silent Alert', icon: Timer, tint: 'gov' },
+  { id: 'contacts', label: 'Contacts', icon: Users, tint: 'accent' },
+  { id: 'map', label: 'Safety Map', icon: MapIcon, tint: 'success' },
+  { id: 'report', label: 'Report', icon: AlertTriangle, tint: 'warning' },
+  { id: 'evidence', label: 'Evidence', icon: Archive, tint: 'accent' },
+  { id: 'profile', label: 'Profile', icon: UserRound, tint: 'info' },
 ];
 
 const SOS_SIZE = 212;
@@ -103,7 +96,6 @@ export default function HomeScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { user, updateUser } = useAuthStore();
   const { isSosActive, setSosActive, activeAlertId } = useLocationStore();
-  const { mlVoiceEnabled, mlGyroEnabled } = useSettingsStore();
   const [loading, setLoading] = useState(false);
 
   // The SOS button drives its own press animation through a plain Pressable.
@@ -185,6 +177,8 @@ export default function HomeScreen({ navigation }: Props) {
     else if (id === 'route') navigation.navigate('SafeRoute');
     else if (id === 'silent') navigation.navigate('SoftAlert', { manual: true });
     else if (id === 'evidence') navigation.navigate('EvidenceLibrary');
+    else if (id === 'profile') navigation.navigate('ProfileSetup');
+    else if (id === 'call999') callEmergency();
   };
 
   const handleSos = async () => {
@@ -387,7 +381,9 @@ export default function HomeScreen({ navigation }: Props) {
 
   /** Soft background / strong foreground pair for a shortcut's colour. */
   const tintOf = (tint: Tint) =>
-    tint === 'info'
+    tint === 'danger'
+      ? { fg: colors.dangerText, bg: colors.dangerSoft, solid: colors.danger }
+      : tint === 'info'
       ? { fg: colors.infoText, bg: colors.infoSoft, solid: colors.info }
       : tint === 'success'
         ? { fg: colors.successText, bg: colors.successSoft, solid: colors.success }
@@ -396,10 +392,6 @@ export default function HomeScreen({ navigation }: Props) {
           : tint === 'gov'
             ? { fg: colors.govGreen, bg: colors.govGreenSoft, solid: colors.govGreen }
             : { fg: colors.accentText, bg: colors.accentSoft, solid: colors.accent };
-
-  const statusTone = isSosActive
-    ? { bg: colors.dangerSoft, border: colors.danger, dot: colors.danger, fg: colors.dangerText }
-    : { bg: colors.successSoft, border: colors.success, dot: colors.success, fg: colors.successText };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -434,27 +426,6 @@ export default function HomeScreen({ navigation }: Props) {
 
         <FadeIn delay={110} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
           <GovStrip />
-        </FadeIn>
-
-        {/* ── Status ────────────────────────────────────────────── */}
-        <FadeIn delay={160} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
-          <View style={[styles.statusCard, { backgroundColor: statusTone.bg, borderColor: statusTone.border }]}>
-            <Breathing>
-              <View style={[styles.statusDotOuter, { backgroundColor: statusTone.dot + '33' }]}>
-                <View style={[styles.statusDot, { backgroundColor: statusTone.dot }]} />
-              </View>
-            </Breathing>
-            <View style={{ flex: 1 }}>
-              <Text style={[typeScale.smStrong, { color: statusTone.fg }]}>
-                {isSosActive ? t('SOS active — sharing your location') : t('You are protected')}
-              </Text>
-              <View style={styles.chips}>
-                <Chip on={mlVoiceEnabled} icon={Mic} label={t('Voice')} />
-                <Chip on={mlGyroEnabled} icon={Activity} label={t('Motion')} />
-                <Chip on icon={ShieldCheck} label={t('Contacts')} />
-              </View>
-            </View>
-          </View>
         </FadeIn>
 
         {/* ── The one loud thing on this screen ─────────────────── */}
@@ -509,98 +480,25 @@ export default function HomeScreen({ navigation }: Props) {
           </Pressable>
         </FadeIn>
 
-        {/* ── Emergency call ───────────────────────────────────── */}
-        <FadeIn delay={280} style={{ paddingHorizontal: spacing.lg }}>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={t('Call 999')}
-            onPress={callEmergency}
-            style={[styles.callRow, { backgroundColor: colors.surface, borderColor: colors.border }, shadows.soft]}
-          >
-            <View style={[styles.callIcon, { backgroundColor: colors.dangerSoft }]}>
-              <Phone size={19} color={colors.dangerText} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Txt variant="bodyStrong">{t('Call 999')}</Txt>
-              <Txt variant="xs" tone="muted">{t('National emergency service')}</Txt>
-            </View>
-            <View style={[styles.goPill, { backgroundColor: colors.dangerSoft }]}>
-              <ChevronRight size={16} color={colors.dangerText} />
-            </View>
-          </PressableScale>
-        </FadeIn>
-
-        {/* ── Featured shortcut ────────────────────────────────── */}
-        <FadeIn delay={320} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={t(FEATURED.label)}
-            onPress={() => handleAction(FEATURED.id)}
-            style={[{ borderRadius: radius.xl }, shadows.accent]}
-          >
-            <LinearGradient
-              colors={gradients.accent}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.featured}
-            >
-              <View style={styles.featuredIcon}>
-                <FEATURED.icon color={colors.onAccent} size={24} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[typeScale.h3, { color: colors.onAccent, fontWeight: '800' }]}>
-                  {t(FEATURED.label)}
-                </Text>
-                <Text style={[typeScale.xs, { color: colors.onAccent, opacity: 0.9, marginTop: 2 }]}>
-                  {t(FEATURED.hint)}
-                </Text>
-              </View>
-              <View style={styles.featuredGo}>
-                <ChevronRight size={18} color={colors.onAccent} />
-              </View>
-            </LinearGradient>
-          </PressableScale>
-        </FadeIn>
-
-        {/* ── Quick actions ─────────────────────────────────────── */}
-        <FadeIn
-          delay={360}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingHorizontal: spacing.lg,
-            marginTop: spacing.lg,
-            marginBottom: spacing.xs,
-          }}
-        >
-          <Txt variant="h3">{t('Quick actions')}</Txt>
-          <Txt variant="xs" tone="muted">{t('Tap to open')}</Txt>
-        </FadeIn>
-
+        {/* ── Shortcuts ────────────────────────────────────────── */}
         <View style={styles.grid}>
           {ACTIONS.map((item, i) => {
             const tone = tintOf(item.tint);
             return (
-              <FadeIn key={item.id} delay={400 + i * 50} style={styles.tileWrap}>
+              <FadeIn key={item.id} delay={320 + i * 40} style={styles.tileWrap}>
                 <PressableScale
                   accessibilityRole="button"
                   accessibilityLabel={t(item.label)}
-                  accessibilityHint={t(item.hint)}
                   onPress={() => handleAction(item.id)}
-                  style={[
-                    styles.tile,
-                    { backgroundColor: colors.surface, borderColor: colors.border },
-                    shadows.soft,
-                  ]}
+                  scaleTo={0.94}
+                  style={styles.tile}
                 >
-                  {/* Colour wash so each shortcut is recognisable at a glance. */}
-                  <View style={[styles.tileWash, { backgroundColor: tone.bg }]} />
-                  <View style={[styles.tileIcon, { backgroundColor: tone.bg, borderColor: tone.solid + '55' }]}>
-                    <item.icon color={tone.fg} size={22} />
+                  <View style={[styles.tileIcon, { backgroundColor: tone.bg, borderColor: tone.solid + '44' }]}>
+                    <item.icon color={tone.fg} size={24} />
                   </View>
-                  <Txt variant="smStrong" numberOfLines={1}>{t(item.label)}</Txt>
-                  <Txt variant="xs" tone="muted" numberOfLines={2}>{t(item.hint)}</Txt>
+                  <Text style={[typeScale.xs, styles.tileLabel, { color: colors.textSub }]} numberOfLines={2}>
+                    {t(item.label)}
+                  </Text>
                 </PressableScale>
               </FadeIn>
             );
@@ -613,25 +511,6 @@ export default function HomeScreen({ navigation }: Props) {
           </Txt>
         </FadeIn>
       </ScrollView>
-    </View>
-  );
-}
-
-function Chip({
-  on,
-  icon: Icon,
-  label,
-}: {
-  on: boolean;
-  icon: React.ComponentType<{ color: string; size: number }>;
-  label: string;
-}) {
-  const { colors } = useTheme();
-  const fg = on ? colors.successText : colors.textMuted;
-  return (
-    <View style={[styles.chip, { backgroundColor: on ? colors.surface : colors.surfaceAlt, borderColor: colors.border }]}>
-      <Icon color={fg} size={11} />
-      <Text style={[typeScale.xs, { color: fg, fontWeight: '600', fontSize: 11 }]}>{label}</Text>
     </View>
   );
 }
@@ -652,28 +531,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  statusCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.md,
-  },
-  statusDotOuter: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  statusDot: { width: 12, height: 12, borderRadius: 6 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
   sosArea: {
-    height: SOS_SIZE + 110,
+    height: SOS_SIZE + 90,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -703,70 +562,24 @@ const styles = StyleSheet.create({
     }),
   },
   sosSublabel: { fontSize: 13, fontWeight: '600', marginTop: 2, opacity: 0.92, textAlign: 'center' },
-  callRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.md,
-  },
-  callIcon: { width: 42, height: 42, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  goPill: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  featured: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    borderRadius: radius.xl,
-    padding: spacing.md,
-  },
-  featuredIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.22)',
-  },
-  featuredGo: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.22)',
-  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: spacing.lg - 6,
+    paddingHorizontal: spacing.sm,
   },
-  tileWrap: { width: '50%', padding: 6 },
+  tileWrap: { width: '33.33%', paddingHorizontal: 2, paddingVertical: 4 },
   tile: {
-    borderRadius: radius.xl - 6,
-    borderWidth: 1,
-    padding: spacing.md,
-    gap: 3,
-    minHeight: 132,
-    overflow: 'hidden',
+    alignItems: 'center',
+    paddingVertical: 4,
+    gap: 5,
   },
-  /** A soft colour halo bleeding in from the top-right corner of a tile. */
-  tileWash: {
-    position: 'absolute',
-    top: -34,
-    right: -34,
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    opacity: 0.75,
-  },
+  tileLabel: { fontWeight: '600', textAlign: 'center' },
   tileIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: radius.md,
+    width: 58,
+    height: 58,
+    borderRadius: radius.lg,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.sm,
   },
 });

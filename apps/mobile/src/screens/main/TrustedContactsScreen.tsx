@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { showAlert } from '../../utils/notify';
 import Animated, { FadeInDown, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Heart, Phone, User, UserMinus, UserPlus, Users } from 'lucide-react-native';
+import { AlertCircle, Heart, Phone, RefreshCw, User, UserMinus, UserPlus, Users } from 'lucide-react-native';
 
 import api from '../../services/api';
 import { useTheme } from '../../theme';
@@ -41,34 +42,57 @@ export default function TrustedContactsScreen() {
   const t = useT();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [relation, setRelation] = useState('');
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    setError(null);
     try {
       const res = await api.get('/contacts');
-      const data = res.data.data;
+      const data: Contact[] = res.data?.data ?? [];
       setContacts(data);
+      setFromCache(false);
       await AsyncStorage.setItem('@trusted_contacts', JSON.stringify(data));
-    } catch (e) {
-      if (__DEV__) console.error(e);
-      // Offline: fall back to the cached list.
+    } catch (e: any) {
+      // Say WHY. An empty list that is really a failed request is how someone
+      // ends up believing their contacts are saved when they are not.
+      const status = e?.response?.status;
+      const msg = e?.response?.data?.error?.message;
+      if (__DEV__) console.error('[contacts] load failed', status, msg || e?.message);
+      setError(
+        msg
+          ? `${msg}${status ? ` (${status})` : ''}`
+          : status
+            ? `HTTP ${status}`
+            : e?.message || 'Request failed',
+      );
+
+      // Offline: fall back to the cached list, and label it as cached.
       try {
         const cached = await AsyncStorage.getItem('@trusted_contacts');
-        if (cached) setContacts(JSON.parse(cached));
+        if (cached) {
+          setContacts(JSON.parse(cached));
+          setFromCache(true);
+        }
       } catch {
         /* nothing cached */
       }
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    load();
   }, []);
+
+  // Reload whenever the screen comes into focus, so a contact added elsewhere
+  // (or after the server came back) shows up without a restart.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
 
   const addContact = async () => {
     if (!name.trim() || !phone.trim()) {
@@ -165,6 +189,21 @@ export default function TrustedContactsScreen() {
         </Card>
 
         <SectionLabel>{t('Your trusted contacts')}</SectionLabel>
+
+        {error && (
+          <Card tone="danger" delay={60} style={{ marginBottom: spacing.sm, gap: spacing.sm }}>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+              <AlertCircle color={colors.dangerText} size={18} />
+              <View style={{ flex: 1 }}>
+                <Txt variant="smStrong" style={{ color: colors.dangerText }}>
+                  {fromCache ? t('Showing your saved copy') : t('Could not load your contacts')}
+                </Txt>
+                <Txt variant="xs" tone="sub">{error}</Txt>
+              </View>
+            </View>
+            <Button label={t('Try again')} variant="subtle" onPress={load} icon={<RefreshCw size={16} color={colors.text} />} />
+          </Card>
+        )}
 
         {loading ? (
           <View style={{ gap: spacing.sm }}>

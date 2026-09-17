@@ -466,6 +466,13 @@ export const bn: Record<string, string> = {
   'Send SMS': 'এসএমএস পাঠান',
   'Connection': 'সংযোগ',
   'Check server connection': 'সার্ভার সংযোগ পরীক্ষা করুন',
+  'Could not load your contacts': 'আপনার পরিচিতজনদের তালিকা আনা যায়নি',
+  'Showing your saved copy': 'সংরক্ষিত কপি দেখানো হচ্ছে',
+  'Loading…': 'লোড হচ্ছে…',
+  'This file has no shareable link right now — tap it to view it here instead.':
+    'এই ফাইলের শেয়ারযোগ্য লিংক এখন নেই — এখানেই দেখতে ট্যাপ করুন।',
+  'This file has no shareable link right now. Try again once storage is back.':
+    'এই ফাইলের শেয়ারযোগ্য লিংক এখন নেই। স্টোরেজ ফিরে এলে আবার চেষ্টা করুন।',
   'Server address': 'সার্ভারের ঠিকানা',
   'The app adds /api/v1 for you.': 'অ্যাপ নিজেই /api/v1 যোগ করে নেবে।',
   'Save': 'সংরক্ষণ',

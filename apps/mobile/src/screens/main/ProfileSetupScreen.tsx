@@ -2,12 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView, Switch, KeyboardAvoidingView, Platform, Modal } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../services/api';
+import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, font, spacing, radius, shadows, gradients } from '../../theme';
+import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { radius, spacing, type } from '../../theme/tokens';
 import { User, Droplets, Phone, ShieldCheck, Clock, CheckCircle, XCircle, Wifi, WifiOff, ChevronLeft, ChevronRight, Briefcase, CreditCard } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 
 export default function ProfileSetupScreen() {
+  const styles = useThemedStyles(makeStyles);
+  const { colors, gradients, shadows } = useTheme();
+  void gradients; void shadows;
   const navigation = useNavigation();
   const { user, updateUser } = useAuthStore();
 
@@ -95,11 +100,31 @@ export default function ProfileSetupScreen() {
   // ─── Responder availability toggle ───────────────────────────────
   const toggleAvail = async (v: boolean) => {
     const newAvail = v ? 'available' : 'offline';
+    // Going ONLINE requires a real GPS fix — the dispatch system routes nearby
+    // emergencies by the responder's location, so 0,0 would make them invisible.
+    let latitude = 0;
+    let longitude = 0;
+    if (newAvail === 'available') {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Location required', 'Responders must share their location so nearby emergencies can be routed to them.');
+          return;
+        }
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        latitude = loc.coords.latitude;
+        longitude = loc.coords.longitude;
+      } catch {
+        Alert.alert('Location error', 'Could not get your location. Please try again.');
+        return;
+      }
+    }
     setResponderData({ ...responderData, availability: newAvail });
     try {
-      // We need current location for this — pass 0,0 as a stub if not available
-      await api.patch('/responders/location', { latitude: 0, longitude: 0, availability: newAvail });
+      await api.patch('/responders/location', { latitude, longitude, availability: newAvail });
     } catch (e: any) {
+      // revert the optimistic UI change on failure
+      setResponderData({ ...responderData, availability: v ? 'offline' : 'available' });
       Alert.alert('Error', 'Could not update availability');
     }
   };
@@ -110,7 +135,7 @@ export default function ProfileSetupScreen() {
   const initials = fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U';
 
   return (
-    <LinearGradient colors={['#060d1f', '#0a1428', '#0d1b35']} style={styles.root}>
+    <LinearGradient colors={gradients.hero} style={styles.root}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         {/* Nav Header */}
         <View style={styles.navHeader}>
@@ -125,7 +150,7 @@ export default function ProfileSetupScreen() {
 
           {/* Profile Hero */}
           <View style={styles.hero}>
-            <LinearGradient colors={gradients.primary} style={styles.avatar}>
+            <LinearGradient colors={gradients.danger} style={styles.avatar}>
               <Text style={styles.avatarInit}>{initials}</Text>
             </LinearGradient>
             <Text style={styles.heroName}>{fullName || 'Your Profile'}</Text>
@@ -140,12 +165,12 @@ export default function ProfileSetupScreen() {
             <Text style={styles.sectionLabel}>PERSONAL INFORMATION</Text>
             <View style={styles.card}>
               {fetchingProfile
-                ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: spacing.lg }} />
+                ? <ActivityIndicator color={colors.danger} style={{ paddingVertical: spacing.lg }} />
                 : <>
                   {/* Name */}
                   <Text style={styles.fieldLabel}>Full Name</Text>
                   <View style={[styles.inputRow, nameFocused && styles.inputFocused]}>
-                    <User color={nameFocused ? colors.primary : colors.textMuted} size={18} />
+                    <User color={nameFocused ? colors.danger : colors.textMuted} size={18} />
                     <TextInput
                       style={styles.input}
                       placeholder="Your full name"
@@ -160,7 +185,7 @@ export default function ProfileSetupScreen() {
                   {/* Blood */}
                   <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>Blood Group</Text>
                   <View style={[styles.inputRow, bloodFocused && styles.inputFocused]}>
-                    <Droplets color={bloodFocused ? colors.primary : colors.textMuted} size={18} />
+                    <Droplets color={bloodFocused ? colors.danger : colors.textMuted} size={18} />
                     <TextInput
                       style={styles.input}
                       placeholder="e.g. O+"
@@ -182,12 +207,12 @@ export default function ProfileSetupScreen() {
 
                   {/* Save */}
                   <TouchableOpacity onPress={handleSave} disabled={loading} activeOpacity={0.85} style={[styles.saveWrapper, { marginTop: spacing.lg }]}>
-                    <LinearGradient colors={gradients.primary} style={styles.saveBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+                    <LinearGradient colors={gradients.danger} style={styles.saveBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
                       {loading
-                        ? <ActivityIndicator color="#fff" />
+                        ? <ActivityIndicator color={colors.onFill} />
                         : <>
                           <Text style={styles.saveBtnText}>Save Changes</Text>
-                          <ChevronRight color="#fff" size={20} />
+                          <ChevronRight color={colors.onFill} size={20} />
                         </>}
                     </LinearGradient>
                   </TouchableOpacity>
@@ -200,7 +225,7 @@ export default function ProfileSetupScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>COMMUNITY RESPONDER</Text>
             {fetchingResponder
-              ? <View style={styles.card}><ActivityIndicator color={colors.primary} /></View>
+              ? <View style={styles.card}><ActivityIndicator color={colors.danger} /></View>
               : !responderData
               ? (
                 <TouchableOpacity
@@ -208,8 +233,8 @@ export default function ProfileSetupScreen() {
                   onPress={() => setShowApplyModal(true)}
                   activeOpacity={0.85}
                 >
-                  <LinearGradient colors={gradients.blue} style={styles.applyBtn}>
-                    <ShieldCheck color="#fff" size={22} />
+                  <LinearGradient colors={gradients.accent} style={styles.applyBtn}>
+                    <ShieldCheck color={colors.onFill} size={22} />
                     <Text style={styles.applyText}>Apply as Verified Responder</Text>
                   </LinearGradient>
                 </TouchableOpacity>
@@ -218,14 +243,14 @@ export default function ProfileSetupScreen() {
                 <View style={styles.card}>
                   {/* Status Row */}
                   <View style={styles.rStatusRow}>
-                    {rStatus === 'pending'  && <><Clock color={colors.amber} size={22} /><View><Text style={[styles.rStatusTitle, { color: colors.amber }]}>Pending Review</Text><Text style={styles.rStatusSub}>Application under review by authorities.</Text></View></>}
-                    {rStatus === 'verified' && <><CheckCircle color={colors.green} size={22} /><View><Text style={[styles.rStatusTitle, { color: colors.green }]}>Verified Responder</Text><Text style={styles.rStatusSub}>You're authorized to receive alerts.</Text></View></>}
-                    {rStatus === 'rejected' && <><XCircle color={colors.primary} size={22} /><View><Text style={[styles.rStatusTitle, { color: colors.primary }]}>Application Rejected</Text><Text style={styles.rStatusSub}>Contact support or reapply.</Text></View></>}
+                    {rStatus === 'pending'  && <><Clock color={colors.warning} size={22} /><View><Text style={[styles.rStatusTitle, { color: colors.warning }]}>Pending Review</Text><Text style={styles.rStatusSub}>Application under review by authorities.</Text></View></>}
+                    {rStatus === 'verified' && <><CheckCircle color={colors.success} size={22} /><View><Text style={[styles.rStatusTitle, { color: colors.success }]}>Verified Responder</Text><Text style={styles.rStatusSub}>You're authorized to receive alerts.</Text></View></>}
+                    {rStatus === 'rejected' && <><XCircle color={colors.danger} size={22} /><View><Text style={[styles.rStatusTitle, { color: colors.danger }]}>Application Rejected</Text><Text style={styles.rStatusSub}>Contact support or reapply.</Text></View></>}
                   </View>
                   {/* Reapply if rejected */}
                   {rStatus === 'rejected' && (
                     <TouchableOpacity onPress={() => setShowApplyModal(true)} style={[styles.saveWrapper, { marginTop: spacing.md }]}>
-                      <LinearGradient colors={gradients.blue} style={styles.saveBtn}>
+                      <LinearGradient colors={gradients.accent} style={styles.saveBtn}>
                         <Text style={styles.saveBtnText}>Reapply</Text>
                       </LinearGradient>
                     </TouchableOpacity>
@@ -234,16 +259,16 @@ export default function ProfileSetupScreen() {
                   {rStatus === 'verified' && (
                     <View style={styles.toggleRow}>
                       <View style={styles.toggleLeft}>
-                        {isOnline ? <Wifi color={colors.green} size={18} /> : <WifiOff color={colors.textMuted} size={18} />}
-                        <Text style={[styles.toggleText, { color: isOnline ? colors.green : colors.textMuted }]}>
+                        {isOnline ? <Wifi color={colors.success} size={18} /> : <WifiOff color={colors.textMuted} size={18} />}
+                        <Text style={[styles.toggleText, { color: isOnline ? colors.success : colors.textMuted }]}>
                           {isOnline ? 'Online — Receiving Alerts' : 'Offline'}
                         </Text>
                       </View>
                       <Switch
                         value={isOnline}
                         onValueChange={toggleAvail}
-                        trackColor={{ false: '#1e293b', true: `${colors.green}60` }}
-                        thumbColor={isOnline ? colors.green : '#475569'}
+                        trackColor={{ false: colors.surfaceAlt, true: `${colors.success}60` }}
+                        thumbColor={isOnline ? colors.success : '#475569'}
                       />
                     </View>
                   )}
@@ -302,8 +327,8 @@ export default function ProfileSetupScreen() {
             </View>
 
             <TouchableOpacity onPress={handleApply} disabled={applying} style={styles.saveWrapper} activeOpacity={0.85}>
-              <LinearGradient colors={gradients.blue} style={styles.saveBtn}>
-                {applying ? <ActivityIndicator color="#fff" /> : <><ShieldCheck color="#fff" size={18} /><Text style={styles.saveBtnText}>Submit Application</Text></>}
+              <LinearGradient colors={gradients.accent} style={styles.saveBtn}>
+                {applying ? <ActivityIndicator color={colors.onFill} /> : <><ShieldCheck color={colors.onFill} size={18} /><Text style={styles.saveBtnText}>Submit Application</Text></>}
               </LinearGradient>
             </TouchableOpacity>
 
@@ -317,41 +342,55 @@ export default function ProfileSetupScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ colors, shadows, gradients }: Theme) => {
+  const font = {
+    hero: { ...type.hero, color: colors.text },
+    h1: { ...type.h1, color: colors.text },
+    h2: { ...type.h2, color: colors.text },
+    h3: { ...type.h3, color: colors.text },
+    body: { ...type.body, color: colors.text },
+    sm: { ...type.sm, color: colors.textSub },
+    xs: { ...type.xs, color: colors.textMuted },
+    label: { ...type.label, color: colors.textSub },
+    regular: 'System' as const, medium: 'System' as const,
+    semiBold: 'System' as const, bold: 'System' as const,
+  };
+  void gradients;
+  return StyleSheet.create({
   root: { flex: 1 },
   navHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: Platform.OS === 'ios' ? 52 : 40, paddingBottom: 12,
     paddingHorizontal: spacing.md,
-    backgroundColor: 'rgba(6,13,31,0.98)',
-    borderBottomWidth: 1, borderBottomColor: colors.glassBorder,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   navBackBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.glassBorder,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   navTitle: { ...font.h3, color: colors.text },
   scroll: { flexGrow: 1, padding: spacing.lg, paddingTop: spacing.xl, paddingBottom: spacing.xxl },
   hero: { alignItems: 'center', marginBottom: spacing.xl },
-  avatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md, ...shadows.primary },
-  avatarInit: { fontSize: 36, fontWeight: 'bold', color: '#fff' },
+  avatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md, ...shadows.danger },
+  avatarInit: { fontSize: 36, fontWeight: 'bold', color: colors.onFill },
   heroName: { ...font.h1, color: colors.text, textAlign: 'center' },
-  phonePill: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.bgCard, borderRadius: radius.full, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.glassBorder },
+  phonePill: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surface, borderRadius: radius.full, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border },
   phonePillText: { ...font.sm, color: colors.textMuted },
   section: { marginBottom: spacing.xl },
   sectionLabel: { ...font.label, textTransform: 'uppercase', marginBottom: spacing.sm, marginLeft: 2 },
-  card: { backgroundColor: colors.bgCard, borderRadius: radius.xl, padding: spacing.lg, borderWidth: 1, borderColor: colors.glassBorder, ...shadows.card },
+  card: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, ...shadows.card },
   fieldLabel: { ...font.label, marginBottom: spacing.sm },
-  inputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.bgInput, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.border, paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 4 },
-  inputFocused: { borderColor: colors.primary, backgroundColor: 'rgba(239,68,68,0.06)' },
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.inputBg, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.border, paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 4 },
+  inputFocused: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   input: { flex: 1, ...font.body, color: colors.text, height: 36 },
-  saveWrapper: { borderRadius: radius.lg, ...shadows.primary },
+  saveWrapper: { borderRadius: radius.lg, ...shadows.danger },
   saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg },
-  saveBtnText: { ...font.h3, color: '#fff' },
-  applyWrapper: { borderRadius: radius.xl, ...shadows.blue },
+  saveBtnText: { ...font.h3, color: colors.onFill },
+  applyWrapper: { borderRadius: radius.xl, ...shadows.accent },
   applyBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.xl },
-  applyText: { ...font.h3, color: '#fff' },
+  applyText: { ...font.h3, color: colors.onFill },
   rStatusRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginBottom: spacing.md },
   rStatusTitle: { ...font.h3 },
   rStatusSub: { ...font.sm, color: colors.textMuted, marginTop: 2 },
@@ -359,8 +398,9 @@ const styles = StyleSheet.create({
   toggleLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   toggleText: { ...font.body, fontWeight: '600' },
   // Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalCard: { backgroundColor: colors.bg, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, paddingBottom: spacing.xxl + 16, borderWidth: 1, borderColor: colors.glassBorder },
+  modalOverlay: { flex: 1, backgroundColor: colors.surface, justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: colors.bg, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, paddingBottom: spacing.xxl + 16, borderWidth: 1, borderColor: colors.border },
   modalTitle: { ...font.h2, color: colors.text, marginBottom: spacing.sm },
   modalSub: { ...font.sm, color: colors.textMuted, marginBottom: spacing.xl, lineHeight: 20 },
 });
+};

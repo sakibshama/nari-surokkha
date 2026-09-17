@@ -6,11 +6,15 @@ import { WifiOff, Bluetooth, Send, ShieldAlert, CheckCircle, Activity } from 'lu
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, withSequence, withDelay } from 'react-native-reanimated';
 import { sendOfflineSosSms } from '../../services/offlineSos';
-import { colors, font, spacing, radius, shadows, gradients } from '../../theme';
+import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { radius, spacing, type } from '../../theme/tokens';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'OfflineSos'>;
 
 export default function OfflineSosScreen({ navigation }: Props) {
+  const styles = useThemedStyles(makeStyles);
+  const { colors, gradients, shadows } = useTheme();
+  void gradients; void shadows;
   const [phase, setPhase] = useState<'scanning' | 'connected' | 'broadcasting'>('scanning');
   const [devicesFound, setDevicesFound] = useState(0);
 
@@ -69,19 +73,31 @@ export default function OfflineSosScreen({ navigation }: Props) {
 
   const handleManualSms = async () => {
     const result = await sendOfflineSosSms();
-    if (!result.opened) {
+    if (result.opened && result.auto) {
+      Alert.alert(
+        '✅ Emergency SMS Sent',
+        'Your SOS text was sent automatically to your trusted contacts via SMS. Tap "SMS History" to see the details.',
+        [
+          { text: 'View History', onPress: () => navigation.navigate('SmsHistory') },
+          { text: 'OK', style: 'cancel' },
+        ],
+      );
+    } else if (result.opened) {
+      // Composer opened (iOS / permission denied) — user taps send there.
+      Alert.alert('Review & Send', 'Your Messages app opened with the SOS text ready — tap Send to dispatch it.');
+    } else {
       Alert.alert('Offline', `${result.reason || 'SMS is not available on this device.'} Please call 999 directly.`);
     }
   };
 
   return (
-    <LinearGradient colors={['#060d1f', '#000000']} style={styles.root}>
+    <LinearGradient colors={gradients.hero} style={styles.root}>
       <SafeAreaView style={styles.safeArea}>
         
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.badgeRow}>
-            <WifiOff color={colors.amber} size={18} />
+            <WifiOff color={colors.warning} size={18} />
             <Text style={styles.badgeText}>OFFLINE MODE</Text>
           </View>
           <Text style={styles.title}>Bluetooth Mesh Network</Text>
@@ -116,22 +132,22 @@ export default function OfflineSosScreen({ navigation }: Props) {
 
             {/* Center Icon */}
             <View style={styles.centerNode}>
-              <Bluetooth color="#fff" size={32} />
+              <Bluetooth color={colors.onFill} size={32} />
             </View>
 
             {/* Simulated Nodes */}
             {devicesFound >= 1 && (
               <View style={[styles.node, { top: 40, left: 60 }]}>
-                <Activity color={colors.blue} size={16} />
+                <Activity color={colors.info} size={16} />
               </View>
             )}
             {devicesFound >= 3 && (
               <>
                 <View style={[styles.node, { bottom: 80, right: 50 }]}>
-                  <Activity color={colors.blue} size={16} />
+                  <Activity color={colors.info} size={16} />
                 </View>
                 <View style={[styles.node, { top: 120, right: 30 }]}>
-                  <Activity color={colors.blue} size={16} />
+                  <Activity color={colors.info} size={16} />
                 </View>
               </>
             )}
@@ -147,8 +163,8 @@ export default function OfflineSosScreen({ navigation }: Props) {
           <View style={styles.statusRow}>
             <Text style={styles.statusLabel}>Network Status</Text>
             <View style={styles.statusBadge}>
-              {phase === 'broadcasting' ? <CheckCircle color={colors.green} size={14} /> : <Activity color={colors.amber} size={14} />}
-              <Text style={[styles.statusBadgeText, { color: phase === 'broadcasting' ? colors.green : colors.amber }]}>
+              {phase === 'broadcasting' ? <CheckCircle color={colors.success} size={14} /> : <Activity color={colors.warning} size={14} />}
+              <Text style={[styles.statusBadgeText, { color: phase === 'broadcasting' ? colors.success : colors.warning }]}>
                 {phase.toUpperCase()}
               </Text>
             </View>
@@ -159,8 +175,8 @@ export default function OfflineSosScreen({ navigation }: Props) {
         <View style={styles.actionArea}>
           <Text style={styles.fallbackNote}>If the mesh network fails to reach authorities, dispatch via Cellular SMS.</Text>
           <TouchableOpacity onPress={handleManualSms} style={styles.smsBtn} activeOpacity={0.8}>
-            <LinearGradient colors={gradients.primary} style={styles.smsBtnInner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-              <Send color="#fff" size={20} />
+            <LinearGradient colors={gradients.danger} style={styles.smsBtnInner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+              <Send color={colors.onFill} size={20} />
               <Text style={styles.smsBtnText}>Dispatch via SMS Fallback</Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -175,7 +191,21 @@ export default function OfflineSosScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ colors, shadows, gradients }: Theme) => {
+  const font = {
+    hero: { ...type.hero, color: colors.text },
+    h1: { ...type.h1, color: colors.text },
+    h2: { ...type.h2, color: colors.text },
+    h3: { ...type.h3, color: colors.text },
+    body: { ...type.body, color: colors.text },
+    sm: { ...type.sm, color: colors.textSub },
+    xs: { ...type.xs, color: colors.textMuted },
+    label: { ...type.label, color: colors.textSub },
+    regular: 'System' as const, medium: 'System' as const,
+    semiBold: 'System' as const, bold: 'System' as const,
+  };
+  void gradients;
+  return StyleSheet.create({
   root: { flex: 1 },
   safeArea: { flex: 1, justifyContent: 'space-between' },
   header: {
@@ -190,9 +220,9 @@ const styles = StyleSheet.create({
     borderRadius: 20, marginBottom: spacing.md,
     borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)',
   },
-  badgeText: { color: colors.amber, fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
-  subtitle: { color: 'rgba(255,255,255,0.7)', textAlign: 'center', paddingHorizontal: 20, lineHeight: 22 },
+  badgeText: { color: colors.warning, fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  title: { fontSize: 24, fontWeight: 'bold', color: colors.onFill, marginBottom: 8 },
+  subtitle: { color: colors.textSub, textAlign: 'center', paddingHorizontal: 20, lineHeight: 22 },
   
   radarContainer: {
     flex: 1,
@@ -228,32 +258,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#1e3a8a',
     borderWidth: 2, borderColor: '#60a5fa',
     alignItems: 'center', justifyContent: 'center',
-    ...shadows.primary,
+    ...shadows.danger,
   },
   node: {
     position: 'absolute',
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: 'rgba(15,23,42,0.9)',
-    borderWidth: 2, borderColor: colors.blue,
+    borderWidth: 2, borderColor: colors.info,
     alignItems: 'center', justifyContent: 'center',
   },
 
   statusBox: {
     marginHorizontal: spacing.lg,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: colors.surfaceAlt,
     borderRadius: radius.lg,
     padding: spacing.md,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1, borderColor: colors.border,
   },
   statusRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 8,
   },
-  statusLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 14 },
-  statusValue: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  statusLabel: { color: colors.textSub, fontSize: 14 },
+  statusValue: { color: colors.onFill, fontSize: 18, fontWeight: 'bold' },
   statusBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: colors.surface,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
   statusBadgeText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5 },
@@ -263,22 +293,23 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 40 : 20,
   },
   fallbackNote: {
-    color: 'rgba(255,255,255,0.5)', fontSize: 12, textAlign: 'center',
+    color: colors.textMuted, fontSize: 12, textAlign: 'center',
     marginBottom: spacing.md, paddingHorizontal: 20,
   },
   smsBtn: {
     width: '100%', borderRadius: radius.xl, marginBottom: spacing.md,
-    ...shadows.primary,
+    ...shadows.danger,
   },
   smsBtnInner: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
     paddingVertical: 18, borderRadius: radius.xl,
   },
-  smsBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  smsBtnText: { color: colors.onFill, fontSize: 16, fontWeight: 'bold' },
   cancelBtn: {
     paddingVertical: 12, alignItems: 'center',
   },
   cancelBtnText: {
-    color: 'rgba(255,255,255,0.5)', fontSize: 14,
+    color: colors.textMuted, fontSize: 14,
   }
 });
+};

@@ -1,14 +1,22 @@
-import React, { useEffect } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useEffect, useMemo } from 'react';
+import {
+  DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
+  Theme as NavTheme,
+} from '@react-navigation/native';
+import { ActivityIndicator, Platform, View } from 'react-native';
+
 import { useAuthStore } from '../store/authStore';
 import AuthStack from './AuthStack';
 import DrawerNavigator from './DrawerNavigator';
-import { View, ActivityIndicator, StyleSheet, Platform } from 'react-native';
 import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 import api from '../services/api';
+import { useTheme } from '../theme';
 
 export default function AppNavigator() {
   const { isAuthenticated, isLoading, restoreToken } = useAuthStore();
+  const { colors, isDark } = useTheme();
 
   useEffect(() => {
     restoreToken();
@@ -18,34 +26,50 @@ export default function AppNavigator() {
     if (isAuthenticated) {
       registerForPushNotificationsAsync().then((token) => {
         if (token) {
-          api.post('/auth/device-token', {
-            token,
-            platform: Platform.OS === 'ios' ? 'ios' : 'android'
-          }).catch(err => console.error('Failed to register device token:', err));
+          api
+            .post('/auth/device-token', {
+              token,
+              platform: Platform.OS === 'ios' ? 'ios' : 'android',
+            })
+            .catch((err) => console.error('Failed to register device token:', err));
         }
       });
     }
   }, [isAuthenticated]);
 
+  /**
+   * React Navigation paints the space between screens during transitions with
+   * its own theme. Left on the default it flashes white on every push in dark
+   * mode, which is exactly the kind of detail that makes an app feel unfinished.
+   */
+  const navTheme: NavTheme = useMemo(() => {
+    const base = isDark ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      dark: isDark,
+      colors: {
+        ...base.colors,
+        primary: colors.accent,
+        background: colors.bg,
+        card: colors.surface,
+        text: colors.text,
+        border: colors.border,
+        notification: colors.danger,
+      },
+    };
+  }, [isDark, colors]);
+
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ef4444" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navTheme}>
       {isAuthenticated ? <DrawerNavigator /> : <AuthStack />}
     </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});

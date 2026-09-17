@@ -11,7 +11,12 @@
 import { FastifyInstance } from 'fastify';
 import { requireRoles } from '@/middleware/rbac';
 import { createSmsProvider } from '@/modules/notifications/providers/sms/sms.factory';
-import { SmsConfigUpdate, SmsProviderName } from './settings.types';
+import {
+  SmsConfigUpdate,
+  SmsProviderName,
+  SMS_TEMPLATE_PLACEHOLDERS,
+  SMS_TEMPLATE_DEFAULT,
+} from './settings.types';
 
 const VALID_PROVIDERS: SmsProviderName[] = ['mock', 'twilio', 'bulksmsbd'];
 
@@ -61,6 +66,32 @@ export function settingsRoutes(
 
     req.log.info({ userId: req.user?.id, provider: provider.name, success: result.success }, 'SMS test sent');
     return reply.send({ success: result.success, data: { provider: provider.name, ...result } });
+  });
+
+  // ─── SOS SMS message template ───────────────────────────────
+  fastify.get('/sms-template', adminOnly, async (_req, reply) => {
+    const template = await fastify.settings.getSmsTemplate();
+    return reply.send({
+      success: true,
+      data: {
+        template,
+        default: SMS_TEMPLATE_DEFAULT,
+        placeholders: SMS_TEMPLATE_PLACEHOLDERS,
+      },
+    });
+  });
+
+  fastify.put('/sms-template', adminOnly, async (req, reply) => {
+    const body = (req.body ?? {}) as { template?: string };
+    if (typeof body.template !== 'string') {
+      return reply.code(400).send({ success: false, error: { message: 'template (string) is required' } });
+    }
+    if (body.template.length > 480) {
+      return reply.code(400).send({ success: false, error: { message: 'Template too long (max 480 characters).' } });
+    }
+    const template = await fastify.settings.updateSmsTemplate(body.template, req.user?.id);
+    req.log.info({ userId: req.user?.id }, 'SOS SMS template updated');
+    return reply.send({ success: true, data: { template } });
   });
 
   done();

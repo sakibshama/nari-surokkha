@@ -10,7 +10,7 @@ import { ContactsRepository } from '../contacts/contacts.repository';
 import { ResponderRepository } from '../responder/responder.repository';
 import { CasesRepository } from '../cases/cases.repository';
 import { CasesService } from '../cases/cases.service';
-import { createSosSchema, updateLocationSchema, generateTrackingTokenSchema, createSoftAlertSchema, cancelSoftAlertSchema, confirmSoftAlertSchema, cancelSosAlertSchema } from './alerts.schemas';
+import { createSosSchema, updateLocationSchema, generateTrackingTokenSchema, createSoftAlertSchema, cancelSoftAlertSchema, confirmSoftAlertSchema, cancelSosAlertSchema, safeRouteSchema } from './alerts.schemas';
 import { env } from '@/config/env';
 import { isValidTwilioSignature } from '@/utils/twilio-signature';
 
@@ -97,7 +97,7 @@ export function alertsRoutes(
     authRequiredRouter.patch('/:id/soft/cancel', { schema: cancelSoftAlertSchema }, controller.cancelSoftAlert);
     authRequiredRouter.patch('/:id/soft/confirm', { schema: confirmSoftAlertSchema }, controller.confirmSoftAlert);
 
-    authRequiredRouter.post('/safe-route', controller.getSafeRoute);
+    authRequiredRouter.post('/safe-route', { schema: safeRouteSchema }, controller.getSafeRoute);
     authRequiredRouter.post('/safe-route/:id/location', controller.updateRouteLocation);
 
     innerDone();

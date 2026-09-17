@@ -4,10 +4,14 @@ import { useNavigation } from '@react-navigation/native';
 import api from '../../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, font, spacing, radius, shadows, gradients } from '../../theme';
+import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { radius, spacing, type } from '../../theme/tokens';
 import { ShieldAlert, CheckCircle, XCircle, RefreshCw, Clock, ChevronLeft } from 'lucide-react-native';
 
 export default function ResponderHubScreen() {
+  const styles = useThemedStyles(makeStyles);
+  const { colors, gradients, shadows } = useTheme();
+  void gradients; void shadows;
   const navigation = useNavigation();
   const [dispatches, setDispatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,16 +41,16 @@ export default function ResponderHubScreen() {
       {/* Card Header */}
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
-          {item.status === 'pending'  && <ShieldAlert color={colors.amber} size={20} />}
-          {item.status === 'accepted' && <CheckCircle color={colors.green} size={20} />}
+          {item.status === 'pending'  && <ShieldAlert color={colors.warning} size={20} />}
+          {item.status === 'accepted' && <CheckCircle color={colors.success} size={20} />}
           {item.status === 'rejected' && <XCircle color={colors.textMuted} size={20} />}
           <View style={[styles.statusPill,
             item.status === 'pending'  ? styles.pillAmber :
             item.status === 'accepted' ? styles.pillGreen  : styles.pillMuted
           ]}>
             <Text style={[styles.statusPillText,
-              item.status === 'pending'  ? { color: colors.amber } :
-              item.status === 'accepted' ? { color: colors.green } : { color: colors.textMuted }
+              item.status === 'pending'  ? { color: colors.warning } :
+              item.status === 'accepted' ? { color: colors.success } : { color: colors.textMuted }
             ]}>{item.status.toUpperCase()}</Text>
           </View>
         </View>
@@ -64,8 +68,8 @@ export default function ResponderHubScreen() {
           <Text style={styles.cardField}>Distance: <Text style={styles.cardValue}>~{item.alert.latitude} (Masked)</Text></Text>
           <View style={styles.actionRow}>
             <TouchableOpacity style={styles.acceptWrap} onPress={() => respond(item.id, 'accept')} activeOpacity={0.85}>
-              <LinearGradient colors={gradients.green} style={styles.acceptBtn}>
-                <CheckCircle color="#fff" size={18} />
+              <LinearGradient colors={gradients.accent} style={styles.acceptBtn}>
+                <CheckCircle color={colors.onFill} size={18} />
                 <Text style={styles.acceptText}>Accept</Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -104,7 +108,7 @@ export default function ResponderHubScreen() {
   );
 
   return (
-    <LinearGradient colors={['#060d1f', '#0a1428', '#0d1b35']} style={styles.root}>
+    <LinearGradient colors={gradients.hero} style={styles.root}>
       {/* Nav Header */}
       <View style={styles.navHeader}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navBackBtn} activeOpacity={0.7}>
@@ -121,8 +125,8 @@ export default function ResponderHubScreen() {
 
       {notResponder ? (
         <View style={styles.notResponderCard}>
-          <LinearGradient colors={[colors.bgCard, colors.bgCardAlt]} style={styles.notResponderInner}>
-            <ShieldAlert color={colors.amber} size={52} style={{ marginBottom: spacing.lg }} />
+          <LinearGradient colors={[colors.surface, colors.surfaceAlt]} style={styles.notResponderInner}>
+            <ShieldAlert color={colors.warning} size={52} style={{ marginBottom: spacing.lg }} />
             <Text style={styles.nrTitle}>Not Yet a Responder</Text>
             <Text style={styles.nrBody}>Go to your Profile and apply to become a verified community responder. Once approved, you'll receive nearby emergency alerts.</Text>
           </LinearGradient>
@@ -149,18 +153,32 @@ export default function ResponderHubScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ colors, shadows, gradients }: Theme) => {
+  const font = {
+    hero: { ...type.hero, color: colors.text },
+    h1: { ...type.h1, color: colors.text },
+    h2: { ...type.h2, color: colors.text },
+    h3: { ...type.h3, color: colors.text },
+    body: { ...type.body, color: colors.text },
+    sm: { ...type.sm, color: colors.textSub },
+    xs: { ...type.xs, color: colors.textMuted },
+    label: { ...type.label, color: colors.textSub },
+    regular: 'System' as const, medium: 'System' as const,
+    semiBold: 'System' as const, bold: 'System' as const,
+  };
+  void gradients;
+  return StyleSheet.create({
   root: { flex: 1 },
   navHeader: {
     flexDirection: 'row', alignItems: 'center',
     paddingTop: Platform.OS === 'ios' ? 52 : 40, paddingBottom: 12,
     paddingHorizontal: spacing.md, gap: spacing.sm,
-    backgroundColor: 'rgba(6,13,31,0.98)',
-    borderBottomWidth: 1, borderBottomColor: colors.glassBorder,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   navBackBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.glassBorder,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   navCenter: { flex: 1 },
@@ -168,17 +186,17 @@ const styles = StyleSheet.create({
   navSub: { ...font.xs, color: colors.textMuted, marginTop: 2 },
   navRefreshBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.glassBorder,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   list: { padding: spacing.md, paddingBottom: spacing.xxl },
-  card: { backgroundColor: colors.bgCard, borderRadius: radius.xl, padding: spacing.lg, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.glassBorder, ...shadows.card },
+  card: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.lg, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.border, ...shadows.card },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   statusPill: { borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: 2, borderWidth: 1 },
-  pillAmber: { backgroundColor: `${colors.amber}15`, borderColor: `${colors.amber}40` },
-  pillGreen: { backgroundColor: `${colors.green}15`, borderColor: `${colors.green}40` },
-  pillMuted: { backgroundColor: colors.bgCardAlt, borderColor: colors.border },
+  pillAmber: { backgroundColor: `${colors.warning}15`, borderColor: `${colors.warning}40` },
+  pillGreen: { backgroundColor: `${colors.success}15`, borderColor: `${colors.success}40` },
+  pillMuted: { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
   statusPillText: { ...font.xs, fontWeight: '700', letterSpacing: 0.5 },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   timeText: { ...font.xs, color: colors.textMuted },
@@ -188,18 +206,19 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   acceptWrap: { flex: 1, borderRadius: radius.lg, ...shadows.card },
   acceptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg },
-  acceptText: { ...font.body, color: '#fff', fontWeight: '700' },
-  rejectBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgCardAlt },
+  acceptText: { ...font.body, color: colors.onFill, fontWeight: '700' },
+  rejectBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt },
   rejectText: { ...font.body, color: colors.textMuted, fontWeight: '600' },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   detailKey: { ...font.sm, color: colors.textMuted },
   detailVal: { ...font.sm, color: colors.text, fontWeight: '600' },
   rejectedNote: { ...font.sm, color: colors.textMuted, fontStyle: 'italic' },
   notResponderCard: { flex: 1, padding: spacing.lg },
-  notResponderInner: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.glassBorder },
+  notResponderInner: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border },
   nrTitle: { ...font.h2, color: colors.text, textAlign: 'center', marginBottom: spacing.md },
   nrBody: { ...font.body, color: colors.textMuted, textAlign: 'center', lineHeight: 24 },
   empty: { alignItems: 'center', paddingTop: spacing.xxl + spacing.xl },
   emptyTitle: { ...font.h3, color: colors.textMuted, marginTop: spacing.lg },
   emptySub: { ...font.sm, color: colors.textMuted, textAlign: 'center', marginTop: spacing.sm, lineHeight: 22, paddingHorizontal: spacing.xl },
 });
+};

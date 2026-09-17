@@ -78,3 +78,6 @@ temp/
 *.crt
 *.cert
 secrets/
+
+# Scratch
+_to_delete/

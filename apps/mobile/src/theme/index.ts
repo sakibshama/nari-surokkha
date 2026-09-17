@@ -1,116 +1,118 @@
-// Centralized design system for Nari Surokkha mobile app
-import { Platform } from 'react-native';
+/**
+ * Theme entry point.
+ *
+ * New code should use the runtime theme:
+ *
+ *   import { useTheme, useThemedStyles, Theme } from '../../theme';
+ *
+ * The static `colors` / `font` / `gradients` / `shadows` exports below are the
+ * pre-theming API. They are kept so that any screen not yet migrated still
+ * compiles and renders — but they are frozen to the dark palette and cannot
+ * respond to the toggle. Treat a remaining import of them as a to-do.
+ */
 
+export * from './tokens';
+export {
+  ThemeProvider,
+  useTheme,
+  useThemedStyles,
+  useColors,
+  type Theme,
+} from './ThemeProvider';
+
+import {
+  darkPalette,
+  makeGradients,
+  makeShadows,
+  radius as radiusScale,
+  spacing as spacingScale,
+  type as typeScale,
+} from './tokens';
+
+export const spacing = spacingScale;
+export const radius = radiusScale;
+
+const legacyShadows = makeShadows('dark');
+const legacyGradients = makeGradients(darkPalette);
+
+/**
+ * @deprecated Frozen to the dark palette — will not follow the theme toggle.
+ * Use `const { colors } = useTheme()` instead.
+ */
 export const colors = {
-  // Backgrounds
-  bg: '#0a0f1e',           // Deepest dark navy
-  bgCard: '#111827',       // Card background
-  bgCardAlt: '#1a2235',    // Slightly lighter card
-  bgInput: '#0d1526',      // Input background
+  bg: darkPalette.bg,
+  bgCard: darkPalette.surface,
+  bgCardAlt: darkPalette.surfaceAlt,
+  bgInput: darkPalette.inputBg,
 
-  // Borders & Separators
-  border: 'rgba(255,255,255,0.08)',
-  borderAccent: 'rgba(239,68,68,0.4)',
+  border: darkPalette.border,
+  borderAccent: darkPalette.accent,
 
-  // Primary Brand
-  primary: '#ef4444',
-  primaryLight: '#f87171',
-  primaryDark: '#b91c1c',
-  primaryGradient: ['#f43f5e', '#dc2626'] as const,
+  primary: darkPalette.danger,
+  primaryLight: darkPalette.dangerText,
+  primaryDark: darkPalette.dangerPressed,
+  primaryGradient: legacyGradients.danger,
 
-  // Accent Colors
-  blue: '#3b82f6',
+  blue: darkPalette.info,
   purple: '#8b5cf6',
-  green: '#10b981',
-  amber: '#f59e0b',
+  green: darkPalette.success,
+  amber: darkPalette.warning,
   cyan: '#06b6d4',
   pink: '#ec4899',
 
-  // Text
-  text: '#f1f5f9',
-  textSub: '#94a3b8',
-  textMuted: '#64748b',
+  text: darkPalette.text,
+  textSub: darkPalette.textSub,
+  textMuted: darkPalette.textMuted,
 
-  // States
-  success: '#10b981',
-  warning: '#f59e0b',
-  danger: '#ef4444',
-  info: '#3b82f6',
+  success: darkPalette.success,
+  warning: darkPalette.warning,
+  danger: darkPalette.danger,
+  info: darkPalette.info,
 
-  // Glassmorphism (using pure rgba - no BlurView needed)
   glass: 'rgba(255,255,255,0.05)',
-  glassBorder: 'rgba(255,255,255,0.10)',
+  glassBorder: darkPalette.border,
   glassDark: 'rgba(0,0,0,0.3)',
 
-  // Aliases used by some screens
-  red: '#ef4444',
-  surface: '#111827',
+  red: darkPalette.danger,
+  surface: darkPalette.surface,
 };
 
+/** @deprecated Use `const { gradients } = useTheme()`. */
 export const gradients = {
-  primary: ['#f43f5e', '#dc2626'] as const,
+  primary: legacyGradients.danger,
   blue: ['#2563eb', '#1d4ed8'] as const,
-  green: ['#059669', '#10b981'] as const,
+  green: legacyGradients.accent,
   dark: ['#1e293b', '#0f172a'] as const,
-  darkRed: ['#1a0000', '#7f1d1d', '#dc2626'] as const,
-  card: ['#1a2235', '#111827'] as const,
+  darkRed: legacyGradients.dangerBackdrop,
+  card: legacyGradients.surface,
   amber: ['#d97706', '#f59e0b'] as const,
 };
 
+/** @deprecated Use `const { shadows } = useTheme()`. */
 export const shadows = {
-  primary: Platform.select({
-    ios: { shadowColor: '#ef4444', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.45, shadowRadius: 16 },
-    android: { elevation: 16 },
-    web: { boxShadow: '0 8px 32px rgba(239,68,68,0.45)' },
-  }) || {},
-  blue: Platform.select({
-    ios: { shadowColor: '#3b82f6', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 14 },
-    android: { elevation: 12 },
-    web: { boxShadow: '0 6px 24px rgba(59,130,246,0.4)' },
-  }) || {},
-  card: Platform.select({
-    ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12 },
-    android: { elevation: 8 },
-    web: { boxShadow: '0 4px 24px rgba(0,0,0,0.35)' },
-  }) || {},
-  none: {},
+  primary: legacyShadows.danger,
+  blue: legacyShadows.accent,
+  card: legacyShadows.card,
+  none: legacyShadows.none,
 };
 
-export const radius = {
-  sm: 10,
-  md: 16,
-  lg: 24,
-  xl: 32,
-  full: 9999,
-};
-
-export const spacing = {
-  xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-  xxl: 48,
-  '2xl': 64,
-};
-
+/** @deprecated Use `type` from tokens plus a colour from `useTheme()`. */
 export const font = {
-  hero: { fontSize: 36, fontWeight: 'bold' as const, color: colors.text, letterSpacing: -0.5 },
-  h1:   { fontSize: 28, fontWeight: 'bold' as const, color: colors.text },
-  h2:   { fontSize: 22, fontWeight: '700' as const, color: colors.text },
-  h3:   { fontSize: 18, fontWeight: '600' as const, color: colors.text },
-  body: { fontSize: 16, fontWeight: '400' as const, color: colors.text },
-  sm:   { fontSize: 14, fontWeight: '400' as const, color: colors.textSub },
-  xs:   { fontSize: 12, fontWeight: '400' as const, color: colors.textMuted },
-  label:{ fontSize: 13, fontWeight: '600' as const, color: colors.textSub, letterSpacing: 0.5 },
-  // Font-family aliases used as `fontFamily: font.medium` etc. (default system faces)
+  hero: { ...typeScale.hero, color: darkPalette.text },
+  h1: { ...typeScale.h1, color: darkPalette.text },
+  h2: { ...typeScale.h2, color: darkPalette.text },
+  h3: { ...typeScale.h3, color: darkPalette.text },
+  body: { ...typeScale.body, color: darkPalette.text },
+  sm: { ...typeScale.sm, color: darkPalette.textSub },
+  xs: { ...typeScale.xs, color: darkPalette.textMuted },
+  label: { ...typeScale.label, color: darkPalette.textSub },
   regular: 'System',
   medium: 'System',
   semiBold: 'System',
   bold: 'System',
 };
 
-// Backward-compat aliases (used by older screens)
+/** @deprecated */
 export const typography = {
   h1: font.h1,
   h2: font.h2,

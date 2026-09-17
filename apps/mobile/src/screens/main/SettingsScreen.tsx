@@ -1,178 +1,145 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Switch, TouchableOpacity, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Bell, Moon, Shield, Eye, Lock, ChevronRight } from 'lucide-react-native';
-import { colors, font, spacing, radius } from '../../theme';
+import { Alert, Switch, View } from 'react-native';
+import {
+  Activity,
+  Bell,
+  ChevronRight,
+  Lock,
+  LogOut,
+  Mic,
+  Palette,
+  Share2,
+  Shield,
+} from 'lucide-react-native';
+
+import { Screen, Card, ListRow, RowDivider, SectionLabel, Txt, Button, AppBar } from '../../components/ui';
+import ThemeModeControl from '../../components/ThemeModeControl';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { Activity } from 'lucide-react-native'; // For ML icon
+import { useTheme } from '../../theme';
+import { spacing } from '../../theme/tokens';
 
 export default function SettingsScreen() {
+  const { colors } = useTheme();
+  const { logout } = useAuthStore();
+  const {
+    mlVoiceEnabled,
+    mlGyroEnabled,
+    mlDataSharingEnabled,
+    setMlVoiceEnabled,
+    setMlGyroEnabled,
+    setMlDataSharingEnabled,
+  } = useSettingsStore();
+
+  // TODO: these two are still local-only — the switch moves but nothing
+  // downstream reads it. Wiring them to the notification registration and the
+  // background location task is tracked separately.
   const [notifications, setNotifications] = useState(true);
-  const [darkMode, setDarkMode] = useState(true);
   const [locationSharing, setLocationSharing] = useState(true);
 
-  const { logout } = useAuthStore();
-  const { mlVoiceEnabled, mlGyroEnabled, setMlVoiceEnabled, setMlGyroEnabled } = useSettingsStore();
-
-  const renderSettingRow = (icon: React.ReactNode, title: string, control: React.ReactNode) => (
-    <View style={styles.settingRow}>
-      <View style={styles.settingLeft}>
-        <View style={styles.iconBox}>{icon}</View>
-        <Text style={styles.settingTitle}>{title}</Text>
-      </View>
-      {control}
-    </View>
+  const themedSwitch = (value: boolean, onChange: (v: boolean) => void) => (
+    <Switch
+      value={value}
+      onValueChange={onChange}
+      trackColor={{ false: colors.borderStrong, true: colors.accent }}
+      thumbColor={colors.surface}
+      ios_backgroundColor={colors.borderStrong}
+    />
   );
+
+  const confirmLogout = () => {
+    Alert.alert('Log out?', 'You will stop receiving alerts on this device until you sign in again.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log out', style: 'destructive', onPress: logout },
+    ]);
+  };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        
-        <Text style={styles.sectionTitle}>Preferences</Text>
-        <View style={styles.card}>
-          {renderSettingRow(
-            <Bell size={20} color={colors.text} />, 
-            'Push Notifications', 
-            <Switch 
-              value={notifications} 
-              onValueChange={setNotifications} 
-              trackColor={{ false: '#334155', true: colors.primary }}
-              thumbColor="#fff"
-            />
-          )}
-          <View style={styles.divider} />
-          {renderSettingRow(
-            <Moon size={20} color={colors.text} />, 
-            'Dark Mode', 
-            <Switch 
-              value={darkMode} 
-              onValueChange={setDarkMode} 
-              trackColor={{ false: '#334155', true: colors.primary }}
-              thumbColor="#fff"
-            />
-          )}
+    <Screen>
+      <AppBar title="Settings" subtitle="Appearance, alerts and detection" />
+
+      {/* ── Appearance ─────────────────────────────────────────────── */}
+      <SectionLabel>Appearance</SectionLabel>
+      <Card padded={false}>
+        <ListRow
+          title="Theme"
+          subtitle="Choose light, dark, or match your phone"
+          icon={<Palette size={19} color={colors.accent} />}
+          chevron={false}
+        />
+        <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
+          <ThemeModeControl />
         </View>
+      </Card>
 
-        <Text style={styles.sectionTitle}>Privacy & Security</Text>
-        <View style={styles.card}>
-          {renderSettingRow(
-            <Shield size={20} color={colors.text} />, 
-            'Background Location', 
-            <Switch 
-              value={locationSharing} 
-              onValueChange={setLocationSharing} 
-              trackColor={{ false: '#334155', true: colors.primary }}
-              thumbColor="#fff"
-            />
-          )}
-          <View style={styles.divider} />
-          <TouchableOpacity activeOpacity={0.7}>
-            {renderSettingRow(
-              <Lock size={20} color={colors.text} />, 
-              'Change Password', 
-              <ChevronRight size={20} color={colors.textSub} />
-            )}
-          </TouchableOpacity>
-        </View>
+      {/* ── Alerts ─────────────────────────────────────────────────── */}
+      <SectionLabel>Alerts</SectionLabel>
+      <Card padded={false}>
+        <ListRow
+          title="Push notifications"
+          subtitle="Dispatch updates and responder replies"
+          icon={<Bell size={19} color={colors.accent} />}
+          right={themedSwitch(notifications, setNotifications)}
+        />
+        <RowDivider />
+        <ListRow
+          title="Background location"
+          subtitle="Shared only while an SOS is active"
+          icon={<Shield size={19} color={colors.accent} />}
+          right={themedSwitch(locationSharing, setLocationSharing)}
+        />
+      </Card>
 
-        <Text style={styles.sectionTitle}>Machine Learning (Offline)</Text>
-        <View style={styles.card}>
-          {renderSettingRow(
-            <Activity size={20} color={colors.text} />, 
-            'Voice Distress Detection', 
-            <Switch 
-              value={mlVoiceEnabled} 
-              onValueChange={setMlVoiceEnabled} 
-              trackColor={{ false: '#334155', true: colors.primary }}
-              thumbColor="#fff"
-            />
-          )}
-          <View style={styles.divider} />
-          {renderSettingRow(
-            <Activity size={20} color={colors.text} />, 
-            'Fall & Struggle Detection', 
-            <Switch 
-              value={mlGyroEnabled} 
-              onValueChange={setMlGyroEnabled} 
-              trackColor={{ false: '#334155', true: colors.primary }}
-              thumbColor="#fff"
-            />
-          )}
-        </View>
+      {/* ── On-device detection ────────────────────────────────────── */}
+      <SectionLabel>On-device detection</SectionLabel>
+      <Card padded={false}>
+        <ListRow
+          title="Voice distress detection"
+          subtitle="Runs on this phone. Audio never leaves the device."
+          icon={<Mic size={19} color={colors.accent} />}
+          right={themedSwitch(mlVoiceEnabled, setMlVoiceEnabled)}
+        />
+        <RowDivider />
+        <ListRow
+          title="Fall & struggle detection"
+          subtitle="Uses the motion sensors to spot a sudden fall"
+          icon={<Activity size={19} color={colors.accent} />}
+          right={themedSwitch(mlGyroEnabled, setMlGyroEnabled)}
+        />
+        <RowDivider />
+        <ListRow
+          title="Help improve detection"
+          subtitle="Share anonymised sensor windows. Optional."
+          icon={<Share2 size={19} color={colors.accent} />}
+          right={themedSwitch(mlDataSharingEnabled, setMlDataSharingEnabled)}
+        />
+      </Card>
 
-        <TouchableOpacity style={styles.logoutBtn} onPress={logout} activeOpacity={0.8}>
-          <Text style={styles.logoutBtnText}>Log Out</Text>
-        </TouchableOpacity>
+      {/* ── Account ────────────────────────────────────────────────── */}
+      <SectionLabel>Account</SectionLabel>
+      <Card padded={false}>
+        <ListRow
+          title="Change password"
+          icon={<Lock size={19} color={colors.accent} />}
+          right={<ChevronRight size={18} color={colors.textMuted} />}
+          onPress={() =>
+            Alert.alert('Change password', 'This opens the password form once it is wired up.')
+          }
+        />
+      </Card>
 
-      </ScrollView>
-    </SafeAreaView>
+      <View style={{ marginTop: spacing.xl, gap: spacing.sm }}>
+        <Button
+          label="Log out"
+          variant="subtle"
+          onPress={confirmLogout}
+          icon={<LogOut size={17} color={colors.dangerText} />}
+          labelColor={colors.dangerText}
+        />
+        <Txt variant="xs" tone="muted" center>
+          নারী সুরক্ষা · National Women Safety Service
+        </Txt>
+      </View>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  scrollContent: {
-    padding: spacing.lg,
-  },
-  sectionTitle: {
-    fontFamily: font.semiBold,
-    fontSize: 14,
-    color: colors.textSub,
-    marginBottom: spacing.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: spacing.md,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: spacing.md,
-  },
-  settingLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  settingTitle: {
-    fontFamily: font.medium,
-    fontSize: 16,
-    color: colors.text,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: spacing.xl + spacing.md,
-  },
-  logoutBtn: {
-    marginTop: spacing['2xl'],
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.2)',
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    alignItems: 'center',
-  },
-  logoutBtnText: {
-    color: colors.danger,
-    fontFamily: font.semiBold,
-    fontSize: 16,
-  },
-});

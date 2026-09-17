@@ -9,13 +9,18 @@ import * as SMS from 'expo-sms';
 import { useAuthStore } from '../../store/authStore';
 import { uploadMotionSample, uploadConfirmedEmergencySample } from '../../services/ml/motionSampleUploader';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, font, spacing, radius, shadows } from '../../theme';
+import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { radius, spacing, type } from '../../theme/tokens';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { AlertTriangle, CheckCircle } from 'lucide-react-native';
 
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>;
 
 export default function SoftAlertScreen() {
+    // Pinned dark: same alarm register as the active-SOS screen.
+  const styles = useThemedStyles(makeStyles, 'dark');
+  const { colors, gradients, shadows } = useTheme('dark');
+  void gradients; void shadows;
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProp<MainStackParamList, 'SoftAlert'>>();
   const manual = route.params?.manual ?? false;
@@ -106,15 +111,15 @@ export default function SoftAlertScreen() {
   };
 
   // Urgency colors
-  const urgencyColor = countdown > 10 ? colors.amber : countdown > 5 ? '#f97316' : colors.primary;
+  const urgencyColor = countdown > 10 ? colors.warning : countdown > 5 ? '#f97316' : colors.danger;
   const urgencyGrad: [string, string] = countdown > 10
-    ? ['#92400e', '#d97706']
+    ? ['#92400e', colors.warning]
     : countdown > 5
     ? ['#9a3412', '#ea580c']
-    : [colors.primaryDark, colors.primary];
+    : [colors.dangerPressed, colors.danger];
 
   return (
-    <LinearGradient colors={['#060d1f', '#0a1428', '#1a0505']} style={styles.root}>
+    <LinearGradient colors={gradients.dangerBackdrop} style={styles.root}>
       <SafeAreaView style={styles.safe}>
         <View style={styles.content}>
 
@@ -145,16 +150,16 @@ export default function SoftAlertScreen() {
           </Text>
 
           {/* Need Help */}
-          <TouchableOpacity onPress={confirmEmergency} activeOpacity={0.85} style={[styles.helpWrapper, { ...shadows.primary }]}>
+          <TouchableOpacity onPress={confirmEmergency} activeOpacity={0.85} style={[styles.helpWrapper, { ...shadows.danger }]}>
             <LinearGradient colors={urgencyGrad} style={styles.helpBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-              <AlertTriangle color="#fff" size={22} />
+              <AlertTriangle color={colors.onFill} size={22} />
               <Text style={styles.helpText}>I Need Help NOW</Text>
             </LinearGradient>
           </TouchableOpacity>
 
           {/* I'm okay */}
           <TouchableOpacity onPress={cancelAlert} activeOpacity={0.8} style={styles.okBtn}>
-            <CheckCircle color={colors.green} size={22} />
+            <CheckCircle color={colors.success} size={22} />
             <Text style={styles.okText}>I'm Okay — Cancel Alert</Text>
           </TouchableOpacity>
 
@@ -164,7 +169,21 @@ export default function SoftAlertScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ colors, shadows, gradients }: Theme) => {
+  const font = {
+    hero: { ...type.hero, color: colors.text },
+    h1: { ...type.h1, color: colors.text },
+    h2: { ...type.h2, color: colors.text },
+    h3: { ...type.h3, color: colors.text },
+    body: { ...type.body, color: colors.text },
+    sm: { ...type.sm, color: colors.textSub },
+    xs: { ...type.xs, color: colors.textMuted },
+    label: { ...type.label, color: colors.textSub },
+    regular: 'System' as const, medium: 'System' as const,
+    semiBold: 'System' as const, bold: 'System' as const,
+  };
+  void gradients;
+  return StyleSheet.create({
   root: { flex: 1 },
   safe: { flex: 1 },
   content: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
@@ -179,13 +198,14 @@ const styles = StyleSheet.create({
   sub: { ...font.sm, color: colors.textMuted, textAlign: 'center', lineHeight: 22, marginBottom: spacing.xl },
   timerArea: { width: 180, height: 180, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xl },
   timerRing: { position: 'absolute', width: 180, height: 180, borderRadius: 90, borderWidth: 3 },
-  timerCircle: { width: 140, height: 140, borderRadius: 70, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.15)' },
-  timerCount: { fontSize: 56, fontWeight: 'bold', color: '#fff', lineHeight: 60 },
-  timerLabel: { ...font.xs, color: 'rgba(255,255,255,0.7)', fontWeight: '700', letterSpacing: 2 },
+  timerCircle: { width: 140, height: 140, borderRadius: 70, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.border },
+  timerCount: { fontSize: 56, fontWeight: 'bold', color: colors.onFill, lineHeight: 60 },
+  timerLabel: { ...font.xs, color: colors.textSub, fontWeight: '700', letterSpacing: 2 },
   warningLine: { ...font.sm, color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl },
   helpWrapper: { width: '100%', borderRadius: radius.xl, marginBottom: spacing.md },
   helpBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md + 4, borderRadius: radius.xl },
-  helpText: { ...font.h3, color: '#fff' },
-  okBtn: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md + 4, borderRadius: radius.xl, borderWidth: 1.5, borderColor: `${colors.green}60`, backgroundColor: `${colors.green}12` },
-  okText: { ...font.body, color: colors.green, fontWeight: '700' },
+  helpText: { ...font.h3, color: colors.onFill },
+  okBtn: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md + 4, borderRadius: radius.xl, borderWidth: 1.5, borderColor: `${colors.success}60`, backgroundColor: `${colors.success}12` },
+  okText: { ...font.body, color: colors.success, fontWeight: '700' },
 });
+};

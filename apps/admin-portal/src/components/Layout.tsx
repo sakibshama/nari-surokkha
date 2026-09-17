@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserCheck, Building2,
   Activity, Settings, LogOut, Menu, X,
-  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, BrainCircuit, Languages
+  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, Languages
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
@@ -13,6 +13,7 @@ import api from '../services/api';
 import toast, { Toaster } from 'react-hot-toast';
 import GlobalAlertModal from './GlobalAlertModal';
 import FlagRoundel from './FlagRoundel';
+import AppLogo from './AppLogo';
 
 type NavItemDef = { label: string; icon: any; path: string; permission?: string };
 
@@ -27,8 +28,6 @@ const NAV_MAIN: NavItemDef[] = [
 ];
 const NAV_SYSTEM: NavItemDef[] = [
   { label: 'Audit Logs',      icon: Activity,  path: '/audit-logs', permission: 'view_audit_logs' },
-  { label: 'ML Tuning',       icon: Settings,  path: '/ml-tuning' },
-  { label: 'ML Models',       icon: BrainCircuit, path: '/ml-models' },
   { label: 'Settings',        icon: Settings,  path: '/settings' },
 ];
 
@@ -110,9 +109,7 @@ export default function Layout() {
     <>
       {/* Brand — Government of Bangladesh identity */}
       <div className="sidebar-brand">
-        <div className="sidebar-brand-icon">
-          <FlagRoundel size={26} />
-        </div>
+        <AppLogo size={44} />
         <div className="sidebar-brand-text">
           <span className="sidebar-brand-name bn">নারী সুরক্ষা</span>
           <span className="sidebar-brand-sub">Nari Surokkha · Admin</span>
@@ -162,8 +159,6 @@ export default function Layout() {
     '/incidents': 'Incident Reports',
     '/analytics': 'City Safety Analytics',
     '/audit-logs': 'Audit Logs',
-    '/ml-tuning': 'ML Tuning Configuration',
-    '/ml-models': 'On-Device ML Models',
     '/settings': 'Settings',
   };
   const pageTitle = PAGE_TITLES[location.pathname] || 'Admin Portal';

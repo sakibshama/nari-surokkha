@@ -62,11 +62,55 @@ export default function Settings() {
   const [testNumber, setTestNumber] = useState('');
   const [testingSms, setTestingSms] = useState(false);
 
+  // SOS SMS message template (admin-editable, with placeholders)
+  const [smsTemplate, setSmsTemplate] = useState('');
+  const [smsTemplateDefault, setSmsTemplateDefault] = useState('');
+  const [smsPlaceholders, setSmsPlaceholders] = useState<string[]>([]);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
   useEffect(() => {
     fetchProfile();
     fetchConfig();
     fetchSmsConfig();
+    fetchSmsTemplate();
   }, []);
+
+  const fetchSmsTemplate = async () => {
+    try {
+      const res = await api.get('/settings/sms-template');
+      const d = res.data?.data;
+      if (d) {
+        setSmsTemplate(d.template || '');
+        setSmsTemplateDefault(d.default || '');
+        setSmsPlaceholders(Array.isArray(d.placeholders) ? d.placeholders : []);
+      }
+    } catch {
+      /* card still renders with defaults */
+    }
+  };
+
+  const saveSmsTemplate = async () => {
+    setSavingTemplate(true);
+    try {
+      const res = await api.put('/settings/sms-template', { template: smsTemplate });
+      if (res.data?.data?.template) setSmsTemplate(res.data.data.template);
+      toast.success('SMS template saved.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error?.message || 'Failed to save template.');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  // Live preview with sample values (mirrors the server's {placeholder} rendering).
+  const previewSms = (smsTemplate || smsTemplateDefault)
+    .replace(/\{name\}/g, 'Rina Akter')
+    .replace(/\{mapLink\}/g, 'https://maps.google.com/?q=23.7808,90.4176')
+    .replace(/\{trackLink\}/g, 'https://api.mystrix-soft.com/t/Ab3xY9')
+    .replace(/\{lat\}/g, '23.7808')
+    .replace(/\{lng\}/g, '90.4176');
+
+  const insertPlaceholder = (ph: string) => setSmsTemplate((t) => `${t}${t && !t.endsWith(' ') ? ' ' : ''}${ph}`);
 
   const fetchSmsConfig = async () => {
     try {
@@ -509,6 +553,74 @@ export default function Settings() {
               </div>
           </div>
         </div>
+
+          {/* SOS SMS Message Template */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <MessageSquare size={20} color="var(--primary, #ef4444)" />
+              <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>SOS SMS Template</h2>
+            </div>
+
+            <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-sub)' }}>
+                This is the text sent to a victim's trusted contacts when an SOS fires. Use the placeholders below — they are replaced with real values at send time.
+              </p>
+
+              <div>
+                <label className="field-label">Message template</label>
+                <textarea
+                  className="field-input"
+                  value={smsTemplate}
+                  onChange={(e) => setSmsTemplate(e.target.value)}
+                  rows={4}
+                  maxLength={480}
+                  placeholder={smsTemplateDefault}
+                  style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
+                />
+                <div style={{ fontSize: 12, color: 'var(--text-sub)', marginTop: 4 }}>{(smsTemplate || '').length}/480 characters</div>
+              </div>
+
+              {smsPlaceholders.length > 0 && (
+                <div>
+                  <label className="field-label">Insert placeholder</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+                    {smsPlaceholders.map((ph) => (
+                      <button
+                        key={ph}
+                        type="button"
+                        onClick={() => insertPlaceholder(ph)}
+                        style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text)', fontSize: 13, cursor: 'pointer', fontFamily: 'monospace' }}
+                      >
+                        {ph}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="field-label">Preview</label>
+                <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-input)', border: '1px solid var(--border)', fontSize: 14, color: 'var(--text)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {previewSms}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <button type="button" className="btn btn-primary" disabled={savingTemplate} onClick={saveSmsTemplate}>
+                  {savingTemplate ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+                  Save Template
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={savingTemplate || !smsTemplateDefault}
+                  onClick={() => setSmsTemplate(smsTemplateDefault)}
+                >
+                  Reset to default
+                </button>
+              </div>
+            </div>
+          </div>
 
       </div>
     </div>

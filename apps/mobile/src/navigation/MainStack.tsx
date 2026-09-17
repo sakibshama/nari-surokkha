@@ -8,6 +8,8 @@ import TrustedContactsScreen from '../screens/main/TrustedContactsScreen';
 import ProfileSetupScreen from '../screens/main/ProfileSetupScreen';
 import ResponderHubScreen from '../screens/main/ResponderHubScreen';
 import SoftAlertScreen from '../screens/main/SoftAlertScreen';
+import SmsHistoryScreen from '../screens/main/SmsHistoryScreen';
+import EvidenceLibraryScreen from '../screens/main/EvidenceLibraryScreen';
 import ReportIncidentScreen from '../screens/main/ReportIncidentScreen';
 import SafetyMapScreen from '../screens/main/SafetyMapScreen';
 import FakeCallScreen from '../screens/main/FakeCallScreen';
@@ -15,7 +17,8 @@ import OfflineSosScreen from '../screens/main/OfflineSosScreen';
 import SafeRouteScreen from '../screens/main/SafeRouteScreen';
 import SettingsScreen from '../screens/main/SettingsScreen';
 import { ChevronLeft, Menu } from 'lucide-react-native';
-import { colors, font, spacing } from '../theme';
+import { Theme, useTheme, useThemedStyles } from '../theme';
+import { radius, spacing, type } from '../theme/tokens';
 import { socketService } from '../services/socket';
 import * as Notifications from 'expo-notifications';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
@@ -32,11 +35,17 @@ export type MainStackParamList = {
   FakeCall: undefined;
   OfflineSos: undefined;
   SafeRoute: undefined;
+  SmsHistory: undefined;
+  EvidenceLibrary: undefined;
   Settings: undefined;
 };
 
 // ─── Custom Premium Header ───────────────────────────────────────────────────
 function CustomHeader({ navigation, route, options, back }: NativeStackHeaderProps) {
+  // Its own hooks: this is a sibling of MainStack, not nested inside it, so it
+  // cannot see the styles or palette declared there.
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   const title = options.title ?? route.name;
   return (
     <View style={styles.headerContainer}>
@@ -124,9 +133,9 @@ export default function MainStack() {
       }
     };
 
-    if (socketService.socket) {
-      socketService.socket.on('responder:dispatch_received', handleDispatch);
-    }
+    // Persistent registration — survives the async socket connect + reconnects
+    // so a responder reliably receives dispatches while the app is open.
+    socketService.on('responder:dispatch_received', handleDispatch);
 
     // 3. Handle notification taps to navigate automatically
     const sub = Notifications.addNotificationResponseReceivedListener(response => {
@@ -137,9 +146,7 @@ export default function MainStack() {
     });
 
     return () => {
-      if (socketService.socket) {
-        socketService.socket.off('responder:dispatch_received', handleDispatch);
-      }
+      socketService.off('responder:dispatch_received', handleDispatch);
       sub.remove();
     };
   }, [navigation]);
@@ -205,8 +212,18 @@ export default function MainStack() {
         component={SafeRouteScreen}
         options={{ title: 'Safe Route Tracking' }}
       />
-      <Stack.Screen 
-        name="Settings" 
+      <Stack.Screen
+        name="SmsHistory"
+        component={SmsHistoryScreen}
+        options={{ title: 'SOS SMS History' }}
+      />
+      <Stack.Screen
+        name="EvidenceLibrary"
+        component={EvidenceLibraryScreen}
+        options={{ title: 'Evidence Library' }}
+      />
+      <Stack.Screen
+        name="Settings"
         component={SettingsScreen}
         options={{ title: 'Settings & Privacy' }}
       />
@@ -214,14 +231,28 @@ export default function MainStack() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ colors, shadows, gradients }: Theme) => {
+  const font = {
+    hero: { ...type.hero, color: colors.text },
+    h1: { ...type.h1, color: colors.text },
+    h2: { ...type.h2, color: colors.text },
+    h3: { ...type.h3, color: colors.text },
+    body: { ...type.body, color: colors.text },
+    sm: { ...type.sm, color: colors.textSub },
+    xs: { ...type.xs, color: colors.textMuted },
+    label: { ...type.label, color: colors.textSub },
+    regular: 'System' as const, medium: 'System' as const,
+    semiBold: 'System' as const, bold: 'System' as const,
+  };
+  void gradients;
+  return StyleSheet.create({
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: colors.bg,
     borderBottomWidth: 1,
-    borderBottomColor: colors.glassBorder,
+    borderBottomColor: colors.border,
     paddingTop: Platform.OS === 'ios' ? 0 : 8,
     paddingBottom: 12,
     paddingHorizontal: spacing.md,
@@ -236,9 +267,9 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.bgCard,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -250,3 +281,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 });
+};

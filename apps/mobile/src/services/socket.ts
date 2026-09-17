@@ -17,6 +17,36 @@ const getToken = async (): Promise<string | null> => {
 class SocketService {
   public socket: Socket | null = null;
   private currentAlertId: string | null = null;
+  // Stored so the webrtc:signal listener can be (re)attached the moment the
+  // socket exists — connect() is async, so callers often register the handler
+  // before the socket object has been created.
+  private webrtcCallback: ((msg: any) => void) | null = null;
+  // Generic listeners that must survive the async connect + reconnects (e.g.
+  // responder dispatch events). Registering socket.on() directly at mount is
+  // unreliable because connect() is async and this.socket is often still null.
+  private persistentHandlers: Array<{ event: string; cb: (...args: any[]) => void }> = [];
+
+  /** Register an event handler that persists across (re)connects. */
+  on(event: string, cb: (...args: any[]) => void) {
+    if (!this.persistentHandlers.some((h) => h.event === event && h.cb === cb)) {
+      this.persistentHandlers.push({ event, cb });
+    }
+    this.socket?.on(event, cb);
+  }
+
+  /** Remove a persistent handler. */
+  off(event: string, cb: (...args: any[]) => void) {
+    this.persistentHandlers = this.persistentHandlers.filter((h) => !(h.event === event && h.cb === cb));
+    this.socket?.off(event, cb);
+  }
+
+  private reattachPersistent() {
+    if (!this.socket) return;
+    for (const h of this.persistentHandlers) {
+      this.socket.off(h.event, h.cb);
+      this.socket.on(h.event, h.cb);
+    }
+  }
 
   async connect() {
     if (this.socket?.connected) return;
@@ -33,6 +63,11 @@ class SocketService {
       autoConnect: true,
       auth: { token },
     });
+
+    // Attach any handlers registered before the socket existed (WebRTC + the
+    // generic persistent listeners like responder dispatch events).
+    this.attachWebRTCListener();
+    this.reattachPersistent();
 
     this.socket.on('connect', () => {
       if (__DEV__) console.log('Mobile app connected to WebSocket:', this.socket?.id);
@@ -98,16 +133,25 @@ class SocketService {
   }
 
   // WebRTC Signaling
-  onWebRTCMessage(callback: (msg: any) => void) {
-    if (!this.socket) return;
+
+  /** (Re)attach the webrtc:signal listener if we have both a socket and a cb. */
+  private attachWebRTCListener() {
+    if (!this.socket || !this.webrtcCallback) return;
     // Remove any existing listener first to avoid duplicates
     this.socket.off('webrtc:signal');
     this.socket.on('webrtc:signal', (data) => {
       // Only handle signals for our alert
       if (!this.currentAlertId || data.alertId === this.currentAlertId) {
-        callback(data);
+        this.webrtcCallback?.(data);
       }
     });
+  }
+
+  onWebRTCMessage(callback: (msg: any) => void) {
+    // Store the handler and attach now if the socket already exists; otherwise
+    // connect() will attach it as soon as the (async) socket is created.
+    this.webrtcCallback = callback;
+    this.attachWebRTCListener();
   }
 
   sendWebRTCSignal(signal: any) {
@@ -123,6 +167,7 @@ class SocketService {
   }
 
   offWebRTCMessage() {
+    this.webrtcCallback = null;
     if (this.socket) {
       this.socket.off('webrtc:signal');
     }

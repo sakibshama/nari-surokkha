@@ -1,26 +1,30 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView
+  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, Image
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../navigation/AuthStack';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../services/api';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, font, spacing, radius, shadows } from '../../theme';
+import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { radius, spacing, type } from '../../theme/tokens';
 import { User, Phone, Lock, ArrowRight } from 'lucide-react-native';
 import FlagRoundel from '../../components/FlagRoundel';
 
-const ROSE_GRADIENT = ['#fb7185', '#e11d48', '#be123c'] as const;
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
-const Field = ({ label, icon: Icon, value, onChange, placeholder, secure = false, keyboard = 'default' as any, id, focused, setFocused }: any) => (
+/** Local field. Reads the theme itself, so it works at module scope. */
+function Field({ label, icon: Icon, value, onChange, placeholder, secure = false, keyboard = 'default' as any, id, focused, setFocused }: any) {
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
+  return (
   <View style={styles.fieldGroup}>
     <Text style={styles.fieldLabel}>{label}</Text>
     <View style={[styles.inputRow, focused === id && styles.inputRowFocused]}>
-      <Icon color={focused === id ? colors.primary : colors.textMuted} size={18} />
+      <Icon color={focused === id ? colors.accent : colors.textMuted} size={18} />
       <TextInput
         style={styles.input}
         placeholder={placeholder}
@@ -35,9 +39,13 @@ const Field = ({ label, icon: Icon, value, onChange, placeholder, secure = false
       />
     </View>
   </View>
-);
+  );
+}
 
 export default function RegisterScreen({ navigation }: Props) {
+  const styles = useThemedStyles(makeStyles);
+  const { colors, gradients, shadows } = useTheme();
+  void gradients; void shadows;
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -55,14 +63,14 @@ export default function RegisterScreen({ navigation }: Props) {
     try {
       const response = await api.post('/auth/register', { fullName, phone: formattedPhone, password });
       const { user, tokens } = response.data.data;
-      await login(user, tokens.accessToken);
+      await login(user, tokens.accessToken, tokens.refreshToken);
     } catch (error: any) {
       Alert.alert('Registration Failed', error.response?.data?.error?.message || 'Something went wrong');
     } finally { setLoading(false); }
   };
 
   return (
-    <LinearGradient colors={['#0b0916', '#0e1224', '#0c1a2e']} style={styles.root}>
+    <LinearGradient colors={gradients.hero} style={styles.root}>
       {/* Ambient glows */}
       <View pointerEvents="none" style={styles.glowRose} />
       <View pointerEvents="none" style={styles.glowGreen} />
@@ -81,12 +89,7 @@ export default function RegisterScreen({ navigation }: Props) {
 
           {/* Header */}
           <View style={styles.brand}>
-            <View style={styles.logoRing}>
-              <View style={styles.logoInner}>
-                <FlagRoundel size={54} />
-              </View>
-            </View>
-            <Text style={styles.appNameBn}>নারী সুরক্ষা</Text>
+            <Image source={require('../../../assets/icon.png')} style={styles.logo} resizeMode="contain" />
             <Text style={styles.appName}>Create your account</Text>
             <Text style={styles.tagline}>Join Nari Surokkha today</Text>
           </View>
@@ -99,12 +102,12 @@ export default function RegisterScreen({ navigation }: Props) {
             <Field label="CONFIRM PASSWORD" icon={Lock} value={confirmPassword} onChange={setConfirmPassword} placeholder="Repeat your password" secure id="confirm" focused={focused} setFocused={setFocused} />
 
             <TouchableOpacity onPress={handleRegister} disabled={loading} activeOpacity={0.85} style={styles.btnWrapper}>
-              <LinearGradient colors={ROSE_GRADIENT} style={styles.btn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+              <LinearGradient colors={gradients.accent} style={styles.btn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
                 {loading
-                  ? <ActivityIndicator color="#fff" />
+                  ? <ActivityIndicator color={colors.onFill} />
                   : <>
                       <Text style={styles.btnText}>Create Account</Text>
-                      <ArrowRight color="#fff" size={20} />
+                      <ArrowRight color={colors.onFill} size={20} />
                     </>
                 }
               </LinearGradient>
@@ -127,7 +130,21 @@ export default function RegisterScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ colors, shadows, gradients }: Theme) => {
+  const font = {
+    hero: { ...type.hero, color: colors.text },
+    h1: { ...type.h1, color: colors.text },
+    h2: { ...type.h2, color: colors.text },
+    h3: { ...type.h3, color: colors.text },
+    body: { ...type.body, color: colors.text },
+    sm: { ...type.sm, color: colors.textSub },
+    xs: { ...type.xs, color: colors.textMuted },
+    label: { ...type.label, color: colors.textSub },
+    regular: 'System' as const, medium: 'System' as const,
+    semiBold: 'System' as const, bold: 'System' as const,
+  };
+  void gradients;
+  return StyleSheet.create({
   root: { flex: 1 },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.lg, paddingBottom: 120, paddingTop: 70 },
   glowRose: {
@@ -152,30 +169,22 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0,168,120,0.25)',
     marginBottom: spacing.xl,
   },
-  govStripBn: { color: 'rgba(255,255,255,0.92)', fontSize: 12, fontWeight: '700' },
-  govStripEn: { color: 'rgba(255,255,255,0.55)', fontSize: 10, fontWeight: '600', letterSpacing: 0.6, textTransform: 'uppercase' },
+  govStripBn: { color: colors.textSub, fontSize: 12, fontWeight: '700' },
+  govStripEn: { color: colors.textMuted, fontSize: 10, fontWeight: '600', letterSpacing: 0.6, textTransform: 'uppercase' },
   brand: { alignItems: 'center', marginBottom: spacing.xl },
-  logoRing: {
-    width: 92, height: 92, borderRadius: 30,
-    borderWidth: 2, borderColor: 'rgba(244,114,182,0.35)',
-    padding: 5, marginBottom: spacing.md,
-    shadowColor: '#f472b6', shadowOpacity: 0.45, shadowRadius: 22,
-    shadowOffset: { width: 0, height: 6 }, elevation: 10,
+  logo: {
+    width: 116, height: 116, borderRadius: 30, marginBottom: spacing.md,
+    shadowColor: colors.accent, shadowOpacity: 0.4, shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 }, elevation: 12,
   },
-  logoInner: {
-    flex: 1, borderRadius: 24,
-    backgroundColor: 'rgba(0,106,78,0.18)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  appNameBn: { color: '#fff', fontSize: 32, fontWeight: '800', marginBottom: 2 },
-  appName: { ...font.sm, color: 'rgba(255,255,255,0.7)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 },
+  appName: { ...font.sm, color: colors.textSub, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 },
   tagline: { ...font.sm, color: colors.textMuted, letterSpacing: 0.3 },
   card: {
-    backgroundColor: colors.bgCard,
+    backgroundColor: colors.surface,
     borderRadius: radius.xl,
     padding: spacing.lg + 4,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
+    borderColor: colors.border,
     ...shadows.card,
   },
   fieldGroup: { marginBottom: spacing.md },
@@ -184,25 +193,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    backgroundColor: colors.bgInput,
+    backgroundColor: colors.inputBg,
     borderRadius: radius.md,
     borderWidth: 1.5,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 4,
   },
-  inputRowFocused: { borderColor: '#f472b6', backgroundColor: 'rgba(244,114,182,0.06)' },
+  inputRowFocused: { borderColor: colors.accent, backgroundColor: 'rgba(244,114,182,0.06)' },
   input: { flex: 1, ...font.body, color: colors.text, minHeight: 44, paddingVertical: 4 },
   btnWrapper: {
     marginTop: spacing.lg, borderRadius: radius.lg,
-    shadowColor: '#e11d48', shadowOpacity: 0.5, shadowRadius: 18,
+    shadowColor: colors.danger, shadowOpacity: 0.5, shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 }, elevation: 10,
   },
   btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg },
-  btnText: { ...font.h3, color: '#fff', letterSpacing: 0.5 },
+  btnText: { ...font.h3, color: colors.onFill, letterSpacing: 0.5 },
   link: { flexDirection: 'row', justifyContent: 'center', marginTop: spacing.lg },
   linkText: { ...font.sm, color: colors.textMuted },
-  linkAccent: { ...font.sm, color: '#f472b6', fontWeight: '700' },
+  linkAccent: { ...font.sm, color: colors.accent, fontWeight: '700' },
   footer: { ...font.xs, color: colors.textMuted, textAlign: 'center', marginTop: spacing.xl },
   govFooter: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -210,3 +219,4 @@ const styles = StyleSheet.create({
   },
   govFooterText: { color: colors.textMuted, fontSize: 10.5, fontWeight: '600', letterSpacing: 0.3 },
 });
+};

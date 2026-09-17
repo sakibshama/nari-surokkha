@@ -15,6 +15,8 @@
 import * as SMS from 'expo-sms';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { trySendDirectSms } from './directSms';
+import { logSms } from './smsHistory';
 
 const CONTACTS_CACHE_KEY = '@trusted_contacts';
 
@@ -49,7 +51,7 @@ async function resolveCoords(explicit?: Coords): Promise<Coords | null> {
   return null;
 }
 
-async function getCachedContactPhones(): Promise<string[]> {
+export async function getCachedContactPhones(): Promise<string[]> {
   try {
     const cached = await AsyncStorage.getItem(CONTACTS_CACHE_KEY);
     if (!cached) return [];
@@ -78,12 +80,7 @@ export function buildSosMessage(userName: string | undefined, coords: Coords | n
  */
 export async function sendOfflineSosSms(
   options: OfflineSosOptions = {},
-): Promise<{ opened: boolean; reason?: string }> {
-  const available = await SMS.isAvailableAsync();
-  if (!available) {
-    return { opened: false, reason: 'SMS is not available on this device.' };
-  }
-
+): Promise<{ opened: boolean; reason?: string; auto?: boolean }> {
   const coords = await resolveCoords(options.coords);
   const message = buildSosMessage(options.userName, coords);
 
@@ -94,13 +91,31 @@ export async function sendOfflineSosSms(
   ];
 
   if (recipients.length === 0) {
+    await logSms({ channel: 'offline-sim', recipients, message, status: 'failed', reason: 'No trusted contacts saved.' });
     return { opened: false, reason: 'No trusted contacts saved for offline SMS.' };
   }
 
+  // 1. Preferred: silent auto-send via the SIM (Android + SEND_SMS granted).
+  //    No composer, no manual tap — the text goes out by itself.
+  const autoSent = await trySendDirectSms(recipients, message);
+  if (autoSent) {
+    await logSms({ channel: 'offline-sim', recipients, message, status: 'auto' });
+    return { opened: true, auto: true };
+  }
+
+  // 2. Fallback: native composer (iOS, permission denied, or Expo Go).
+  const available = await SMS.isAvailableAsync();
+  if (!available) {
+    await logSms({ channel: 'offline-sim', recipients, message, status: 'failed', reason: 'SMS not available on device.' });
+    return { opened: false, reason: 'SMS is not available on this device.' };
+  }
   try {
     await SMS.sendSMSAsync(recipients, message);
-    return { opened: true };
+    await logSms({ channel: 'offline-sim', recipients, message, status: 'manual' });
+    return { opened: true, auto: false };
   } catch (err) {
-    return { opened: false, reason: (err as Error)?.message || 'Failed to open SMS composer.' };
+    const reason = (err as Error)?.message || 'Failed to open SMS composer.';
+    await logSms({ channel: 'offline-sim', recipients, message, status: 'failed', reason });
+    return { opened: false, reason };
   }
 }

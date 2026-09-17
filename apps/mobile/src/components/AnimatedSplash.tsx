@@ -1,164 +1,137 @@
 /**
- * AnimatedSplash — branded opening animation.
+ * AnimatedSplash — branded opening animation built around the app logo.
  *
- * Sequence: flag roundel springs in with radiating pulse rings →
- * নারী সুরক্ষা title + tagline rise in → whole overlay fades out.
- * Built on the core Animated API (no extra deps; works on native + web).
+ * Sequence: the logo springs in with a soft glow while radiating pulse rings
+ * expand behind it → a government attribution line fades in → the whole overlay
+ * fades out and hands control to the app. Core Animated API, no extra deps.
  */
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, View } from 'react-native';
-import { colors, font } from '../theme';
+import { Animated, Easing, Image, StyleSheet, View } from 'react-native';
+import { useTheme } from '../theme';
 
-const GREEN = '#006a4e';
-const GREEN_LIGHT = '#00875f';
-const RED = '#f42a41';
+const GREEN = '#00875f';  // brand marks, fixed on purpose
+const ROSE = '#f43f5e';   // brand marks, fixed on purpose
+const LOGO = require('../../assets/icon.png');
 
 export default function AnimatedSplash({ onFinish }: { onFinish: () => void }) {
-  const emblemScale = useRef(new Animated.Value(0.3)).current;
-  const emblemOpacity = useRef(new Animated.Value(0)).current;
+  // The splash is the first frame of the app, so it has to open on the same
+  // ground the app will land on — otherwise a light-mode phone flashes dark
+  // for a second and then snaps white.
+  const { colors } = useTheme();
+  const logoScale = useRef(new Animated.Value(0.4)).current;
+  const logoOpacity = useRef(new Animated.Value(0)).current;
   const ring1 = useRef(new Animated.Value(0)).current;
   const ring2 = useRef(new Animated.Value(0)).current;
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-  const titleShift = useRef(new Animated.Value(16)).current;
-  const taglineOpacity = useRef(new Animated.Value(0)).current;
+  const captionOpacity = useRef(new Animated.Value(0)).current;
+  const captionShift = useRef(new Animated.Value(14)).current;
   const overlayOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Emblem entrance
     Animated.parallel([
-      Animated.spring(emblemScale, { toValue: 1, friction: 5, tension: 60, useNativeDriver: true }),
-      Animated.timing(emblemOpacity, { toValue: 1, duration: 350, useNativeDriver: true }),
+      Animated.spring(logoScale, { toValue: 1, friction: 6, tension: 55, useNativeDriver: true }),
+      Animated.timing(logoOpacity, { toValue: 1, duration: 450, useNativeDriver: true }),
     ]).start();
 
-    // Radiating pulse rings (staggered loop)
     const pulse = (ring: Animated.Value, delay: number) =>
       Animated.loop(
         Animated.sequence([
           Animated.delay(delay),
-          Animated.timing(ring, { toValue: 1, duration: 1400, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+          Animated.timing(ring, { toValue: 1, duration: 1600, easing: Easing.out(Easing.quad), useNativeDriver: true }),
           Animated.timing(ring, { toValue: 0, duration: 0, useNativeDriver: true }),
         ]),
       );
-    const p1 = pulse(ring1, 200);
-    const p2 = pulse(ring2, 800);
+    const p1 = pulse(ring1, 250);
+    const p2 = pulse(ring2, 950);
     p1.start();
     p2.start();
 
-    // Title + tagline
     Animated.sequence([
-      Animated.delay(450),
+      Animated.delay(600),
       Animated.parallel([
-        Animated.timing(titleOpacity, { toValue: 1, duration: 450, useNativeDriver: true }),
-        Animated.timing(titleShift, { toValue: 0, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(captionOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.timing(captionShift, { toValue: 0, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]),
-      Animated.timing(taglineOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
     ]).start();
 
-    // Fade the whole overlay out, then hand over to the app
     const t = setTimeout(() => {
       Animated.timing(overlayOpacity, { toValue: 0, duration: 450, useNativeDriver: true }).start(() => {
         p1.stop();
         p2.stop();
         onFinish();
       });
-    }, 2300);
+    }, 2500);
 
     return () => { clearTimeout(t); p1.stop(); p2.stop(); };
   }, []);
 
-  const ringStyle = (ring: Animated.Value) => ({
-    opacity: ring.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 0.45, 0] }),
-    transform: [{ scale: ring.interpolate({ inputRange: [0, 1], outputRange: [1, 2.4] }) }],
+  const ringStyle = (ring: Animated.Value, color: string) => ({
+    borderColor: color,
+    opacity: ring.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0, 0.4, 0] }),
+    transform: [{ scale: ring.interpolate({ inputRange: [0, 1], outputRange: [1, 2.1] }) }],
   });
 
   return (
-    <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]} pointerEvents="none">
+    <Animated.View style={[styles.overlay, { backgroundColor: colors.bg, opacity: overlayOpacity }]} pointerEvents="none">
       <View style={styles.center}>
-        {/* Pulse rings */}
-        <Animated.View style={[styles.ring, { borderColor: GREEN_LIGHT }, ringStyle(ring1)]} />
-        <Animated.View style={[styles.ring, { borderColor: RED }, ringStyle(ring2)]} />
-
-        {/* Flag roundel emblem */}
-        <Animated.View style={[styles.emblem, { opacity: emblemOpacity, transform: [{ scale: emblemScale }] }]}>
-          <View style={styles.redDisc} />
+        <Animated.View style={[styles.ring, ringStyle(ring1, GREEN)]} />
+        <Animated.View style={[styles.ring, ringStyle(ring2, ROSE)]} />
+        <Animated.View style={{ opacity: logoOpacity, transform: [{ scale: logoScale }] }}>
+          <Image source={LOGO} style={styles.logo} resizeMode="contain" />
         </Animated.View>
       </View>
 
-      <Animated.Text style={[styles.title, { opacity: titleOpacity, transform: [{ translateY: titleShift }] }]}>
-        নারী সুরক্ষা
+      <Animated.Text style={[styles.caption, { color: colors.text, opacity: captionOpacity, transform: [{ translateY: captionShift }] }]}>
+        Government of Bangladesh
       </Animated.Text>
-      <Animated.Text style={[styles.tagline, { opacity: taglineOpacity }]}>
-        Nari Surokkha — Your Safety Companion
-      </Animated.Text>
-      <Animated.Text style={[styles.gov, { opacity: taglineOpacity }]}>
-        জাতীয় নারী নিরাপত্তা সেবা
+      <Animated.Text style={[styles.captionSub, { color: colors.textMuted, opacity: captionOpacity }]}>
+        National Women Safety Service
       </Animated.Text>
     </Animated.View>
   );
 }
 
-const EMBLEM = 108;
+const LOGO_SIZE = 168;
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.bg,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 999,
   },
   center: {
-    width: EMBLEM,
-    height: EMBLEM,
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 28,
+    marginBottom: 30,
   },
   ring: {
     position: 'absolute',
-    width: EMBLEM,
-    height: EMBLEM,
-    borderRadius: EMBLEM / 3.6,
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    borderRadius: LOGO_SIZE / 3.4,
     borderWidth: 2,
   },
-  emblem: {
-    width: EMBLEM,
-    height: EMBLEM,
-    borderRadius: EMBLEM / 3.6,
-    backgroundColor: GREEN,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: GREEN_LIGHT,
-    shadowOpacity: 0.6,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 12,
+  logo: {
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    borderRadius: LOGO_SIZE / 3.4,
   },
-  redDisc: {
-    width: EMBLEM * 0.46,
-    height: EMBLEM * 0.46,
-    borderRadius: EMBLEM * 0.23,
-    backgroundColor: RED,
-    // Slightly left of center, like the national flag
-    marginRight: EMBLEM * 0.08,
+  caption: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
-  title: {
-    color: '#ffffff',
-    fontSize: 40,
-    fontFamily: font.bold,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  tagline: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 14,
-    fontFamily: font.medium,
-    marginTop: 10,
-  },
-  gov: {
-    color: 'rgba(255,255,255,0.45)',
+  captionSub: {
     fontSize: 12,
-    fontFamily: font.medium,
-    marginTop: 6,
+    fontWeight: '600',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginTop: 5,
   },
 });

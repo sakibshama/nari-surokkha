@@ -1,5 +1,7 @@
 import React, { Component, ReactNode } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { ThemeContext } from '../theme/ThemeProvider';
+import { lightPalette, radius, spacing, type as typeScale } from '../theme/tokens';
 
 interface Props {
   children: ReactNode;
@@ -10,6 +12,14 @@ interface State {
 }
 
 export class ErrorBoundary extends Component<Props, State> {
+  /**
+   * A class component, so the palette comes from context rather than a hook.
+   * If the provider is somehow missing — which is exactly the sort of broken
+   * state that lands us here — the light palette is a readable fallback.
+   */
+  static contextType = ThemeContext;
+  context!: React.ContextType<typeof ThemeContext>;
+
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: '' };
@@ -19,22 +29,24 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error: error.message };
   }
 
-  componentDidCatch(error: Error, info: any) {
-    console.error('[ErrorBoundary] Caught error:', error, info);
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('ErrorBoundary caught:', error, info.componentStack);
   }
 
   render() {
     if (this.state.hasError) {
+      const colors = this.context?.colors ?? lightPalette;
       return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: colors.bg }]}>
           <Text style={styles.icon}>⚠️</Text>
-          <Text style={styles.title}>Something went wrong</Text>
-          <Text style={styles.message}>{this.state.error}</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Something went wrong</Text>
+          <Text style={[styles.message, { color: colors.textMuted }]}>{this.state.error}</Text>
           <TouchableOpacity
-            style={styles.btn}
+            accessibilityRole="button"
+            style={[styles.btn, { backgroundColor: colors.accent }]}
             onPress={() => this.setState({ hasError: false, error: '' })}
           >
-            <Text style={styles.btnText}>Try Again</Text>
+            <Text style={[styles.btnText, { color: colors.onAccent }]}>Try again</Text>
           </TouchableOpacity>
         </View>
       );
@@ -43,34 +55,31 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 }
 
+/** Layout only. Every colour is applied at render time from the palette. */
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0f1e',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 32,
+    padding: spacing.xl,
   },
-  icon: { fontSize: 64, marginBottom: 16 },
+  icon: { fontSize: 64, marginBottom: spacing.md },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#f1f5f9',
-    marginBottom: 12,
+    ...typeScale.h1,
+    marginBottom: spacing.sm + 4,
     textAlign: 'center',
   },
   message: {
-    fontSize: 13,
-    color: '#94a3b8',
+    ...typeScale.sm,
     textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 20,
+    marginBottom: spacing.xl,
   },
   btn: {
-    backgroundColor: '#ef4444',
-    paddingHorizontal: 32,
+    paddingHorizontal: spacing.xl,
     paddingVertical: 14,
-    borderRadius: 24,
+    borderRadius: radius.full,
+    minHeight: 48,
+    justifyContent: 'center',
   },
-  btnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  btnText: { ...typeScale.bodyStrong },
 });

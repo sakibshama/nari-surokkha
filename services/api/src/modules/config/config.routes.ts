@@ -15,8 +15,27 @@
 
 import { FastifyInstance } from 'fastify';
 import { requireRoles } from '@/middleware/rbac';
+import { env } from '@/config/env';
 
 const REDIS_KEY = 'config:googleMapsApiKey';
+
+/** Build the WebRTC ICE server list from env (STUN always, TURN when set). */
+function buildIceServers() {
+  const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
+    { urls: env.STUN_URL },
+  ];
+  if (env.TURN_HOST && env.TURN_PASSWORD) {
+    iceServers.push({
+      urls: [
+        `turn:${env.TURN_HOST}:${env.TURN_PORT}?transport=udp`,
+        `turn:${env.TURN_HOST}:${env.TURN_PORT}?transport=tcp`,
+      ],
+      username: env.TURN_USERNAME,
+      credential: env.TURN_PASSWORD,
+    });
+  }
+  return iceServers;
+}
 
 export function configRoutes(
   fastify: FastifyInstance,
@@ -30,6 +49,18 @@ export function configRoutes(
     async (_req, reply) => {
       const googleMapsApiKey = await fastify.redis.get(REDIS_KEY);
       return reply.send({ success: true, data: { googleMapsApiKey: googleMapsApiKey || null } });
+    },
+  );
+
+  // ─── WebRTC ICE servers (STUN/TURN) ─────────────────────────
+  // Any authenticated client (mobile app + portals) fetches this before
+  // starting a stream, so the TURN credential is centralized here and can never
+  // drift out of sync with the coturn container the way a hardcoded value does.
+  fastify.get(
+    '/ice-servers',
+    { onRequest: [fastify.authenticate] },
+    async (_req, reply) => {
+      return reply.send({ success: true, data: { iceServers: buildIceServers() } });
     },
   );
 

@@ -21,7 +21,7 @@ interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (user: User, token: string) => Promise<void>;
+  login: (user: User, token: string, refreshToken?: string) => Promise<void>;
   logout: () => Promise<void>;
   restoreToken: () => Promise<void>;
   updateUser: (partial: Partial<User>) => Promise<void>;
@@ -56,14 +56,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   isLoading: true,
   
-  login: async (user, token) => {
+  login: async (user, token, refreshToken) => {
     await setItem('accessToken', token);
+    if (refreshToken) await setItem('refreshToken', refreshToken);
     await setItem('userData', JSON.stringify(user));
     set({ user, isAuthenticated: true });
   },
-  
+
   logout: async () => {
     await deleteItem('accessToken');
+    await deleteItem('refreshToken');
     await deleteItem('userData');
     set({ user: null, isAuthenticated: false });
   },

@@ -20,6 +20,8 @@ import {
   SmsConfigPublic,
   SmsConfigUpdate,
   SmsProviderName,
+  SMS_TEMPLATE_KEY,
+  SMS_TEMPLATE_DEFAULT,
 } from './settings.types';
 
 /** Shape actually persisted in the DB (secrets encrypted). */
@@ -176,5 +178,26 @@ export class SettingsService {
     });
 
     return this.getSmsConfigPublic();
+  }
+
+  // ─── SOS SMS message template ─────────────────────────────────
+
+  /** Current SMS template (falls back to the default if unset). */
+  async getSmsTemplate(): Promise<string> {
+    const row = await this.db.systemSetting.findUnique({ where: { key: SMS_TEMPLATE_KEY } });
+    const stored = (row?.value ?? {}) as { template?: string };
+    const t = typeof stored.template === 'string' ? stored.template.trim() : '';
+    return t || SMS_TEMPLATE_DEFAULT;
+  }
+
+  /** Persist a new SMS template. Empty input resets to the default. */
+  async updateSmsTemplate(template: string, userId?: string): Promise<string> {
+    const next = (template ?? '').trim() || SMS_TEMPLATE_DEFAULT;
+    await this.db.systemSetting.upsert({
+      where: { key: SMS_TEMPLATE_KEY },
+      create: { key: SMS_TEMPLATE_KEY, value: { template: next } as unknown as Prisma.InputJsonValue, updatedBy: userId ?? null },
+      update: { value: { template: next } as unknown as Prisma.InputJsonValue, updatedBy: userId ?? null },
+    });
+    return next;
   }
 }

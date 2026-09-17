@@ -25,6 +25,7 @@
     "expo-secure-store": "~56.0.4",
     "expo-sensors": "~56.0.6",
     "expo-sms": "^56.0.3",
+    "react-native-direct-sms": "^1.2.4",
     "expo-status-bar": "~56.0.4",
     "expo-task-manager": "~56.0.20",
     "lucide-react-native": "^1.21.0",
@@ -32,6 +33,7 @@
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
     "react-native-fast-tflite": "^3.0.1",
+    "react-native-live-audio-stream": "^1.1.1",
     "react-native-gesture-handler": "~2.31.1",
     "react-native-reanimated": "^4.3.1",
     "react-native-safe-area-context": "~5.7.0",
@@ -48,13 +50,15 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "babel-plugin-transform-remove-console": "^6.9.4",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "type-check": "tsc --noEmit"
   },
   "private": true,
   "expo": {

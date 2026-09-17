@@ -50,6 +50,18 @@ async function main(): Promise<void> {
 
   console.log('✅ Roles seeded');
 
+  // ─── Demo-data guard ─────────────────────────────────────────
+  // Everything below (fake stations, test citizen/responder/admin logins with a
+  // shared dev password, sample incidents) is DEV/DEMO ONLY. In production it is
+  // skipped unless ALLOW_DEV_SEED=true is explicitly set, so a real deployment
+  // never ships with known test credentials. Essential roles above always seed.
+  const seedDemo =
+    process.env.NODE_ENV !== 'production' || process.env.ALLOW_DEV_SEED === 'true';
+  if (!seedDemo) {
+    console.log('⏭  Production seed: roles only. Set ALLOW_DEV_SEED=true to include demo data.');
+    return;
+  }
+
   // ─── Police Stations ────────────────────────────────────────
 
   const dhakaStation = await prisma.policeStation.upsert({

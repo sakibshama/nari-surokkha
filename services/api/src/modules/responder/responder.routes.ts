@@ -28,7 +28,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       tags: ['Responders'],
       summary: 'Get my responder profile',
     }
-  }, controller.getMyProfile);
+  }, controller.getMyProfile as any);
 
   fastify.post('/apply', {
     onRequest: [fastify.authenticate],
@@ -38,7 +38,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       body: applyResponderSchema,
       response: { 201: applyResponderResponseSchema }
     }
-  }, controller.apply);
+  }, controller.apply as any);
 
   fastify.patch('/location', {
     onRequest: [fastify.authenticate],
@@ -48,7 +48,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       body: updateLocationSchema,
       response: { 200: updateLocationResponseSchema }
     }
-  }, controller.updateLocation);
+  }, controller.updateLocation as any);
 
   fastify.patch('/:id/status', {
     onRequest: [fastify.authenticate],
@@ -59,7 +59,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       body: updateStatusBodySchema,
       response: { 200: updateStatusResponseSchema }
     }
-  }, controller.updateStatus);
+  }, controller.updateStatus as any);
 
   fastify.get('/pending', {
     onRequest: [fastify.authenticate],
@@ -67,7 +67,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       tags: ['Responders'],
       summary: 'Get pending responder applications (Admin)'
     }
-  }, controller.getPending);
+  }, controller.getPending as any);
 
   fastify.get('/dispatches', {
     onRequest: [fastify.authenticate],
@@ -76,7 +76,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       summary: 'Get dispatches assigned to me',
       response: { 200: getDispatchesResponseSchema }
     }
-  }, controller.getMyDispatches);
+  }, controller.getMyDispatches as any);
 
   fastify.patch('/dispatches/:dispatchId/response', {
     onRequest: [fastify.authenticate],
@@ -86,7 +86,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       params: respondDispatchParamsSchema,
       body: respondDispatchBodySchema
     }
-  }, controller.respondToDispatch);
+  }, controller.respondToDispatch as any);
 
   fastify.patch('/dispatch/:dispatchId/verify', {
     onRequest: [fastify.authenticate],
@@ -96,5 +96,5 @@ export async function responderRoutes(fastify: FastifyInstance) {
       params: verifyDispatchParamsSchema,
       response: { 200: verifyDispatchResponseSchema }
     }
-  }, controller.verifyDispatch);
+  }, controller.verifyDispatch as any);
 }

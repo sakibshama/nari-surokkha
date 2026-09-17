@@ -7,16 +7,21 @@ import { socketService } from '../services/socket';
 import LiveLocationMap from '../components/SmartLocationMap';
 import { useT } from '../i18n';
 
-// STUN + TURN — TURN relays media when P2P fails (cellular CGNAT etc.).
-// Credential must match TURN_PASSWORD in the server's .env.production.
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  {
-    urls: ['turn:api.mystrix-soft.com:3478?transport=udp', 'turn:api.mystrix-soft.com:3478?transport=tcp'],
-    username: 'nari',
-    credential: 'CHANGE_ME_turn_password',
-  },
-];
+// STUN-only FALLBACK. The authoritative ICE list (incl. TURN credential) is
+// fetched from the API — see loadIceServers() — so the TURN password lives in
+// one place on the server and never drifts out of sync.
+const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+async function loadIceServers(): Promise<RTCIceServer[]> {
+  try {
+    const res = await api.get('/config/ice-servers');
+    const list = res.data?.data?.iceServers;
+    if (Array.isArray(list) && list.length) return list;
+  } catch {
+    /* fall back to STUN-only */
+  }
+  return ICE_SERVERS;
+}
 
 interface AlertDetail {
   id: string;
@@ -47,25 +52,62 @@ export default function AlertDetails() {
   const [evidenceList, setEvidenceList] = useState<{ id: string; url: string; type: string; mimeType: string; originalName: string }[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const [streaming, setStreaming] = useState(false);
+
+  // Connect as the WebRTC offerer (the role the victim's app answers).
+  const connectStream = async () => {
+    if (pcRef.current) return;
+    const iceServers = await loadIceServers();
+    const pc = new RTCPeerConnection({ iceServers });
+    pcRef.current = pc;
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        const c = e.candidate;
+        socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: 'candidate', candidate: { candidate: c.candidate, sdpMLineIndex: c.sdpMLineIndex, sdpMid: c.sdpMid } } });
+      }
+    };
+    pc.ontrack = (e) => { if (videoRef.current) videoRef.current.srcObject = e.streams[0]; };
+    pc.onconnectionstatechange = () => {
+      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) disconnectStream();
+    };
+    const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+    await pc.setLocalDescription(offer);
+    const d = pc.localDescription;
+    socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: d?.type, sdp: d?.sdp } });
+    setStreaming(true);
+  };
+
+  const disconnectStream = () => {
+    if (pcRef.current) { try { pcRef.current.close(); } catch { /* noop */ } pcRef.current = null; }
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setStreaming(false);
+  };
   const [isAudioOnly, setIsAudioOnly] = useState(false);
 
   const fetchEvidence = async () => {
     try {
       const res = await api.get(`/evidence/alerts/${id}`);
       const list = res.data.data || [];
-      const urls = await Promise.all(
+      // Resolve each URL independently — one bad/missing file must never hide
+      // the rest of the evidence (Promise.all would reject the whole batch).
+      const settled = await Promise.allSettled(
         list.map(async (ev: any) => {
           const urlRes = await api.get(`/evidence/${ev.id}/url`);
           return {
             id: ev.id,
-            url: urlRes.data.url,
+            url: urlRes.data.url as string,
             type: ev.type,
             mimeType: ev.mimeType || '',
             originalName: ev.originalName || 'evidence',
           };
         })
       );
+      const urls = settled
+        .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+        .map((r) => r.value);
       setEvidenceList(urls);
+      const failed = settled.length - urls.length;
+      if (failed > 0) console.warn(`${failed} evidence item(s) could not be loaded`);
     } catch (err) {
       console.error('Failed to fetch evidence', err);
     }
@@ -158,7 +200,8 @@ export default function AlertDetails() {
         socketService.socket.off('webrtc:mode_changed');
       }
       if (pcRef.current) {
-        pcRef.current.close();
+        try { pcRef.current.close(); } catch { /* noop */ }
+        pcRef.current = null;
       }
     };
   }, [id]);
@@ -298,35 +341,16 @@ export default function AlertDetails() {
           </h2>
           {alert.status !== 'resolved' && alert.status !== 'false_alarm' && alert.status !== 'closed' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <button 
-                className="btn btn-primary" 
-                onClick={async () => {
-                  if (pcRef.current) return;
-                  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-                  pcRef.current = pc;
-                  
-                  pc.onicecandidate = (e) => {
-                    if (e.candidate) {
-                      const cand = e.candidate;
-                      socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: 'candidate', candidate: { candidate: cand.candidate, sdpMLineIndex: cand.sdpMLineIndex, sdpMid: cand.sdpMid } } });
-                    }
-                  };
-
-                  pc.ontrack = (e) => {
-                    if (videoRef.current) {
-                      videoRef.current.srcObject = e.streams[0];
-                    }
-                  };
-
-                  const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
-                  await pc.setLocalDescription(offer);
-                  const desc = pc.localDescription;
-                  socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: desc?.type, sdp: desc?.sdp } });
-                }}
-                style={{ fontSize: 12, padding: '6px 12px' }}
-              >
-                Connect to Stream
-              </button>
+              {streaming ? (
+                <button className="btn btn-danger" onClick={disconnectStream} style={{ fontSize: 12, padding: '6px 12px' }}>
+                  Disconnect Stream
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={connectStream} style={{ fontSize: 12, padding: '6px 12px' }}>
+                  Connect to Stream
+                </button>
+              )}
+              {streaming && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', fontWeight: 600, fontSize: 12 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'alert-pulse 1.5s infinite' }} />
                 LIVE
@@ -337,16 +361,22 @@ export default function AlertDetails() {
                   </span>
                 )}
               </div>
+              )}
             </div>
           )}
         </div>
         <div style={{ width: '100%', background: '#000', borderRadius: 8, overflow: 'hidden', minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            playsInline 
-            controls 
-            style={{ width: '100%', maxHeight: '500px', objectFit: 'contain', display: isAudioOnly ? 'none' : 'block' }} 
+          {!streaming && (
+            <div style={{ color: 'var(--text-sub)', fontSize: 14, padding: 40, textAlign: 'center' }}>
+              Press “Connect to Stream” to view the victim's live camera &amp; audio.
+            </div>
+          )}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            controls
+            style={{ width: '100%', maxHeight: '500px', objectFit: 'contain', display: (!streaming || isAudioOnly) ? 'none' : 'block' }}
           />
           {isAudioOnly && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#fff', gap: 16 }}>

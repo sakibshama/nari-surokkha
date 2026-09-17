@@ -1,1 +1,10 @@
 demo
+
+
+
+cd services/ml-training
+python -m venv .venv && .venv\Scripts\activate      # Windows
+pip install -r requirements.txt                      # numpy + scikit-learn
+
+python train.py --out models                         # trains → models/motion_model.json
+copy models\motion_model.json ..\..\apps\mobile\assets\models\motion_model.json

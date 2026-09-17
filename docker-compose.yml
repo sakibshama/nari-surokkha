@@ -46,7 +46,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required (min 64 chars)}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required (min 64 chars)}
       - CORS_ORIGINS=${CORS_ORIGINS:?CORS_ORIGINS is required}
-      - WS_CORS_ORIGINS=${WS_CORS_ORIGINS:?WS_CORS_ORIGINS is required}
+      - OSRM_URL=${OSRM_URL:-http://osrm:5000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,6 +54,20 @@ services:
         condition: service_healthy
     # Production runs migrations only — NEVER seed dev/test accounts into prod.
     command: sh -c "npx prisma migrate deploy && npm run start"
+
+  osrm:
+    image: osrm/osrm-backend:v5.27.1
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    command: osrm-routed --algorithm mld --max-matching-size 2000 /data/map.osrm
+    volumes:
+      - ${OSRM_DIR:-./data/osrm}:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:5000/route/v1/foot/90.4,23.8;90.41,23.81' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
   admin-portal:
     build:

@@ -1,12 +1,12 @@
 import os
-import random
-from typing import List
+from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import time
 
-app = FastAPI(title="Nari Surokkha ML Service")
+import inference
+
+app = FastAPI(title="Nari Surokkha ML Service", version="1.0.0")
 
 # ─── CORS ────────────────────────────────────────────────────
 # Restrict to an explicit allow-list. Never use "*" together with
@@ -35,72 +35,71 @@ def require_api_key(x_api_key: str = Header(default=None)):
             raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-class Location(BaseModel):
-    latitude: float
-    longitude: float
-
+# ─── request models ──────────────────────────────────────────
 class AudioData(BaseModel):
-    audio_base64: str
-    sample_rate: int
+    audio_base64: Optional[str] = None      # base64 PCM16 mono, little-endian
+    samples: Optional[List[float]] = None   # or raw float samples [-1, 1]
+    sample_rate: int = 16000
+
 
 class MotionData(BaseModel):
-    accelerometer: List[List[float]]  # [x,y,z] over time
-    gyroscope: List[List[float]]
-    timestamp: int
+    accelerometer: List[List[float]]  # [[ax,ay,az], ...] over the window
+    gyroscope: List[List[float]]      # [[gx,gy,gz], ...] over the window
+    timestamp: int = 0
 
-class SafeRouteRequest(BaseModel):
-    start: Location
-    destination: Location
-    time_of_day: str  # "day", "night"
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "version": "0.1.0"}
+    # Report which models loaded so ops can verify the service is real.
+    loaded = {}
+    for kind in ("motion", "audio"):
+        try:
+            m = inference.load_model(kind)
+            loaded[kind] = {"version": m["version"], "classes": m["classes"]}
+        except Exception as e:  # pragma: no cover
+            loaded[kind] = {"error": str(e)}
+    return {"status": "healthy", "version": "1.0.0", "models": loaded}
+
 
 @app.post("/api/v1/analyze-audio", dependencies=[Depends(require_api_key)])
 def analyze_audio(data: AudioData):
-    """Mock endpoint to analyze audio for distress signals (screams, trigger words)."""
-    time.sleep(0.5)
-    prob = random.uniform(0.1, 0.9)
-    if len(data.audio_base64) > 1000:
-        prob = 0.85
-    is_distress = prob > 0.7
+    """Real audio distress inference (scream / distress keyword) using the
+    shipped audio_model.json — identical weights to the on-device model."""
+    try:
+        r = inference.analyze_audio(audio_base64=data.audio_base64, samples=data.samples)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"audio analysis failed: {e}")
     return {
-        "is_distress": is_distress,
-        "confidence": round(prob, 2),
-        "detected_type": "distress_audio" if is_distress else "none",
+        "is_distress": r["is_emergency"],
+        "confidence": r["emergency_confidence"] if r["is_emergency"] else r["confidence"],
+        "detected_type": r["label"],
+        "probs": r["probs"],
+        "model_version": r["model_version"],
     }
+
 
 @app.post("/api/v1/analyze-motion", dependencies=[Depends(require_api_key)])
 def analyze_motion(data: MotionData):
-    """Mock endpoint to analyze accelerometer/gyroscope data for falls or struggles."""
-    time.sleep(0.3)
-    prob = random.uniform(0.05, 0.95)
-    is_fall = prob > 0.75
-    is_struggle = prob > 0.6 and not is_fall
-    detection = "none"
-    if is_fall:
-        detection = "fall"
-    elif is_struggle:
-        detection = "struggle_motion"
+    """Real motion inference (fall / struggle) using the shipped
+    motion_model.json — identical weights to the on-device model."""
+    try:
+        r = inference.analyze_motion(data.accelerometer, data.gyroscope)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"motion analysis failed: {e}")
     return {
-        "detected_type": detection,
-        "confidence": round(prob, 2),
-        "is_emergency": detection != "none",
+        "detected_type": r["label"],
+        "confidence": r["confidence"],
+        "is_emergency": r["is_emergency"],
+        "emergency_confidence": r["emergency_confidence"],
+        "probs": r["probs"],
+        "model_version": r["model_version"],
     }
 
-@app.post("/api/v1/safe-route", dependencies=[Depends(require_api_key)])
-def get_safe_route(data: SafeRouteRequest):
-    """Mock endpoint returning a safe route over safety scores."""
-    mid_lat = (data.start.latitude + data.destination.latitude) / 2
-    mid_lng = (data.start.longitude + data.destination.longitude) / 2
-    offset = 0.005
-    path = [
-        {"latitude": data.start.latitude, "longitude": data.start.longitude},
-        {"latitude": mid_lat + offset, "longitude": mid_lng + offset},
-        {"latitude": data.destination.latitude, "longitude": data.destination.longitude},
-    ]
-    return {"route": path, "estimated_time_mins": 15, "safety_score_avg": 85.5}
+
+# NOTE: Safe Route is NOT handled here. Routing + safety scoring live in the
+# backend API (services/api), which has the incident database (PostGIS) needed
+# to score a route. This service only runs the trained classifiers.
+
 
 if __name__ == "__main__":
     import uvicorn

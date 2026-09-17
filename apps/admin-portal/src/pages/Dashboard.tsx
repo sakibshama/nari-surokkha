@@ -8,8 +8,8 @@ import {
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import { socketService } from '../services/socket';
-import FlagRoundel from '../components/FlagRoundel';
 import { useT } from '../i18n';
+import AppLogo from '../components/AppLogo';
 
 interface HealthData {
   totalUsers: number;
@@ -148,9 +148,7 @@ export default function Dashboard() {
       <div className="gov-hero">
         <div className="gov-hero-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, backdropFilter: 'blur(4px)' }}>
-              <FlagRoundel size={34} />
-            </div>
+            <AppLogo size={58} radius={16} />
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.82)', marginBottom: 3 }}>
                 {t('Government of Bangladesh')} · {t('National Women Safety Service')}

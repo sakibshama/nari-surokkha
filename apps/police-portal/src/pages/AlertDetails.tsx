@@ -7,16 +7,21 @@ import { socketService } from '../services/socket';
 import LiveLocationMap from '../components/SmartLocationMap';
 import { useT } from '../i18n';
 
-// STUN + TURN — TURN relays media when P2P fails (cellular CGNAT etc.).
-// Credential must match TURN_PASSWORD in the server's .env.production.
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  {
-    urls: ['turn:api.mystrix-soft.com:3478?transport=udp', 'turn:api.mystrix-soft.com:3478?transport=tcp'],
-    username: 'nari',
-    credential: 'CHANGE_ME_turn_password',
-  },
-];
+// STUN-only FALLBACK. The authoritative ICE list (incl. TURN credential) is
+// fetched from the API — see loadIceServers() — so the TURN password lives in
+// one place on the server and never drifts out of sync.
+const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+async function loadIceServers(): Promise<RTCIceServer[]> {
+  try {
+    const res = await api.get('/config/ice-servers');
+    const list = res.data?.data?.iceServers;
+    if (Array.isArray(list) && list.length) return list;
+  } catch {
+    /* fall back to STUN-only */
+  }
+  return ICE_SERVERS;
+}
 
 export default function AlertDetails() {
   const { id } = useParams();
@@ -28,6 +33,39 @@ export default function AlertDetails() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [isAudioOnly, setIsAudioOnly] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+
+  // Connect as the WebRTC offerer (the role the victim's app answers).
+  const connectStream = async () => {
+    if (pcRef.current) return;
+    const iceServers = await loadIceServers();
+    const pc = new RTCPeerConnection({ iceServers });
+    pcRef.current = pc;
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        const c = e.candidate;
+        socketService.socket?.emit('webrtc:signal', {
+          alertId: id,
+          signal: { type: 'candidate', candidate: { candidate: c.candidate, sdpMLineIndex: c.sdpMLineIndex, sdpMid: c.sdpMid } },
+        });
+      }
+    };
+    pc.ontrack = (e) => { if (videoRef.current) videoRef.current.srcObject = e.streams[0]; };
+    pc.onconnectionstatechange = () => {
+      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) disconnectStream();
+    };
+    const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+    await pc.setLocalDescription(offer);
+    const d = pc.localDescription;
+    socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: d?.type, sdp: d?.sdp } });
+    setStreaming(true);
+  };
+
+  const disconnectStream = () => {
+    if (pcRef.current) { try { pcRef.current.close(); } catch { /* noop */ } pcRef.current = null; }
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setStreaming(false);
+  };
 
   const [evidence, setEvidence] = useState<any[]>([]);
   const [loadingEvidence, setLoadingEvidence] = useState(true);
@@ -94,36 +132,18 @@ export default function AlertDetails() {
         }
       });
       socketService.socket.on('webrtc:signal', async (data: any) => {
-        if (data.alertId === id) {
-          if (!pcRef.current) {
-            const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-            pcRef.current = pc;
-
-            pc.onicecandidate = (e) => {
-              if (e.candidate) socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: 'candidate', candidate: e.candidate } });
-            };
-
-            pc.ontrack = (e) => {
-              if (videoRef.current) {
-                videoRef.current.srcObject = e.streams[0];
-              }
-            };
+        if (data.alertId !== id || !pcRef.current) return;
+        const pc = pcRef.current;
+        try {
+          // This portal is the offerer, so it only consumes the victim's
+          // answer and ICE candidates (never offers).
+          if (data.signal.type === 'answer') {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
+          } else if (data.signal.type === 'candidate') {
+            await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
           }
-          const pc = pcRef.current;
-          try {
-            if (data.signal.type === 'offer') {
-              await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              socketService.socket?.emit('webrtc:signal', { alertId: id, signal: pc.localDescription });
-            } else if (data.signal.type === 'answer') {
-              await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
-            } else if (data.signal.type === 'candidate') {
-              await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
-            }
-          } catch (e) {
-            console.error('WebRTC error', e);
-          }
+        } catch (e) {
+          console.error('WebRTC error', e);
         }
       });
     }
@@ -137,7 +157,8 @@ export default function AlertDetails() {
         socketService.socket.off('webrtc:signal');
       }
       if (pcRef.current) {
-        pcRef.current.close();
+        try { pcRef.current.close(); } catch { /* noop */ }
+        pcRef.current = null;
       }
     };
   }, [alerts, id]);
@@ -288,26 +309,41 @@ export default function AlertDetails() {
 
         {/* Live Video Stream */}
         <div className="card" style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Live Video Feed')}</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>{t('Live Video Feed')}</h2>
+            {alert.status !== 'resolved' && alert.status !== 'false_alarm' && alert.status !== 'closed' && (
+              streaming ? (
+                <button className="btn btn-danger btn-sm" onClick={disconnectStream}>Disconnect</button>
+              ) : (
+                <button className="btn btn-blue btn-sm" onClick={connectStream}>Connect Stream</button>
+              )
+            )}
+          </div>
           <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
           <div style={{ flex: 1, backgroundColor: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', minHeight: '200px' }}>
-            {isAudioOnly ? (
+            {!streaming ? (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+                <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 14 }}>Press “Connect Stream” to view the victim's live camera &amp; audio.</span>
+              </div>
+            ) : isAudioOnly ? (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' }}>
                 <Mic size={48} color="rgba(255,255,255,0.4)" style={{ marginBottom: 12 }} />
                 <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: 500 }}>Audio-Only Stream</span>
               </div>
             ) : null}
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline 
-              muted={false} // Unmute to hear audio
-              style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: isAudioOnly ? 0 : 1 }} 
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted={false}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: (streaming && !isAudioOnly) ? 1 : 0 }}
             />
-            <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: 4 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'alert-pulse 1.5s infinite' }}></div>
-              <span style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>LIVE</span>
-            </div>
+            {streaming && (
+              <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'alert-pulse 1.5s infinite' }}></div>
+                <span style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>LIVE</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -6,11 +6,12 @@ import { useLocationStore } from '../../store/locationStore';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import { Phone, XCircle, Camera, Wifi, Users, MapPin, Shield, VideoOff, Video } from 'lucide-react-native';
-import api, { ICE_SERVERS } from '../../services/api';
+import api, { fetchIceServers } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../services/backgroundTasks';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, font, spacing, radius, shadows } from '../../theme';
+import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { radius, spacing, type } from '../../theme/tokens';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 let RTCPeerConnection: any;
 let RTCIceCandidate: any;
@@ -35,6 +36,12 @@ if (Platform.OS === 'web') {
 type Props = NativeStackScreenProps<MainStackParamList, 'ActiveSos'>;
 
 export default function ActiveSosScreen({ navigation, route }: Props) {
+    // Pinned dark in both themes: this is a full-bleed alarm state. A pale
+  // version would be far harder to read at night and would stop looking
+  // like an emergency, which is the only thing this screen has to do.
+  const styles = useThemedStyles(makeStyles, 'dark');
+  const { colors, gradients, shadows } = useTheme('dark');
+  void gradients; void shadows;
   const { alertId } = route.params;
   const { setSosActive } = useLocationStore();
   const [locationSub, setLocationSub] = useState<Location.LocationSubscription | null>(null);
@@ -42,8 +49,30 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
   const [localStream, setLocalStream] = useState<any | null>(null);
   const [isAudioOnly, setIsAudioOnly] = useState(false);
   const pc = React.useRef<RTCPeerConnection | null>(null);
+  const streamRef = React.useRef<any>(null);
   const pendingOffer = React.useRef<any>(null);
   const pendingCandidates = React.useRef<any[]>([]);
+
+  /**
+   * Fully release the camera + microphone and tear down the peer connection.
+   * Uses a ref (not the localStream state) so it always sees the CURRENT
+   * stream — the effect-cleanup closure would otherwise capture a stale null.
+   */
+  const stopMedia = React.useCallback(() => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t: any) => { try { t.stop(); } catch { /* noop */ } });
+        streamRef.current = null;
+      }
+      setLocalStream(null);
+      if (pc.current) {
+        try { pc.current.close(); } catch { /* noop */ }
+        pc.current = null;
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('stopMedia error', e);
+    }
+  }, []);
 
   const ringScale = useSharedValue(1);
   const ringOpacity = useSharedValue(0.7);
@@ -118,10 +147,13 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
             facingMode: 'environment', // usually show what's happening
           }
         });
+        streamRef.current = stream;
         setLocalStream(stream as any);
 
-        const configuration = { iceServers: ICE_SERVERS };
-        const peerConnection = new RTCPeerConnection(configuration);
+        // Pull the ICE servers (with the real TURN credential) from the server
+        // so cross-network relaying works; falls back to STUN-only if offline.
+        const iceServers = await fetchIceServers();
+        const peerConnection = new RTCPeerConnection({ iceServers });
         pc.current = peerConnection;
 
         // Process any queued signals
@@ -186,14 +218,9 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     return () => {
       if ((window as any).webSosWatcher) { (window as any).webSosWatcher.remove(); (window as any).webSosWatcher = null; }
       stopBackgroundLocationUpdates();
-      socketService.disconnect();
       socketService.offWebRTCMessage();
-      if (localStream) {
-        localStream.getTracks().forEach((track: any) => track.stop());
-      }
-      if (pc.current) {
-        pc.current.close();
-      }
+      socketService.disconnect();
+      stopMedia(); // release camera + mic + peer connection
     };
   }, [alertId]);
 
@@ -220,26 +247,41 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
         }
         await api.post(`/evidence/alerts/${alertId}`, fd, {
           transformRequest: (data, headers) => {
-            // Delete default JSON content-type so the browser/RN sets multipart/form-data + boundary
-            delete headers['Content-Type'];
+            // Clear the default JSON content-type so RN/browser sets
+            // multipart/form-data WITH the boundary. Cover every axios-version
+            // shape (plain object, lowercase key, AxiosHeaders.delete) — if this
+            // header leaks through, the server rejects the upload and nothing
+            // gets saved.
+            if (headers) {
+              const h = headers as any;
+              delete h['Content-Type'];
+              delete h['content-type'];
+              if (typeof h.delete === 'function') { h.delete('Content-Type'); h.delete('content-type'); }
+            }
             return data;
-          }
+          },
         });
         Alert.alert('Uploaded', 'Evidence secured.');
-      } catch { Alert.alert('Failed', 'Upload error. Try again.'); }
+      } catch (e) {
+        if (__DEV__) console.warn('[Evidence] upload failed', e);
+        Alert.alert('Failed', 'Upload error. Try again.');
+      }
       finally { setUploading(false); }
     }
   };
 
   const cancelSos = async () => {
     const proceedWithCancel = async () => {
+      // Release camera + mic immediately — don't wait for unmount cleanup.
+      stopMedia();
       try {
         await api.patch(`/alerts/${alertId}/cancel`);
       } catch (e) {
         console.error('Failed to cancel alert on backend', e);
       }
       stopBackgroundLocationUpdates();
-      setSosActive(false); 
+      socketService.setAlertContext(null);
+      setSosActive(false);
       navigation.reset({ index: 0, routes: [{ name: 'Home' as any }] });
     };
 
@@ -269,14 +311,14 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
   };
 
   const STATUS = [
-    { label: 'Contacts notified via SMS', icon: Users, color: colors.green },
-    { label: 'Police station alerted', icon: Shield, color: colors.green },
-    { label: 'Live location transmitting', icon: Wifi, color: colors.cyan },
-    { label: 'GPS tracking active', icon: MapPin, color: colors.cyan },
+    { label: 'Contacts notified via SMS', icon: Users, color: colors.success },
+    { label: 'Police station alerted', icon: Shield, color: colors.success },
+    { label: 'Live location transmitting', icon: Wifi, color: colors.info },
+    { label: 'GPS tracking active', icon: MapPin, color: colors.info },
   ];
 
   return (
-    <LinearGradient colors={['#0d0000', '#3b0000', '#7f1d1d']} style={styles.root} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}>
+    <LinearGradient colors={gradients.dangerBackdrop} style={styles.root} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
         {/* Pulsing Alert Ring */}
@@ -284,7 +326,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
           <Animated.View style={[styles.alertRing, ringStyle]} />
           <View style={styles.alertIconCircle}>
             <LinearGradient colors={['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.05)']} style={styles.alertIconGrad}>
-              <Shield color="#fff" size={44} />
+              <Shield color={colors.onFill} size={44} />
             </LinearGradient>
           </View>
         </View>
@@ -323,8 +365,8 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
 
         {/* Call 999 */}
         <TouchableOpacity onPress={() => Linking.openURL('tel:999')} style={styles.callWrapper} activeOpacity={0.85}>
-          <LinearGradient colors={['#fff', '#f1f5f9']} style={styles.callBtn}>
-            <Phone color="#dc2626" size={24} />
+          <LinearGradient colors={[colors.onFill, colors.text]} style={styles.callBtn}>
+            <Phone color={colors.danger} size={24} />
             <Text style={styles.callBtnText}>Call 999 Now</Text>
           </LinearGradient>
         </TouchableOpacity>
@@ -332,9 +374,9 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
         {/* Capture Evidence */}
         <TouchableOpacity onPress={captureEvidence} disabled={uploading} style={styles.evidenceBtn} activeOpacity={0.8}>
           {uploading
-            ? <ActivityIndicator color="#fff" />
+            ? <ActivityIndicator color={colors.onFill} />
             : <>
-                <Camera color="#fff" size={20} />
+                <Camera color={colors.onFill} size={20} />
                 <Text style={styles.evidenceBtnText}>Capture Photo Evidence</Text>
               </>
           }
@@ -342,7 +384,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
 
         {/* Audio Only Toggle */}
         <TouchableOpacity onPress={toggleAudioOnly} style={styles.evidenceBtn} activeOpacity={0.8}>
-          {isAudioOnly ? <Video color="#fff" size={20} /> : <VideoOff color="#fff" size={20} />}
+          {isAudioOnly ? <Video color={colors.onFill} size={20} /> : <VideoOff color={colors.onFill} size={20} />}
           <Text style={styles.evidenceBtnText}>{isAudioOnly ? 'Enable Video' : 'Switch to Audio-Only Mode'}</Text>
         </TouchableOpacity>
 
@@ -356,34 +398,49 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ colors, shadows, gradients }: Theme) => {
+  const font = {
+    hero: { ...type.hero, color: colors.text },
+    h1: { ...type.h1, color: colors.text },
+    h2: { ...type.h2, color: colors.text },
+    h3: { ...type.h3, color: colors.text },
+    body: { ...type.body, color: colors.text },
+    sm: { ...type.sm, color: colors.textSub },
+    xs: { ...type.xs, color: colors.textMuted },
+    label: { ...type.label, color: colors.textSub },
+    regular: 'System' as const, medium: 'System' as const,
+    semiBold: 'System' as const, bold: 'System' as const,
+  };
+  void gradients;
+  return StyleSheet.create({
   root: { flex: 1 },
   scroll: { flexGrow: 1, alignItems: 'center', padding: spacing.lg, paddingTop: Platform.OS === 'ios' ? 80 : 60, paddingBottom: spacing.xxl },
   alertRingContainer: { width: 160, height: 160, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.lg },
-  alertRing: { position: 'absolute', width: 160, height: 160, borderRadius: 80, borderWidth: 3, borderColor: 'rgba(255,255,255,0.5)' },
-  alertIconCircle: { width: 110, height: 110, borderRadius: 55, overflow: 'hidden', borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)' },
+  alertRing: { position: 'absolute', width: 160, height: 160, borderRadius: 80, borderWidth: 3, borderColor: colors.border },
+  alertIconCircle: { width: 110, height: 110, borderRadius: 55, overflow: 'hidden', borderWidth: 2, borderColor: colors.border },
   alertIconGrad: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 44, fontWeight: 'bold', color: '#fff', letterSpacing: 4, marginBottom: spacing.sm, ...Platform.select({ web: { textShadow: '0px 2px 8px rgba(0,0,0,0.5)' } as object, default: { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 8 } }) },
-  subtitle: { ...font.sm, color: 'rgba(255,255,255,0.7)', textAlign: 'center', lineHeight: 22, marginBottom: spacing.xl, paddingHorizontal: spacing.md },
-  statusCard: { width: '100%', backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.lg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
+  title: { fontSize: 44, fontWeight: 'bold', color: colors.onFill, letterSpacing: 4, marginBottom: spacing.sm, ...Platform.select({ web: { textShadow: '0px 2px 8px rgba(0,0,0,0.5)' } as object, default: { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 8 } }) },
+  subtitle: { ...font.sm, color: colors.textSub, textAlign: 'center', lineHeight: 22, marginBottom: spacing.xl, paddingHorizontal: spacing.md },
+  statusCard: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border },
   statusRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm + 2, gap: spacing.sm },
-  statusRowBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' },
+  statusRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
   statusIconBox: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  statusLabel: { ...font.sm, color: 'rgba(255,255,255,0.85)', flex: 1 },
+  statusLabel: { ...font.sm, color: colors.textSub, flex: 1 },
   liveDot: { width: 7, height: 7, borderRadius: 4 },
   callWrapper: { width: '100%', borderRadius: radius.xl, marginBottom: spacing.md, ...shadows.card },
   callBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md + 2, borderRadius: radius.xl },
-  callBtnText: { ...font.h3, color: '#dc2626' },
-  evidenceBtn: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)', borderRadius: radius.xl, paddingVertical: spacing.md + 2, marginBottom: spacing.xl },
-  evidenceBtnText: { ...font.body, color: '#fff', fontWeight: '600' },
+  callBtnText: { ...font.h3, color: colors.danger },
+  evidenceBtn: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.xl, paddingVertical: spacing.md + 2, marginBottom: spacing.xl },
+  evidenceBtnText: { ...font.body, color: colors.onFill, fontWeight: '600' },
   cancelBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md },
-  cancelBtnText: { ...font.sm, color: 'rgba(255,255,255,0.5)' },
+  cancelBtnText: { ...font.sm, color: colors.textMuted },
   // Live audio/video streaming UI (WebRTC)
   audioOnlyBanner: { width: '100%', backgroundColor: 'rgba(234,179,8,0.15)', borderWidth: 1, borderColor: 'rgba(234,179,8,0.4)', borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm, alignItems: 'center' },
-  audioOnlyText: { ...font.xs, color: '#fbbf24', fontWeight: '600', textAlign: 'center' },
+  audioOnlyText: { ...font.xs, color: colors.warningText, fontWeight: '600', textAlign: 'center' },
   streamContainer: { width: '100%', height: 200, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: '#000', position: 'relative' },
   rtcView: { width: '100%', height: '100%' },
   streamOverlay: { position: 'absolute', top: spacing.sm, left: spacing.sm },
-  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#dc2626', paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm },
-  liveBadgeText: { ...font.xs, color: '#fff', fontWeight: '700', letterSpacing: 1 },
+  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.danger, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm },
+  liveBadgeText: { ...font.xs, color: colors.onFill, fontWeight: '700', letterSpacing: 1 },
 });
+};

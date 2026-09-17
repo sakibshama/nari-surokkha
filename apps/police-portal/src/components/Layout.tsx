@@ -10,6 +10,7 @@ import { useT, useLangStore } from '../i18n';
 import { socketService } from '../services/socket';
 import toast, { Toaster } from 'react-hot-toast';
 import GlobalAlertModal from './GlobalAlertModal';
+import { LOGO } from '../logo';
 
 const NAV_MAIN = [
   { label: 'Live Alerts',    icon: LayoutDashboard, path: '/' },
@@ -78,11 +79,11 @@ export default function Layout() {
     <>
       {/* Brand */}
       <div className="sidebar-brand">
-        <div className="sidebar-brand-icon blue">
-          <ShieldAlert size={20} color="#fff" />
+        <div className="sidebar-brand-icon" style={{ background: 'transparent', padding: 0, overflow: 'hidden' }}>
+          <img src={LOGO} alt="Nari Surokkha" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         </div>
         <div className="sidebar-brand-text">
-          <span className="sidebar-brand-name">Nari Surokkha</span>
+          <span className="sidebar-brand-name bn">নারী সুরক্ষা</span>
           <span className="sidebar-brand-sub">{t('Police Portal')}</span>
         </div>
       </div>

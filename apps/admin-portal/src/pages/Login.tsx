@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
-import FlagRoundel from '../components/FlagRoundel';
+import AppLogo from '../components/AppLogo';
 import { useT } from '../i18n';
 
 export default function Login() {
@@ -48,12 +48,8 @@ export default function Login() {
         {/* Government header */}
         <div className="gov-hero" style={{ margin: 0, borderRadius: 0, padding: '30px 40px 26px' }}>
           <div className="gov-hero-inner" style={{ textAlign: 'center' }}>
-            <div style={{
-              width: 66, height: 66, borderRadius: 18, margin: '0 auto 16px',
-              background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.3)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)'
-            }}>
-              <FlagRoundel size={40} />
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+              <AppLogo size={72} radius={20} />
             </div>
             <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.82)' }}>
               {t('Government of Bangladesh')}

@@ -4,16 +4,24 @@ import { UserMinus, UserPlus, Users, Phone, Heart, ChevronLeft } from 'lucide-re
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, font, spacing, radius, shadows, gradients } from '../../theme';
+import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { radius, spacing, type } from '../../theme/tokens';
+import type { Palette } from '../../theme/tokens';
 import { useNavigation } from '@react-navigation/native';
 
 interface Contact { id: string; name: string; phone: string; relation: string; }
 
-const AVATAR_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#06b6d4', '#ec4899', '#f43f5e'];
-const getColor = (name: string) => AVATAR_COLORS[name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_COLORS.length];
+/** Deterministic avatar tint, drawn from the palette so it follows the theme. */
+const getColor = (name: string, colors: Palette) => {
+  const wheel = [colors.accent, colors.info, colors.success, colors.warning, colors.accentText, colors.infoText];
+  return wheel[name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % wheel.length];
+};
 const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
 export default function TrustedContactsScreen() {
+  const styles = useThemedStyles(makeStyles);
+  const { colors, gradients, shadows } = useTheme();
+  void gradients; void shadows;
   const navigation = useNavigation();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,7 +80,7 @@ export default function TrustedContactsScreen() {
   };
 
   const renderContact = ({ item }: { item: Contact }) => {
-    const ac = getColor(item.name);
+    const ac = getColor(item.name, colors);
     return (
       <View style={styles.contactCard}>
         <View style={[styles.avatar, { backgroundColor: `${ac}20`, borderColor: `${ac}50` }]}>
@@ -92,7 +100,7 @@ export default function TrustedContactsScreen() {
           )}
         </View>
         <TouchableOpacity onPress={() => removeContact(item.id)} style={styles.removeBtn} activeOpacity={0.7}>
-          <UserMinus color={colors.primary} size={20} />
+          <UserMinus color={colors.danger} size={20} />
         </TouchableOpacity>
       </View>
     );
@@ -101,7 +109,7 @@ export default function TrustedContactsScreen() {
   const fStyle = (id: string) => [styles.inputRow, focusedField === id && styles.inputFocused];
 
   return (
-    <LinearGradient colors={['#060d1f', '#0a1428', '#0d1b35']} style={styles.root}>
+    <LinearGradient colors={gradients.hero} style={styles.root}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.navHeader}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navBackBtn} activeOpacity={0.7}>
@@ -114,7 +122,7 @@ export default function TrustedContactsScreen() {
         {/* Add Form */}
         <View style={styles.addSection}>
           <View style={styles.addHeader}>
-            <UserPlus color={colors.blue} size={20} />
+            <UserPlus color={colors.info} size={20} />
             <Text style={styles.addTitle}>Add Trusted Contact</Text>
           </View>
 
@@ -132,11 +140,11 @@ export default function TrustedContactsScreen() {
           </View>
 
           <TouchableOpacity onPress={addContact} disabled={adding} activeOpacity={0.85} style={styles.addBtnWrapper}>
-            <LinearGradient colors={gradients.blue} style={styles.addBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+            <LinearGradient colors={gradients.accent} style={styles.addBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
               {adding
-                ? <ActivityIndicator color="#fff" />
+                ? <ActivityIndicator color={colors.onFill} />
                 : <>
-                    <UserPlus color="#fff" size={18} />
+                    <UserPlus color={colors.onFill} size={18} />
                     <Text style={styles.addBtnText}>Add Contact</Text>
                   </>
               }
@@ -149,14 +157,14 @@ export default function TrustedContactsScreen() {
           <Users color={colors.textMuted} size={16} />
           <Text style={styles.listHeaderText}>Your Trusted Contacts</Text>
           {!loading && (
-            <View style={[styles.countBadge, { backgroundColor: contacts.length > 0 ? colors.primary : colors.bgCard }]}>
+            <View style={[styles.countBadge, { backgroundColor: contacts.length > 0 ? colors.danger : colors.surface }]}>
               <Text style={styles.countText}>{contacts.length}</Text>
             </View>
           )}
         </View>
 
         {loading
-          ? <ActivityIndicator style={{ marginTop: spacing.xl }} color={colors.primary} />
+          ? <ActivityIndicator style={{ marginTop: spacing.xl }} color={colors.danger} />
           : (
             <FlatList
               data={contacts}
@@ -179,46 +187,60 @@ export default function TrustedContactsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = ({ colors, shadows, gradients }: Theme) => {
+  const font = {
+    hero: { ...type.hero, color: colors.text },
+    h1: { ...type.h1, color: colors.text },
+    h2: { ...type.h2, color: colors.text },
+    h3: { ...type.h3, color: colors.text },
+    body: { ...type.body, color: colors.text },
+    sm: { ...type.sm, color: colors.textSub },
+    xs: { ...type.xs, color: colors.textMuted },
+    label: { ...type.label, color: colors.textSub },
+    regular: 'System' as const, medium: 'System' as const,
+    semiBold: 'System' as const, bold: 'System' as const,
+  };
+  void gradients;
+  return StyleSheet.create({
   root: { flex: 1 },
   navHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: Platform.OS === 'ios' ? 52 : 40, paddingBottom: 12,
     paddingHorizontal: spacing.md,
-    backgroundColor: 'rgba(6,13,31,0.98)',
-    borderBottomWidth: 1, borderBottomColor: colors.glassBorder,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   navBackBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.glassBorder,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   navTitle: { ...font.h3, color: colors.text },
   addSection: {
-    backgroundColor: colors.bgCard,
+    backgroundColor: colors.surface,
     padding: spacing.lg,
     paddingTop: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.glassBorder,
+    borderBottomColor: colors.border,
   },
   addHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   addTitle: { ...font.h3, color: colors.text },
   inputRow: {
-    backgroundColor: colors.bgInput, borderRadius: radius.md, borderWidth: 1.5,
+    backgroundColor: colors.inputBg, borderRadius: radius.md, borderWidth: 1.5,
     borderColor: colors.border, marginBottom: spacing.sm,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2,
   },
-  inputFocused: { borderColor: colors.blue, backgroundColor: 'rgba(59,130,246,0.06)' },
+  inputFocused: { borderColor: colors.info, backgroundColor: 'rgba(59,130,246,0.06)' },
   input: { ...font.body, color: colors.text, height: 36 },
-  addBtnWrapper: { marginTop: spacing.sm, borderRadius: radius.lg, ...shadows.blue },
+  addBtnWrapper: { marginTop: spacing.sm, borderRadius: radius.lg, ...shadows.accent },
   addBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg },
-  addBtnText: { ...font.h3, color: '#fff' },
+  addBtnText: { ...font.h3, color: colors.onFill },
   listHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm + 4, borderBottomWidth: 1, borderBottomColor: colors.border },
   listHeaderText: { ...font.label, flex: 1 },
   countBadge: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  countText: { ...font.xs, color: '#fff', fontWeight: '700' },
+  countText: { ...font.xs, color: colors.onFill, fontWeight: '700' },
   list: { padding: spacing.md, paddingBottom: spacing.xxl },
-  contactCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgCard, borderRadius: radius.xl, padding: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.glassBorder, ...shadows.card },
+  contactCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.border, ...shadows.card },
   avatar: { width: 50, height: 50, borderRadius: 25, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginRight: spacing.md },
   avatarText: { fontSize: 17, fontWeight: 'bold' },
   contactInfo: { flex: 1 },
@@ -227,8 +249,9 @@ const styles = StyleSheet.create({
   contactPhone: { ...font.sm, color: colors.textMuted },
   relationTag: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start', marginTop: 5 },
   relationText: { fontSize: 11, fontWeight: '700' },
-  removeBtn: { padding: spacing.sm, backgroundColor: `${colors.primary}15`, borderRadius: radius.sm },
+  removeBtn: { padding: spacing.sm, backgroundColor: `${colors.danger}15`, borderRadius: radius.sm },
   empty: { alignItems: 'center', paddingTop: spacing.xxl + spacing.xl, paddingHorizontal: spacing.xl },
   emptyTitle: { ...font.h3, color: colors.textMuted, marginTop: spacing.lg },
   emptySub: { ...font.sm, color: colors.textMuted, textAlign: 'center', lineHeight: 22, marginTop: spacing.sm },
 });
+};

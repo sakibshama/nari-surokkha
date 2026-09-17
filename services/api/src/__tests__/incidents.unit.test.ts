@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IncidentsService } from '../modules/incidents/incidents.service';
 import { IncidentsRepository } from '../modules/incidents/incidents.repository';
+import { FastifyInstance } from 'fastify';
+import { IncidentReport, Prisma } from '@prisma/client';
 
 // Mock repository
 const mockRepository = {
@@ -15,7 +17,7 @@ describe('IncidentsService - Safety Score Calculation', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new IncidentsService(mockRepository, undefined as any);
+    service = new IncidentsService(mockRepository, {} as FastifyInstance);
   });
 
   it('should return a perfect score of 100 when there are no verified incidents', async () => {
@@ -29,10 +31,10 @@ describe('IncidentsService - Safety Score Calculation', () => {
 
   it('should deduct points correctly based on incident types', async () => {
     vi.mocked(mockRepository.getVerifiedIncidentsInRadius).mockResolvedValue([
-      { id: '1', type: 'robbery', status: 'verified', latitude: 0, longitude: 0, createdAt: new Date(), updatedAt: new Date(), description: '' } as any,
-      { id: '2', type: 'harassment', status: 'verified', latitude: 0, longitude: 0, createdAt: new Date(), updatedAt: new Date(), description: '' } as any,
-      { id: '3', type: 'poor_lighting', status: 'verified', latitude: 0, longitude: 0, createdAt: new Date(), updatedAt: new Date(), description: '' } as any,
-    ] as any);
+      { id: '1', type: 'robbery', status: 'verified', latitude: new Prisma.Decimal(0), longitude: new Prisma.Decimal(0), createdAt: new Date(), updatedAt: new Date(), description: '' } as IncidentReport,
+      { id: '2', type: 'harassment', status: 'verified', latitude: new Prisma.Decimal(0), longitude: new Prisma.Decimal(0), createdAt: new Date(), updatedAt: new Date(), description: '' } as IncidentReport,
+      { id: '3', type: 'poor_lighting', status: 'verified', latitude: new Prisma.Decimal(0), longitude: new Prisma.Decimal(0), createdAt: new Date(), updatedAt: new Date(), description: '' } as IncidentReport,
+    ]);
 
     const result = await service.calculateSafetyScore(23.8103, 90.4125);
 
@@ -46,8 +48,8 @@ describe('IncidentsService - Safety Score Calculation', () => {
 
   it('should never drop below a score of 0', async () => {
     const incidents = Array(10).fill({
-      id: '1', type: 'robbery', status: 'verified', latitude: 0, longitude: 0, createdAt: new Date(), updatedAt: new Date(), description: ''
-    });
+      id: '1', type: 'robbery', status: 'verified', latitude: new Prisma.Decimal(0), longitude: new Prisma.Decimal(0), createdAt: new Date(), updatedAt: new Date(), description: ''
+    }) as IncidentReport[];
 
     vi.mocked(mockRepository.getVerifiedIncidentsInRadius).mockResolvedValue(incidents);
 

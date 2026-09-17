@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AlertsService } from '@/modules/alerts/alerts.service';
 import { ForbiddenError } from '@/utils/errors';
-import { EmergencyAlert, PoliceStation } from '@prisma/client';
+import { EmergencyAlert } from '@prisma/client';
 import { FastifyInstance } from 'fastify';
 
 describe('AlertsService', () => {
@@ -14,11 +14,9 @@ describe('AlertsService', () => {
   let contactsRepo: any;
   let fastifyMock: any;
   let responderRepo: any;
-  let casesService: any;
 
   beforeEach(() => {
     alertsRepo = {
-      findNearestPoliceStation: vi.fn(),
       createAlert: vi.fn(),
       createAuditLog: vi.fn(),
       addLocationUpdate: vi.fn(),
@@ -65,10 +63,6 @@ describe('AlertsService', () => {
       createDispatch: vi.fn(),
     };
 
-    casesService = {
-      createCaseFromAlert: vi.fn(),
-    };
-
     // Chainable pipeline stub for the buffered-write path.
     const pipeline: any = {};
     for (const m of ['set', 'rpush', 'ltrim', 'expire', 'sadd']) {
@@ -82,7 +76,6 @@ describe('AlertsService', () => {
       alertsRepo,
       contactsRepo,
       responderRepo as any,
-      casesService as any,
       fastifyMock as unknown as FastifyInstance
     );
   });
@@ -90,18 +83,14 @@ describe('AlertsService', () => {
   describe('triggerManualSos', () => {
     it('allows SOS creation even if user has no trusted contacts', async () => {
       contactsRepo.getContactsByUserId.mockResolvedValue([]);
-      alertsRepo.findNearestPoliceStation.mockResolvedValue(null);
       alertsRepo.createAlert.mockResolvedValue({ id: 'alert-123', status: 'confirmed', userId: 'user-123', type: 'manual' } as any);
 
       const result = await service.triggerManualSos('user-123', { latitude: 23.7, longitude: 90.4 });
       expect(result.id).toBe('alert-123');
     });
 
-    it('creates SOS alert successfully, matches police station, and notifies', async () => {
+    it('creates SOS alert successfully and notifies', async () => {
       contactsRepo.getContactsByUserId.mockResolvedValue([{ phone: '+880123' }, { phone: '+880124' }]);
-      
-      const mockStation: Partial<PoliceStation> = { id: 'station-123', name: 'Test Thana' };
-      alertsRepo.findNearestPoliceStation.mockResolvedValue(mockStation);
       
       const mockAlert: Partial<EmergencyAlert> = { id: 'alert-123', status: 'confirmed', userId: 'user-123', type: 'manual' };
       alertsRepo.createAlert.mockResolvedValue(mockAlert);
@@ -115,16 +104,12 @@ describe('AlertsService', () => {
       // Verify contact check
       expect(contactsRepo.getContactsByUserId).toHaveBeenCalledWith('user-123');
       
-      // Verify PostGIS call
-      expect(alertsRepo.findNearestPoliceStation).toHaveBeenCalledWith(23.7, 90.4);
-
       // Verify DB insertion
       expect(alertsRepo.createAlert).toHaveBeenCalledWith({
         userId: 'user-123',
         latitude: 23.7,
         longitude: 90.4,
         accuracy: undefined,
-        assignedStationId: 'station-123',
         status: 'confirmed',
       });
 
@@ -138,14 +123,13 @@ describe('AlertsService', () => {
         { jobId: 'fanout:alert-123' },
       );
 
-      // The heavy fan-out (audit log, case, responder dispatch) is handed to
+      // The heavy fan-out (audit log, responder dispatch) is handed to
       // the dispatch queue rather than run inline.
       expect(fastifyMock.queues.dispatch.add).toHaveBeenCalledWith(
         'fan_out_alert',
         expect.objectContaining({
           alertId: 'alert-123',
           userId: 'user-123',
-          stationId: 'station-123',
           ipAddress: '192.168.1.1',
         }),
         { jobId: 'dispatch:alert-123' },
@@ -154,10 +138,9 @@ describe('AlertsService', () => {
       // ...and therefore does NOT happen on the request itself.
       expect(alertsRepo.createAuditLog).not.toHaveBeenCalled();
       expect(responderRepo.findNearbyResponders).not.toHaveBeenCalled();
-      expect(casesService.createCaseFromAlert).not.toHaveBeenCalled();
 
       // Verify WebSocket
-      expect(fastifyMock.io.to).toHaveBeenCalledWith('station:station-123');
+      expect(fastifyMock.io.to).toHaveBeenCalledWith('admin:global');
       expect(fastifyMock.io.emit).toHaveBeenCalledWith('alert:created', expect.objectContaining({
         alertId: 'alert-123',
       }));
@@ -165,27 +148,6 @@ describe('AlertsService', () => {
       expect(result.id).toBe(mockAlert.id);
     });
 
-    it('creates SOS alert successfully even if no nearest station is found', async () => {
-      contactsRepo.getContactsByUserId.mockResolvedValue([{ phone: '+880123' }]);
-      alertsRepo.findNearestPoliceStation.mockResolvedValue(null);
-      
-      const mockAlert: Partial<EmergencyAlert> = { id: 'alert-123', userId: 'user-123', type: 'manual' };
-      alertsRepo.createAlert.mockResolvedValue(mockAlert);
-
-      await service.triggerManualSos(
-        'user-123',
-        { latitude: 23.7, longitude: 90.4 }
-      );
-
-      // Verify alert created without station
-      expect(alertsRepo.createAlert).toHaveBeenCalledWith(expect.objectContaining({
-        assignedStationId: null,
-      }));
-
-      // Verify WebSocket sent to dispatch fallback
-      expect(fastifyMock.io.to).toHaveBeenCalledWith('station:dispatch');
-      expect(fastifyMock.io.emit).toHaveBeenCalledWith('alert:created', expect.any(Object));
-    });
   });
 
   describe('updateLocation', () => {
@@ -203,7 +165,7 @@ describe('AlertsService', () => {
     });
 
     it('throws ForbiddenError if user is not the owner', async () => {
-      cacheMeta({ userId: 'other-user', status: 'in_progress', assignedStationId: null });
+      cacheMeta({ userId: 'other-user', status: 'in_progress' });
 
       await expect(
         service.updateLocation('user-123', 'alert-123', { latitude: 23.7, longitude: 90.4 })
@@ -211,15 +173,15 @@ describe('AlertsService', () => {
     });
 
     it('throws ForbiddenError if alert is closed', async () => {
-      cacheMeta({ userId: 'user-123', status: 'closed', assignedStationId: null });
+      cacheMeta({ userId: 'user-123', status: 'closed' });
 
       await expect(
         service.updateLocation('user-123', 'alert-123', { latitude: 23.7, longitude: 90.4 })
       ).rejects.toThrow(ForbiddenError);
     });
 
-    it('buffers the position and emits to the station immediately', async () => {
-      cacheMeta({ userId: 'user-123', status: 'in_progress', assignedStationId: 'station-456' });
+    it('buffers the position and emits to the admin room immediately', async () => {
+      cacheMeta({ userId: 'user-123', status: 'in_progress' });
 
       await service.updateLocation('user-123', 'alert-123', { latitude: 23.8, longitude: 90.5 });
 
@@ -229,7 +191,7 @@ describe('AlertsService', () => {
 
       // Liveness is unchanged: the portal still hears about it on this request.
       expect(fastifyMock.io.to).toHaveBeenCalledWith(
-        expect.arrayContaining(['alert:alert-123', 'station:dispatch', 'station:station-456']),
+        expect.arrayContaining(['alert:alert-123', 'admin:global']),
       );
       expect(fastifyMock.io.emit).toHaveBeenCalledWith('alert:location_update', expect.objectContaining({
         alertId: 'alert-123',
@@ -239,7 +201,7 @@ describe('AlertsService', () => {
     });
 
     it('costs no database round trip when the alert is cached', async () => {
-      cacheMeta({ userId: 'user-123', status: 'in_progress', assignedStationId: null });
+      cacheMeta({ userId: 'user-123', status: 'in_progress' });
 
       await service.updateLocation('user-123', 'alert-123', { latitude: 23.8, longitude: 90.5 });
 
@@ -263,7 +225,6 @@ describe('AlertsService', () => {
 
   describe('createSoftAlert', () => {
     it('creates an alert with status created and isSoftAlert true', async () => {
-      alertsRepo.findNearestPoliceStation.mockResolvedValue({ id: 'station-123' });
       alertsRepo.createAlert.mockResolvedValue({ id: 'alert-soft' });
 
       await service.createSoftAlert('user-123', { latitude: 23, longitude: 90 });
@@ -272,7 +233,6 @@ describe('AlertsService', () => {
         type: 'sensor_triggered',
         status: 'created',
         isSoftAlert: true,
-        assignedStationId: 'station-123',
       }));
     });
   });
@@ -303,7 +263,6 @@ describe('AlertsService', () => {
         status: 'created',
         latitude: 23,
         longitude: 90,
-        assignedStationId: 'station-123'
       });
       contactsRepo.getContactsByUserId.mockResolvedValue([{ phone: '+880123' }]);
       alertsRepo.updateAlert = vi.fn().mockResolvedValue({
@@ -312,7 +271,6 @@ describe('AlertsService', () => {
         status: 'confirmed',
         latitude: 23,
         longitude: 90,
-        assignedStationId: 'station-123'
       });
 
       await service.confirmSoftAlert('user-123', 'alert-soft');
@@ -323,10 +281,10 @@ describe('AlertsService', () => {
       // The audit log now lives in the queued fan-out, not on the request.
       expect(fastifyMock.queues.dispatch.add).toHaveBeenCalledWith(
         'fan_out_alert',
-        expect.objectContaining({ alertId: 'alert-soft', stationId: 'station-123' }),
+        expect.objectContaining({ alertId: 'alert-soft' }),
         { jobId: 'dispatch:alert-soft' },
       );
-      expect(fastifyMock.io.to).toHaveBeenCalledWith('station:station-123');
+      expect(fastifyMock.io.to).toHaveBeenCalledWith('admin:global');
     });
   });
 
@@ -337,12 +295,11 @@ describe('AlertsService', () => {
       userId: 'user-1',
       latitude: 23.7,
       longitude: 90.4,
-      stationId: 'station-1',
       alertType: 'manual',
       ipAddress: '10.0.0.1',
     };
 
-    it('writes the audit log and opens a case', async () => {
+    it('writes the audit log', async () => {
       await service.fanOutAlert(payload);
 
       expect(alertsRepo.createAuditLog).toHaveBeenCalledWith(
@@ -352,7 +309,6 @@ describe('AlertsService', () => {
           entityId: 'alert-1',
         }),
       );
-      expect(casesService.createCaseFromAlert).toHaveBeenCalledWith('alert-1', 'station-1');
     });
 
     it('inserts every responder dispatch in ONE query, not one per responder', async () => {

@@ -10,7 +10,6 @@
   ],
   "scripts": {
     "api": "npm --workspace=services/api run dev",
-    "police-portal": "npm --workspace=apps/police-portal run dev",
     "admin-portal": "npm --workspace=apps/admin-portal run dev",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

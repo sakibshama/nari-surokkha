@@ -6,8 +6,6 @@ import { AlertsService } from '@/modules/alerts/alerts.service';
 import { AlertsRepository } from '@/modules/alerts/alerts.repository';
 import { ContactsRepository } from '@/modules/contacts/contacts.repository';
 import { ResponderRepository } from '@/modules/responder/responder.repository';
-import { CasesRepository } from '@/modules/cases/cases.repository';
-import { CasesService } from '@/modules/cases/cases.service';
 import type { AlertFanOutPayload } from '@/modules/alerts/alerts.service';
 import { RUNS_WORKERS } from '@/config/env';
 import { flushLocationBuffers } from '@/modules/alerts/alert-location.buffer';
@@ -41,9 +39,7 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
   const alertsRepo = new AlertsRepository(fastify.prisma);
   const contactsRepo = new ContactsRepository(fastify.prisma);
   const responderRepo = new ResponderRepository(fastify.prisma);
-  const casesRepo = new CasesRepository(fastify.prisma);
-  const casesService = new CasesService(casesRepo, fastify);
-  const alertsService = new AlertsService(alertsRepo, contactsRepo, responderRepo, casesService, fastify);
+  const alertsService = new AlertsService(alertsRepo, contactsRepo, responderRepo, fastify);
 
   const worker = new Worker(
     'notifications',
@@ -108,7 +104,7 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
   });
 
   // ─── Dispatch worker ──────────────────────────────────────────────────
-  // Carries the heavy half of an SOS — audit log, police case, nearby-responder
+  // Carries the heavy half of an SOS — audit log and nearby-responder
   // fan-out — so none of it sits on the citizen's request path. Concurrency is
   // higher than the notification worker because the work is I/O bound and a
   // burst of simultaneous alerts is exactly the scenario that must not queue up.

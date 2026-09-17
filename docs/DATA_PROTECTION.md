@@ -57,7 +57,6 @@ Every read of an evidence file is written to `evidence_access_logs` with the
 accessing user and IP. Access is limited to:
 
 - the **uploader**, for their own evidence
-- **police** assigned to the station handling the alert
 - **admins** with the relevant permission
 
 A citizen cannot read another citizen's evidence; the check is in
@@ -66,8 +65,7 @@ A citizen cannot read another citizen's evidence; the check is in
 ### Right to erasure
 
 `DELETE /api/v1/evidence/:id` lets the uploader permanently delete their own
-evidence — both the stored object and its database row. It is refused with
-`409` while a police case is open against the alert, and the deletion itself is
+evidence — both the stored object and its database row. The deletion itself is
 recorded in the audit log.
 
 ---

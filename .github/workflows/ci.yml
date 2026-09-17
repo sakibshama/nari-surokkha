@@ -90,31 +90,6 @@ jobs:
           SMS_PROVIDER: mock
         run: npm run test:coverage
 
-  # ─── Police Portal ──────────────────────────────────────────
-  police-portal-checks:
-    name: Police Portal — Lint, Type-Check, Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - name: Install dependencies
-        run: npm ci
-      - name: Build shared package
-        run: npm run build --workspace=packages/shared
-      - name: Type check
-        working-directory: apps/police-portal
-        run: npm run type-check
-      - name: Lint
-        working-directory: apps/police-portal
-        run: npm run lint
-      - name: Build
-        working-directory: apps/police-portal
-        run: npm run build
-
   # ─── Admin Portal ───────────────────────────────────────────
   admin-portal-checks:
     name: Admin Portal — Lint, Build (type-check)
@@ -289,7 +264,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        portal: [admin-portal, police-portal]
+        portal: [admin-portal]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -1,224 +1,225 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, FlatList, Alert, Platform } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import api from '../../services/api';
+import { Alert, FlatList, RefreshControl, Text, View } from 'react-native';
+import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
 import { formatDistanceToNow } from 'date-fns';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { bn as bnLocale } from 'date-fns/locale';
+import { CheckCircle, Clock, RefreshCw, ShieldAlert, XCircle } from 'lucide-react-native';
+
+import api from '../../services/api';
+import { useTheme } from '../../theme';
+import { useLanguage, useT } from '../../i18n';
 import { radius, spacing, type } from '../../theme/tokens';
-import { ShieldAlert, CheckCircle, XCircle, RefreshCw, Clock, ChevronLeft } from 'lucide-react-native';
+import {
+  AppBar,
+  Badge,
+  Breathing,
+  Button,
+  Card,
+  EmptyState,
+  PressableScale,
+  Shimmer,
+  Txt,
+} from '../../components/ui';
 
 export default function ResponderHubScreen() {
-  const styles = useThemedStyles(makeStyles);
-  const { colors, gradients, shadows } = useTheme();
-  void gradients; void shadows;
-  const navigation = useNavigation();
+  const { colors, shadows } = useTheme();
+  const t = useT();
+  const { isBangla } = useLanguage();
   const [dispatches, setDispatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [notResponder, setNotResponder] = useState(false);
 
   const fetchDispatches = async () => {
     setLoading(true);
-    try { setDispatches((await api.get('/responders/dispatches')).data.data); }
-    catch (err: any) {
+    try {
+      setDispatches((await api.get('/responders/dispatches')).data.data);
+    } catch (err: any) {
       if (err.response?.status === 404) setNotResponder(true);
-      else console.error(err);
-    } finally { setLoading(false); }
+      else if (__DEV__) console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { fetchDispatches(); }, []);
+  useEffect(() => {
+    fetchDispatches();
+  }, []);
 
   const respond = async (id: string, action: 'accept' | 'reject') => {
     try {
       await api.patch(`/responders/dispatches/${id}/response`, { action });
       fetchDispatches();
-      if (action === 'accept') Alert.alert('✅ Accepted', 'Details unlocked below.');
-    } catch (e: any) { Alert.alert('Error', e.response?.data?.error?.message || 'Failed'); }
+      if (action === 'accept') Alert.alert(t('Accepted'), t('Details unlocked below.'));
+    } catch (e: any) {
+      Alert.alert(t('Error'), e.response?.data?.error?.message || t('Failed.'));
+    }
   };
 
-  const renderItem = ({ item }: { item: any }) => (
-    <View style={styles.card}>
-      {/* Card Header */}
-      <View style={styles.cardHeader}>
-        <View style={styles.cardHeaderLeft}>
-          {item.status === 'pending'  && <ShieldAlert color={colors.warning} size={20} />}
-          {item.status === 'accepted' && <CheckCircle color={colors.success} size={20} />}
+  const ago = (d: string) =>
+    formatDistanceToNow(new Date(d), { addSuffix: true, locale: isBangla ? bnLocale : undefined });
+
+  const statusTone = (s: string) => (s === 'pending' ? 'warning' : s === 'accepted' ? 'success' : 'neutral');
+  const statusLabel = (s: string) =>
+    s === 'pending' ? t('Pending') : s === 'accepted' ? t('Accepted') : t('Rejected');
+
+  const renderItem = ({ item, index }: { item: any; index: number }) => (
+    <Animated.View
+      entering={FadeInDown.delay(index * 70).duration(380)}
+      layout={LinearTransition.springify().damping(18)}
+      style={[
+        {
+          backgroundColor: colors.surface,
+          borderRadius: radius.lg,
+          padding: spacing.md,
+          marginBottom: spacing.md,
+          borderWidth: 1,
+          borderColor: item.status === 'pending' ? colors.warning : colors.border,
+        },
+        shadows.soft,
+      ]}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          {item.status === 'pending' && (
+            <Breathing>
+              <ShieldAlert color={colors.warningText} size={20} />
+            </Breathing>
+          )}
+          {item.status === 'accepted' && <CheckCircle color={colors.successText} size={20} />}
           {item.status === 'rejected' && <XCircle color={colors.textMuted} size={20} />}
-          <View style={[styles.statusPill,
-            item.status === 'pending'  ? styles.pillAmber :
-            item.status === 'accepted' ? styles.pillGreen  : styles.pillMuted
-          ]}>
-            <Text style={[styles.statusPillText,
-              item.status === 'pending'  ? { color: colors.warning } :
-              item.status === 'accepted' ? { color: colors.success } : { color: colors.textMuted }
-            ]}>{item.status.toUpperCase()}</Text>
-          </View>
+          <Badge label={statusLabel(item.status)} tone={statusTone(item.status)} />
         </View>
-        <View style={styles.timeRow}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <Clock color={colors.textMuted} size={12} />
-          <Text style={styles.timeText}>{formatDistanceToNow(new Date(item.dispatchedAt))} ago</Text>
+          <Txt variant="xs" tone="muted">{ago(item.dispatchedAt)}</Txt>
         </View>
       </View>
 
-      {/* Pending */}
       {item.status === 'pending' && (
         <>
-          <Text style={styles.cardTitle}>🚨 Nearby Emergency</Text>
-          <Text style={styles.cardField}>Victim: <Text style={styles.cardValue}>{item.alert.victimName}</Text></Text>
-          <Text style={styles.cardField}>Distance: <Text style={styles.cardValue}>~{item.alert.latitude} (Masked)</Text></Text>
-          <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.acceptWrap} onPress={() => respond(item.id, 'accept')} activeOpacity={0.85}>
-              <LinearGradient colors={gradients.accent} style={styles.acceptBtn}>
-                <CheckCircle color={colors.onFill} size={18} />
-                <Text style={styles.acceptText}>Accept</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.rejectBtn} onPress={() => respond(item.id, 'reject')} activeOpacity={0.8}>
-              <XCircle color={colors.textMuted} size={18} />
-              <Text style={styles.rejectText}>Reject</Text>
-            </TouchableOpacity>
+          <Txt variant="h3" style={{ marginBottom: spacing.xs }}>{t('Nearby emergency')}</Txt>
+          <Txt variant="sm" tone="sub">
+            {t('Victim')}: <Text style={{ color: colors.text, fontWeight: '700' }}>{item.alert.victimName}</Text>
+          </Txt>
+          <Txt variant="xs" tone="muted" style={{ marginTop: 2 }}>
+            {t('Exact location unlocks when you accept.')}
+          </Txt>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+            <Button
+              label={t('Accept')}
+              onPress={() => respond(item.id, 'accept')}
+              icon={<CheckCircle color={colors.onAccent} size={18} />}
+              style={{ flex: 1 }}
+            />
+            <Button
+              label={t('Reject')}
+              variant="subtle"
+              onPress={() => respond(item.id, 'reject')}
+              icon={<XCircle color={colors.textMuted} size={18} />}
+              style={{ flex: 1 }}
+            />
           </View>
         </>
       )}
 
-      {/* Accepted */}
       {item.status === 'accepted' && (
         <>
-          <Text style={styles.cardTitle}>Dispatch Details</Text>
+          <Txt variant="h3" style={{ marginBottom: spacing.sm }}>{t('Dispatch details')}</Txt>
           {[
-            ['Victim', item.alert.victimName],
-            ['Phone', item.alert.victimPhone],
-            ['Blood Group', item.alert.bloodGroup],
-            ['Latitude', item.alert.latitude],
-            ['Longitude', item.alert.longitude],
+            [t('Victim'), item.alert.victimName],
+            [t('Phone'), item.alert.victimPhone],
+            [t('Blood group'), item.alert.bloodGroup],
+            [t('Latitude'), item.alert.latitude],
+            [t('Longitude'), item.alert.longitude],
           ].map(([k, v]) => (
-            <View key={k} style={styles.detailRow}>
-              <Text style={styles.detailKey}>{k}</Text>
-              <Text style={styles.detailVal}>{v || '—'}</Text>
+            <View
+              key={String(k)}
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                paddingVertical: spacing.sm,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
+              <Text style={[type.sm, { color: colors.textMuted }]}>{k}</Text>
+              <Text style={[type.smStrong, { color: colors.text }]}>{v || '—'}</Text>
             </View>
           ))}
         </>
       )}
 
-      {/* Rejected */}
       {item.status === 'rejected' && (
-        <Text style={styles.rejectedNote}>This dispatch was rejected.</Text>
+        <Txt variant="sm" tone="muted" style={{ fontStyle: 'italic' }}>{t('This dispatch was rejected.')}</Txt>
       )}
-    </View>
+    </Animated.View>
   );
+
+  const header = (
+    <AppBar
+      title={t('Responder Hub')}
+      subtitle={t('Community dispatches near you')}
+      right={
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={t('Refresh')}
+          onPress={fetchDispatches}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <RefreshCw color={colors.textSub} size={18} />
+        </PressableScale>
+      }
+    />
+  );
+
+  if (notResponder) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, padding: spacing.md }}>
+        {header}
+        <Card tone="warning" delay={60}>
+          <EmptyState
+            icon={<ShieldAlert color={colors.warningText} size={30} />}
+            title={t('Not yet a responder')}
+            message={t("Go to your Profile and apply to become a verified community responder. Once approved, you'll receive nearby emergency alerts.")}
+          />
+        </Card>
+      </View>
+    );
+  }
 
   return (
-    <LinearGradient colors={gradients.hero} style={styles.root}>
-      {/* Nav Header */}
-      <View style={styles.navHeader}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navBackBtn} activeOpacity={0.7}>
-          <ChevronLeft color={colors.text} size={24} />
-        </TouchableOpacity>
-        <View style={styles.navCenter}>
-          <Text style={styles.navTitle}>Responder Hub</Text>
-          <Text style={styles.navSub}>Community dispatches</Text>
-        </View>
-        <TouchableOpacity style={styles.navRefreshBtn} onPress={fetchDispatches} activeOpacity={0.7}>
-          <RefreshCw color={colors.textSub} size={18} />
-        </TouchableOpacity>
-      </View>
-
-      {notResponder ? (
-        <View style={styles.notResponderCard}>
-          <LinearGradient colors={[colors.surface, colors.surfaceAlt]} style={styles.notResponderInner}>
-            <ShieldAlert color={colors.warning} size={52} style={{ marginBottom: spacing.lg }} />
-            <Text style={styles.nrTitle}>Not Yet a Responder</Text>
-            <Text style={styles.nrBody}>Go to your Profile and apply to become a verified community responder. Once approved, you'll receive nearby emergency alerts.</Text>
-          </LinearGradient>
-        </View>
-      ) : (
-        <FlatList
-          data={dispatches}
-          keyExtractor={i => i.id}
-          renderItem={renderItem}
-          refreshing={loading}
-          onRefresh={fetchDispatches}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={!loading ? (
-            <View style={styles.empty}>
-              <ShieldAlert color={colors.border} size={52} />
-              <Text style={styles.emptyTitle}>No Dispatches</Text>
-              <Text style={styles.emptySub}>You'll be notified when a nearby emergency needs your help.</Text>
-            </View>
-          ) : null}
-        />
-      )}
-    </LinearGradient>
+    <FlatList
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      data={dispatches}
+      keyExtractor={(i) => i.id}
+      renderItem={renderItem}
+      ListHeaderComponent={header}
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchDispatches} tintColor={colors.accent} colors={[colors.accent]} />}
+      contentContainerStyle={{ padding: spacing.md, paddingTop: 0, paddingBottom: spacing.xxl }}
+      showsVerticalScrollIndicator={false}
+      ListEmptyComponent={
+        loading ? (
+          <View style={{ gap: spacing.md }}>
+            <Shimmer width="100%" height={130} radius={radius.lg} />
+            <Shimmer width="100%" height={130} radius={radius.lg} />
+          </View>
+        ) : (
+          <EmptyState
+            icon={<ShieldAlert color={colors.textMuted} size={30} />}
+            title={t('No dispatches')}
+            message={t("You'll be notified when a nearby emergency needs your help.")}
+          />
+        )
+      }
+    />
   );
 }
-
-const makeStyles = ({ colors, shadows, gradients }: Theme) => {
-  const font = {
-    hero: { ...type.hero, color: colors.text },
-    h1: { ...type.h1, color: colors.text },
-    h2: { ...type.h2, color: colors.text },
-    h3: { ...type.h3, color: colors.text },
-    body: { ...type.body, color: colors.text },
-    sm: { ...type.sm, color: colors.textSub },
-    xs: { ...type.xs, color: colors.textMuted },
-    label: { ...type.label, color: colors.textSub },
-    regular: 'System' as const, medium: 'System' as const,
-    semiBold: 'System' as const, bold: 'System' as const,
-  };
-  void gradients;
-  return StyleSheet.create({
-  root: { flex: 1 },
-  navHeader: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 52 : 40, paddingBottom: 12,
-    paddingHorizontal: spacing.md, gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  navBackBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  navCenter: { flex: 1 },
-  navTitle: { ...font.h3, color: colors.text },
-  navSub: { ...font.xs, color: colors.textMuted, marginTop: 2 },
-  navRefreshBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  list: { padding: spacing.md, paddingBottom: spacing.xxl },
-  card: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.lg, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.border, ...shadows.card },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
-  cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  statusPill: { borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: 2, borderWidth: 1 },
-  pillAmber: { backgroundColor: `${colors.warning}15`, borderColor: `${colors.warning}40` },
-  pillGreen: { backgroundColor: `${colors.success}15`, borderColor: `${colors.success}40` },
-  pillMuted: { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
-  statusPillText: { ...font.xs, fontWeight: '700', letterSpacing: 0.5 },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  timeText: { ...font.xs, color: colors.textMuted },
-  cardTitle: { ...font.h3, color: colors.text, marginBottom: spacing.sm },
-  cardField: { ...font.sm, color: colors.textMuted, marginBottom: 4 },
-  cardValue: { color: colors.text, fontWeight: '600' },
-  actionRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
-  acceptWrap: { flex: 1, borderRadius: radius.lg, ...shadows.card },
-  acceptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg },
-  acceptText: { ...font.body, color: colors.onFill, fontWeight: '700' },
-  rejectBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt },
-  rejectText: { ...font.body, color: colors.textMuted, fontWeight: '600' },
-  detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
-  detailKey: { ...font.sm, color: colors.textMuted },
-  detailVal: { ...font.sm, color: colors.text, fontWeight: '600' },
-  rejectedNote: { ...font.sm, color: colors.textMuted, fontStyle: 'italic' },
-  notResponderCard: { flex: 1, padding: spacing.lg },
-  notResponderInner: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border },
-  nrTitle: { ...font.h2, color: colors.text, textAlign: 'center', marginBottom: spacing.md },
-  nrBody: { ...font.body, color: colors.textMuted, textAlign: 'center', lineHeight: 24 },
-  empty: { alignItems: 'center', paddingTop: spacing.xxl + spacing.xl },
-  emptyTitle: { ...font.h3, color: colors.textMuted, marginTop: spacing.lg },
-  emptySub: { ...font.sm, color: colors.textMuted, textAlign: 'center', marginTop: spacing.sm, lineHeight: 22, paddingHorizontal: spacing.xl },
-});
-};

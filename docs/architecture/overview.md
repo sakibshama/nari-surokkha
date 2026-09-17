@@ -6,13 +6,13 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                        CLIENTS                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │  Mobile App  │  │Police Portal │  │  Admin Portal    │  │
-│  │ (React Native│  │  (React +    │  │  (React +        │  │
-│  │  TypeScript) │  │  Material UI)│  │  Material UI)    │  │
-│  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │
-└─────────┼─────────────────┼──────────────────-┼────────────┘
-          │                 │                    │
-          ▼                 ▼                    ▼
+│  │  Mobile App  │                    │  Admin Portal    │  │
+│  │ (React Native│                    │  (React +        │  │
+│  │  TypeScript) │                    │  Material UI)    │  │
+│  └──────┬───────┘                    └────────┬─────────┘  │
+└─────────┼─────────────────────────────────────┼────────────┘
+          │                                      │
+          ▼                                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                      NGINX (Reverse Proxy)                  │
 │                   Rate Limiting | SSL/TLS                   │
@@ -48,13 +48,13 @@ API validates request & user
        │
        ├── Save alert to PostgreSQL
        │
-       ├── Find nearest police station (PostGIS)
+       ├── Queue nearby-responder dispatch (PostGIS)
        │
        ├── Queue SMS notification (BullMQ → Redis)
        │
        ├── Queue push notification (BullMQ → Redis)
        │
-       ├── Emit WebSocket event → Police Portal
+       ├── Emit WebSocket event → Admin Portal
        │
        └── Return alertId to mobile app
               │
@@ -65,7 +65,7 @@ API validates request & user
               │
               ▼
        API broadcasts location
-       via WebSocket to police
+       via WebSocket to admins & responders
 ```
 
 ## Key Architectural Decisions
@@ -107,4 +107,4 @@ API validates request & user
 See [Phase 3 — Database Schema](../../README_Antigravity_Nari_Surokkha.md) for full table list.
 
 Core tables: `users`, `user_profiles`, `emergency_alerts`, `alert_locations`,
-`cases`, `trusted_contacts`, `police_stations`, `responders`, `audit_logs`
+`trusted_contacts`, `responders`, `audit_logs`

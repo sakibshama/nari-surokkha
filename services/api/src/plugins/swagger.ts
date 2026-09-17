@@ -51,7 +51,6 @@ async function swaggerPlugin(fastify: FastifyInstance): Promise<void> {
         { name: 'alerts', description: 'SOS emergency alerts' },
         { name: 'location', description: 'Live location updates' },
         { name: 'evidence', description: 'Evidence upload' },
-        { name: 'cases', description: 'Case management' },
         { name: 'responders', description: 'Responder system' },
         { name: 'admin', description: 'Admin functions' },
       ],

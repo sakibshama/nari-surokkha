@@ -1,7 +1,7 @@
 /**
  * CORS Plugin.
  *
- * Configured for the police portal and admin portal origins only.
+ * Configured for the admin portal origin(s) only.
  * Never open CORS to '*' — this is a safety-critical system.
  */
 

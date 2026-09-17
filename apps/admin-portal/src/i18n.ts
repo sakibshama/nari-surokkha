@@ -37,7 +37,6 @@ export const translations: Record<string, string> = {
   'User Management': 'ব্যবহারকারী ব্যবস্থাপনা',
   'Role Management': 'ভূমিকা ব্যবস্থাপনা',
   'Responders': 'সাড়াদানকারী',
-  'Police Stations': 'থানা',
   'Incident Reports': 'ঘটনার প্রতিবেদন',
   'Analytics': 'বিশ্লেষণ',
   'City Safety Analytics': 'নগর নিরাপত্তা বিশ্লেষণ',
@@ -177,7 +176,6 @@ export const translations: Record<string, string> = {
     'নারী সুরক্ষা প্ল্যাটফর্মের রিয়েল-টাইম পরিসংখ্যান',
   'Manage platform users and their roles': 'প্ল্যাটফর্মের ব্যবহারকারী ও তাদের ভূমিকা পরিচালনা করুন',
   'Manage responder verifications': 'সাড়াদানকারীদের যাচাই পরিচালনা করুন',
-  'Manage police stations': 'থানা পরিচালনা করুন',
   'Review submitted incident reports': 'জমাকৃত ঘটনার প্রতিবেদন পর্যালোচনা করুন',
   'System audit trail': 'সিস্টেম অডিট ট্রেইল',
 
@@ -195,8 +193,6 @@ export const translations: Record<string, string> = {
   'Refresh Data': 'তথ্য রিফ্রেশ',
   'Failed to load data.': 'তথ্য লোড করতে ব্যর্থ।',
   'National ID': 'জাতীয় পরিচয়পত্র',
-  'Badge Number': 'ব্যাজ নম্বর',
-  'Station Assignment': 'থানা নিয়োগ',
   'None': 'কোনোটিই নয়',
   'Permissions': 'অনুমতি',
 
@@ -215,14 +211,8 @@ export const translations: Record<string, string> = {
   'Role Name': 'ভূমিকার নাম',
   'Role Key': 'ভূমিকা কী',
 
-  // ── Police Stations page ──
-  'Manage platform police stations.': 'প্ল্যাটফর্মের থানা পরিচালনা করুন।',
-  'Add Station': 'থানা যোগ করুন',
-  'Station Name / Code': 'থানার নাম / কোড',
+  // ── Locations ──
   'Contact': 'যোগাযোগ',
-  'No police stations found.': 'কোনো থানা পাওয়া যায়নি।',
-  'Station Name': 'থানার নাম',
-  'Thana Code': 'থানা কোড',
   'Division': 'বিভাগ',
   'District': 'জেলা',
   'Address': 'ঠিকানা',

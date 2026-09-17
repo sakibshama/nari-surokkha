@@ -2,7 +2,7 @@
  * Standard API response helpers.
  *
  * Every endpoint must use these helpers to produce consistent JSON responses.
- * Deviating from this format will break the mobile app and police portal.
+ * Deviating from this format will break the mobile app and admin portal.
  *
  * Shape matches the ApiSuccess / ApiError types in @nari-surokkha/shared.
  */

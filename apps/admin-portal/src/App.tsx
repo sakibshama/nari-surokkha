@@ -7,7 +7,7 @@ import { useAuthStore } from './store/authStore';
 // ─── Route-level code splitting ─────────────────────────────────────────────
 // Every page used to be a static import, so the initial bundle contained all
 // twelve of them plus MUI, Leaflet, Google Maps, Recharts and framer-motion in
-// one chunk. A police officer on 3G waited for the analytics charting library
+// one chunk. An admin on 3G waited for the analytics charting library
 // before they could see an alert.
 //
 // Login stays eager: it is the first thing an unauthenticated user needs, and
@@ -19,7 +19,6 @@ const AlertDetails = lazy(() => import('./pages/AlertDetails'));
 const Users = lazy(() => import('./pages/Users'));
 const Roles = lazy(() => import('./pages/Roles'));
 const Responders = lazy(() => import('./pages/Responders'));
-const PoliceStations = lazy(() => import('./pages/PoliceStations'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const Incidents = lazy(() => import('./pages/Incidents'));
 const Settings = lazy(() => import('./pages/Settings'));
@@ -73,7 +72,6 @@ function App() {
           <Route path="users" element={<Users />} />
           <Route path="roles" element={<Roles />} />
           <Route path="responders" element={<Responders />} />
-          <Route path="police-stations" element={<PoliceStations />} />
           <Route path="incidents" element={<Incidents />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="audit-logs" element={<AuditLogs />} />

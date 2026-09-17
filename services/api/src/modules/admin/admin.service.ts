@@ -83,30 +83,6 @@ export class AdminService {
     }
   }
 
-  async listStations(search?: string, limit?: number) {
-    return this.repo.listStations(search, limit);
-  }
-
-  async createStation(data: any) {
-    return this.repo.createStation(data);
-  }
-
-  async updateStation(id: string, data: any) {
-    try {
-      return await this.repo.updateStation(id, data);
-    } catch (e) {
-      throw new NotFoundError('Station not found');
-    }
-  }
-
-  async deleteStation(id: string) {
-    try {
-      return await this.repo.deleteStation(id);
-    } catch (e) {
-      throw new NotFoundError('Station not found');
-    }
-  }
-
   async listAuditLogs(search?: string, limit?: number, cursor?: string) {
     const { data, nextCursor } = await this.repo.listAuditLogs(search, limit, cursor);
     return { items: data.map((log) => this.maskAuditLog(log)), nextCursor };

@@ -47,7 +47,6 @@ export default function AlertDetails() {
   const t = useT();
   const [alert, setAlert] = useState<AlertDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [stations, setStations] = useState<any[]>([]);
   const [responders, setResponders] = useState<any[]>([]);
   const [evidenceList, setEvidenceList] = useState<{ id: string; url: string; type: string; mimeType: string; originalName: string }[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -122,13 +121,7 @@ export default function AlertDetails() {
         console.error('Failed to fetch alert', err);
       }
 
-      // These fetch stations/responders for map markers — may fail with 403 if admin lacks permission, that's OK
-      try {
-        const stationsRes = await api.get(`/admin/stations`);
-        setStations(stationsRes.data.data || []);
-      } catch {
-        // Admin may lack manage_stations permission — map still works without markers
-      }
+      // Responders for map markers — may fail with 403 if admin lacks permission, that's OK
 
       try {
         const respondersRes = await api.get(`/admin/responders`);
@@ -149,7 +142,7 @@ export default function AlertDetails() {
     if (socketService.socket) {
       // Join the alert-specific room so WebRTC signals are routed correctly
       socketService.socket.emit('join:alert', id);
-      socketService.socket.emit('join:station', 'dispatch');
+      socketService.socket.emit('join:admin');
 
       socketService.socket.on('alert:location_update', (data: any) => {
         if (data.alertId === id) {
@@ -319,7 +312,6 @@ export default function AlertDetails() {
             {hasValidCoords ? (
               <LiveLocationMap
                 center={[lat, lng]}
-                stations={stations}
                 responders={responders}
                 victimLabel={alert.user?.profile?.fullName || 'SOS Victim'}
               />

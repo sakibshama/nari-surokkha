@@ -38,7 +38,7 @@ export const sosTriggerDuration = new Histogram({
 /** Time from alert creation to the fan-out job completing (audit, case, responders). */
 export const sosDispatchDuration = new Histogram({
   name: 'sos_dispatch_duration_seconds',
-  help: 'Time from alert creation to responder/station dispatch completing',
+  help: 'Time from alert creation to responder dispatch completing',
   buckets: [0.1, 0.5, 1, 2, 5, 10, 30, 60],
   labelNames: ['outcome'] as const,
 });
@@ -55,7 +55,7 @@ export const contactNotifyDuration = new Histogram({
 export const alertsTotal = new Counter({
   name: 'alerts_total',
   help: 'Emergency alerts created',
-  labelNames: ['type', 'has_station'] as const,
+  labelNames: ['type'] as const,
 });
 
 /** Outbound notification attempts. */

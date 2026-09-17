@@ -28,7 +28,7 @@ class SocketService {
     this.socket.on('connect', () => {
       if (import.meta.env.DEV) console.log('Admin portal connected to WebSocket:', this.socket?.id);
       // Admins listen to dispatch/global events for MVP
-      this.socket?.emit('join:station', 'dispatch');
+      this.socket?.emit('join:admin');
     });
 
     this.socket.on('disconnect', () => {

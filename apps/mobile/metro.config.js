@@ -24,7 +24,7 @@ config.resolver.unstable_enablePackageExports = false;
 // This is an npm-workspaces monorepo, so node_modules is hoisted to the repo
 // root and Metro (using the fallback watcher, since Windows has no Watchman)
 // watches ALL of it — including transient temp dirs created by the Vite-based
-// admin/police portals (e.g. node_modules/.vite-plugin-cjs-interop-*). Those
+// admin portal (e.g. node_modules/.vite-plugin-cjs-interop-*). Those
 // folders disappear mid-watch and crash Metro with "ENOENT: watch ...".
 // Excluding them (and the sibling Vite portals) from Metro's file map stops it.
 const ignorePatterns = [
@@ -32,7 +32,6 @@ const ignorePatterns = [
   /.*[\\\/]node_modules[\\\/]\.cache[\\\/].*/,
   /.*[\\\/]node_modules[\\\/]\.[^\\\/]*-cjs-interop[^\\\/]*[\\\/].*/,
   /.*[\\\/]apps[\\\/]admin-portal[\\\/].*/,
-  /.*[\\\/]apps[\\\/]police-portal[\\\/].*/,
 ];
 
 const existing = config.resolver.blockList;

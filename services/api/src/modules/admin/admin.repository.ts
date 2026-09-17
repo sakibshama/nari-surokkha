@@ -1,4 +1,4 @@
-import { PrismaClient, User, Responder, AuditLog, PoliceStation } from '@prisma/client';
+import { PrismaClient, User, Responder, AuditLog } from '@prisma/client';
 import argon2 from 'argon2';
 
 export class AdminRepository {
@@ -41,47 +41,12 @@ export class AdminRepository {
     const email = data.email && data.email.trim() !== '' ? data.email : null;
 
     // Auto-assign full permissions to admin users if none explicitly provided
-    const ALL_ADMIN_PERMISSIONS = ['manage_users', 'manage_admins', 'manage_stations', 'view_audit_logs'];
+    const ALL_ADMIN_PERMISSIONS = ['manage_users', 'manage_admins', 'view_audit_logs'];
     const permissions = data.role === 'admin' && (!data.permissions || data.permissions.length === 0)
       ? ALL_ADMIN_PERMISSIONS
       : (data.permissions || []);
-    
     if (data.role === 'police') {
-      if (!data.badgeNumber || !data.stationId) {
-        throw new Error('Badge number and Station ID are required for police users');
-      }
-      return this.prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            phone: data.phone,
-            email,
-            passwordHash,
-            role: { connect: { key: 'police' } },
-            permissions,
-            profile: {
-              create: {
-                fullName: data.fullName,
-                nationalId: data.nationalId,
-                isVerified: data.isVerified || false
-              }
-            }
-          },
-          include: { profile: true, role: true }
-        });
-
-        await tx.policeUser.create({
-          data: {
-            stationId: data.stationId,
-            badgeNumber: data.badgeNumber,
-            fullName: data.fullName,
-            phone: data.phone,
-            email: email,
-            passwordHash,
-          }
-        });
-
-        return user;
-      });
+      throw new Error('The police role has been retired');
     }
 
     return this.prisma.user.create({
@@ -110,6 +75,7 @@ export class AdminRepository {
     const updateData: any = {};
     if (data.phone) updateData.phone = data.phone;
     if (data.email !== undefined) updateData.email = data.email && data.email.trim() !== '' ? data.email : null;
+    if (data.role === 'police') throw new Error('The police role has been retired');
     if (data.role) updateData.role = { connect: { key: data.role } };
     if (data.status) updateData.status = data.status;
     if (data.permissions && Array.isArray(data.permissions)) {
@@ -134,58 +100,6 @@ export class AdminRepository {
         data: updateData,
         include: { profile: true, role: true }
       });
-
-      // Handle PoliceUser sync
-      const targetRole = data.role || existingUser.role?.key;
-      if (targetRole === 'police') {
-        const phoneToUse = data.phone || existingUser.phone;
-        const emailToUse = data.email !== undefined ? data.email : existingUser.email;
-        const fullNameToUse = data.fullName || existingUser.profile?.fullName || '';
-
-        // Upsert police user
-        const existingPolice = await tx.policeUser.findFirst({
-          where: { phone: existingUser.phone }
-        });
-
-        if (existingPolice) {
-          await tx.policeUser.update({
-            where: { id: existingPolice.id },
-            data: {
-              phone: phoneToUse,
-              email: emailToUse,
-              fullName: fullNameToUse,
-              ...(data.badgeNumber && { badgeNumber: data.badgeNumber }),
-              ...(data.stationId && { stationId: data.stationId }),
-              isActive: data.status === 'inactive' || data.status === 'suspended' ? false : true,
-            }
-          });
-        } else {
-          if (!data.badgeNumber || !data.stationId) {
-            throw new Error('Badge number and Station ID are required when assigning Police role');
-          }
-          await tx.policeUser.create({
-            data: {
-              stationId: data.stationId,
-              badgeNumber: data.badgeNumber,
-              fullName: fullNameToUse,
-              phone: phoneToUse,
-              email: emailToUse,
-              passwordHash: existingUser.passwordHash,
-            }
-          });
-        }
-      } else if (existingUser.role?.key === 'police' && data.role && data.role !== 'police') {
-        // Soft deactivate police profile if role is changed away from police
-        const existingPolice = await tx.policeUser.findFirst({
-          where: { phone: existingUser.phone }
-        });
-        if (existingPolice) {
-          await tx.policeUser.update({
-            where: { id: existingPolice.id },
-            data: { isActive: false }
-          });
-        }
-      }
 
       return updatedUser;
     });
@@ -251,66 +165,12 @@ export class AdminRepository {
     });
   }
 
-  async listStations(search?: string, limit: number = 50): Promise<PoliceStation[]> {
-    const where: any = {};
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { thanaCode: { contains: search, mode: 'insensitive' } },
-        { district: { contains: search, mode: 'insensitive' } }
-      ];
-    }
-    return this.prisma.policeStation.findMany({
-      where,
-      take: limit,
-      orderBy: { name: 'asc' }
-    });
-  }
-
-  async createStation(data: any): Promise<PoliceStation> {
-    return this.prisma.policeStation.create({
-      data: {
-        name: data.name,
-        thanaCode: data.thanaCode,
-        district: data.district,
-        division: data.division,
-        address: data.address,
-        phone: data.phone,
-        latitude: data.latitude,
-        longitude: data.longitude
-      }
-    });
-  }
-
-  async updateStation(id: string, data: any): Promise<PoliceStation> {
-    return this.prisma.policeStation.update({
-      where: { id },
-      data: {
-        name: data.name,
-        thanaCode: data.thanaCode,
-        district: data.district,
-        division: data.division,
-        address: data.address,
-        phone: data.phone,
-        latitude: data.latitude,
-        longitude: data.longitude
-      }
-    });
-  }
-
-  async deleteStation(id: string): Promise<PoliceStation> {
-    return this.prisma.policeStation.update({
-      where: { id },
-      data: { isActive: false }
-    });
-  }
-
   /**
    * Audit log listing.
    *
    * Previously `take: 50` with no offset or cursor, which meant anything older
    * than the 50 most recent entries was simply unreachable through the UI —
-   * for the accountability record of a system that dispatches police, that is
+   * for the accountability record of a system that dispatches responders, that is
    * a real gap, not just an ergonomic one.
    */
   async listAuditLogs(

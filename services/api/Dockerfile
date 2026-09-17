@@ -8,7 +8,6 @@ RUN apk add --no-cache openssl
 # Copy root package.json and workspace package.json files
 COPY package.json package-lock.json* ./
 COPY apps/admin-portal/package.json ./apps/admin-portal/
-COPY apps/police-portal/package.json ./apps/police-portal/
 COPY services/api/package.json ./services/api/
 COPY packages/shared/package.json ./packages/shared/
 

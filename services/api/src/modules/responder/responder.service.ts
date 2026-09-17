@@ -60,13 +60,10 @@ export class ResponderService {
           details: { message: 'Responder accepted dispatch' } as any
         } as any
       });
-      // Emit to the police portal that a responder accepted. Scoped to the
-      // alert room, the handling station and global dispatch — the previous
-      // bare io.emit() told every connected client on the platform.
+      // Tell the alert room and the admin view that a responder accepted.
       emitToAlert(
         this.fastify,
         dispatch.alertId,
-        dispatch.alert?.assignedStationId,
         'responder_accepted',
         { alertId: dispatch.alertId, responderId: dispatch.responderId },
       );
@@ -127,7 +124,7 @@ export class ResponderService {
     });
   }
 
-  async verifyDispatch(policeUserId: string, dispatchId: string) {
+  async verifyDispatch(adminUserId: string, dispatchId: string) {
     const dispatch = await this.repository.getDispatchById(dispatchId);
     if (!dispatch) {
       throw this.fastify.httpErrors.notFound('Dispatch not found');
@@ -141,7 +138,7 @@ export class ResponderService {
       where: { id: dispatchId },
       data: {
         verifiedAt: new Date(),
-        verifiedBy: policeUserId,
+        verifiedBy: adminUserId,
       },
       include: { responder: true },
     });
@@ -167,7 +164,7 @@ export class ResponderService {
         action: 'responder_verified',
         entityType: 'ResponderDispatch',
         entityId: dispatchId,
-        userId: policeUserId,
+        userId: adminUserId,
         details: { newScore, badges } as any,
       } as any,
     });

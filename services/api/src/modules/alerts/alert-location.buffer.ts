@@ -20,7 +20,7 @@
  * Split "where are they right now" from "where have they been":
  *
  *   - **Now** lives in Redis (`alert:<id>:last`) and is written on every ping.
- *     It is what the police portal and the public tracking page read, so
+ *     It is what the admin portal and the public tracking page read, so
  *     liveness is unchanged — arguably better, since it no longer waits on a
  *     database write.
  *   - **History** is buffered in a Redis list and flushed to Postgres in
@@ -49,7 +49,6 @@ export const PENDING_SET = 'alertloc:pending';
 export interface AlertMeta {
   userId: string;
   status: string;
-  assignedStationId: string | null;
 }
 
 export interface LivePosition {
@@ -87,14 +86,13 @@ export async function getAlertMeta(
 
   const alert = await fastify.prisma.emergencyAlert.findUnique({
     where: { id: alertId },
-    select: { userId: true, status: true, assignedStationId: true },
+    select: { userId: true, status: true },
   });
   if (!alert) return null;
 
   const meta: AlertMeta = {
     userId: alert.userId,
     status: String(alert.status),
-    assignedStationId: alert.assignedStationId,
   };
 
   try {

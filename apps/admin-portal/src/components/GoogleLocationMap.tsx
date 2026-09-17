@@ -6,11 +6,9 @@ import { Navigation } from 'lucide-react';
 // Stable reference so the loader doesn't reload on every render.
 const LIBRARIES: ('places')[] = ['places'];
 
-interface Station { id: string; name?: string; latitude?: unknown; longitude?: unknown }
 interface Responder { id: string; latitude?: unknown; longitude?: unknown; user?: { profile?: { fullName?: string } } }
 export interface LocationMapProps {
   center: [number, number];
-  stations?: Station[];
   responders?: Responder[];
   victimLabel?: string;
 }
@@ -35,7 +33,7 @@ const centerBox: React.CSSProperties = { position: 'absolute', inset: 0, display
 const routePanel: React.CSSProperties = { position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5, background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(37,99,235,0.35)', borderRadius: 12, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 6px 18px rgba(0,0,0,0.18)' };
 
 export default function GoogleLocationMap({
-  center, stations = [], responders = [], victimLabel = 'SOS Victim', apiKey,
+  center, responders = [], victimLabel = 'SOS Victim', apiKey,
 }: LocationMapProps & { apiKey: string }) {
   const { isLoaded, loadError } = useJsApiLoader({ id: 'nari-gmaps', googleMapsApiKey: apiKey, libraries: LIBRARIES });
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -47,19 +45,19 @@ export default function GoogleLocationMap({
 
   const victim = useMemo<google.maps.LatLngLiteral>(() => ({ lat: center[0], lng: center[1] }), [center]);
 
-  // Nearest police station to the victim.
+  // Nearest volunteer responder to the victim.
   const nearest = useMemo(() => {
     let best: { pos: google.maps.LatLngLiteral; name: string; km: number } | null = null;
-    for (const s of stations) {
-      const p = validLatLng(s.latitude, s.longitude);
+    for (const r of responders) {
+      const p = validLatLng(r.latitude, r.longitude);
       if (!p) continue;
       const km = haversineKm(victim, p);
-      if (!best || km < best.km) best = { pos: p, name: s.name || 'Police Station', km };
+      if (!best || km < best.km) best = { pos: p, name: r.user?.profile?.fullName || 'Nearest responder', km };
     }
     return best;
-  }, [stations, victim]);
+  }, [responders, victim]);
 
-  // Road route + ETA from nearest station → victim (Google Directions API).
+  // Road route + ETA from nearest responder → victim (Google Directions API).
   useEffect(() => {
     if (!isLoaded || !nearest) { setDirections(null); setRouteInfo(null); return; }
 
@@ -105,7 +103,6 @@ export default function GoogleLocationMap({
     maxZoom: 21, minZoom: 3,
   };
 
-  const stationPts = stations.map((s) => ({ s, p: validLatLng(s.latitude, s.longitude) }));
   const responderPts = responders.map((r) => ({ r, p: validLatLng(r.latitude, r.longitude) }));
 
   return (
@@ -118,12 +115,6 @@ export default function GoogleLocationMap({
         <MarkerF position={victim} title={victimLabel} zIndex={999}
           icon={{ path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: '#ef4444', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 3 }} />
         <CircleF center={victim} radius={200} options={{ strokeColor: '#ef4444', strokeWeight: 2, fillColor: '#ef4444', fillOpacity: 0.12 }} />
-
-        {/* Police stations */}
-        {stationPts.map(({ s, p }) => p ? (
-          <MarkerF key={s.id} position={p} title={`Police Station: ${s.name || 'Station'}`} label={{ text: 'P', color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-            icon={{ path: google.maps.SymbolPath.CIRCLE, scale: 11, fillColor: '#3b82f6', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }} />
-        ) : null)}
 
         {/* Responders */}
         {responderPts.map(({ r, p }) => p ? (

@@ -2,7 +2,7 @@ version: '3.9'
 
 # ============================================================
 # Nari Surokkha — Docker Compose (Production/Staging)
-# All services including API, Police Portal, ML Service
+# All services including API, ML Service
 # WARNING: Fill ALL environment variables from .env.example
 # before deploying to any real environment
 # ============================================================
@@ -84,16 +84,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # ─── Police Portal ────────────────────────────────────────
-  police-portal:
-    build:
-      context: ../../apps/police-portal
-      dockerfile: Dockerfile
-    container_name: nari_police_portal
-    restart: always
-    networks:
-      - nari_internal
-
   # ─── Nginx Reverse Proxy ──────────────────────────────────
   nginx:
     image: nginx:alpine
@@ -107,7 +97,6 @@ services:
       - ../nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
       - api
-      - police-portal
     networks:
       - nari_external
 

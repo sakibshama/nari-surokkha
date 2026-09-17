@@ -4,8 +4,6 @@
  * SAFE DEV DATA ONLY — never use in production.
  *
  * Seeds:
- * - 2 police stations (Dhaka, Chittagong)
- * - 1 police admin user per station
  * - 1 test citizen user
  * - 1 test responder (verified)
  * - Trusted contacts for test user
@@ -51,7 +49,7 @@ async function main(): Promise<void> {
   console.log('✅ Roles seeded');
 
   // ─── Demo-data guard ─────────────────────────────────────────
-  // Everything below (fake stations, test citizen/responder/admin logins with a
+  // Everything below (test citizen/responder/admin logins with a
   // shared dev password, sample incidents) is DEV/DEMO ONLY. In production it is
   // skipped unless ALLOW_DEV_SEED=true is explicitly set, so a real deployment
   // never ships with known test credentials. Essential roles above always seed.
@@ -61,73 +59,6 @@ async function main(): Promise<void> {
     console.log('⏭  Production seed: roles only. Set ALLOW_DEV_SEED=true to include demo data.');
     return;
   }
-
-  // ─── Police Stations ────────────────────────────────────────
-
-  const dhakaStation = await prisma.policeStation.upsert({
-    where: { thanaCode: 'DHK-001' },
-    update: {},
-    create: {
-      name: 'Dhanmondi Police Station',
-      thanaCode: 'DHK-001',
-      district: 'Dhaka',
-      division: 'Dhaka',
-      address: 'Dhanmondi, Dhaka-1209',
-      phone: '+8801711000001',
-      latitude: 23.7461,
-      longitude: 90.3742,
-    },
-  });
-
-  const ctgStation = await prisma.policeStation.upsert({
-    where: { thanaCode: 'CTG-001' },
-    update: {},
-    create: {
-      name: 'Kotwali Police Station',
-      thanaCode: 'CTG-001',
-      district: 'Chattogram',
-      division: 'Chattogram',
-      address: 'Kotwali, Chattogram-4000',
-      phone: '+8801711000002',
-      latitude: 22.3475,
-      longitude: 91.8123,
-    },
-  });
-
-  console.log('✅ Police stations seeded:', dhakaStation.id, ctgStation.id);
-
-  // ─── Police Users ────────────────────────────────────────────
-
-  const dhakaOfficer = await prisma.policeUser.upsert({
-    where: { badgeNumber: 'DHK-OFF-001' },
-    update: {},
-    create: {
-      stationId: dhakaStation.id,
-      badgeNumber: 'DHK-OFF-001',
-      fullName: 'Inspector Rahim',
-      phone: '+8801811000001',
-      email: 'rahim.dhaka@police.test',
-      passwordHash: DEV_PASSWORD_HASH,
-      role: 'supervisor',
-    },
-  });
-
-  // Portal pre-filled credentials officer (badge B-12345)
-  await prisma.policeUser.upsert({
-    where: { badgeNumber: 'B-12345' },
-    update: {},
-    create: {
-      stationId: dhakaStation.id,
-      badgeNumber: 'B-12345',
-      fullName: 'Test Officer',
-      phone: '+8801811000003',
-      email: 'test.officer@police.test',
-      passwordHash: DEV_PASSWORD_HASH,
-      role: 'officer',
-    },
-  });
-
-  console.log('✅ Police officer seeded:', dhakaOfficer.id);
 
   // ─── Test Citizen User ───────────────────────────────────────
 
@@ -215,7 +146,7 @@ async function main(): Promise<void> {
       email: 'superadmin@nari.test',
       passwordHash: DEV_PASSWORD_HASH,
       role: { connect: { key: 'admin' } },
-      permissions: ['manage_users', 'manage_admins', 'manage_stations', 'view_audit_logs'],
+      permissions: ['manage_users', 'manage_admins', 'view_audit_logs'],
       status: 'active',
       profile: {
         create: {
@@ -257,7 +188,6 @@ async function main(): Promise<void> {
   console.log('Test credentials (DEV ONLY):');
   console.log('  Citizen:   +8801912345678 / Test@1234');
   console.log('  Responder: +8801912345699 / Test@1234');
-  console.log('  Police:    rahim.dhaka@police.test / Test@1234');
   console.log('  Admin:     superadmin@nari.test / Test@1234');
   console.log('  (Passwords are placeholder hashes — Phase 4 adds real argon2 hashing)');
 }

@@ -8,8 +8,6 @@ import { AlertsService } from './alerts.service';
 import { AlertsRepository } from './alerts.repository';
 import { ContactsRepository } from '../contacts/contacts.repository';
 import { ResponderRepository } from '../responder/responder.repository';
-import { CasesRepository } from '../cases/cases.repository';
-import { CasesService } from '../cases/cases.service';
 import { createSosSchema, updateLocationSchema, generateTrackingTokenSchema, createSoftAlertSchema, cancelSoftAlertSchema, confirmSoftAlertSchema, cancelSosAlertSchema, safeRouteSchema } from './alerts.schemas';
 import { env } from '@/config/env';
 import { isValidTwilioSignature } from '@/utils/twilio-signature';
@@ -22,9 +20,7 @@ export function alertsRoutes(
   const repo = new AlertsRepository(fastify.prisma);
   const contactsRepo = new ContactsRepository(fastify.prisma);
   const responderRepo = new ResponderRepository(fastify.prisma);
-  const casesRepo = new CasesRepository(fastify.prisma);
-  const casesService = new CasesService(casesRepo, fastify);
-  const service = new AlertsService(repo, contactsRepo, responderRepo, casesService, fastify);
+  const service = new AlertsService(repo, contactsRepo, responderRepo, fastify);
   const controller = new AlertsController(service);
 
   // ─── Public Webhooks ────────────────────────────────────────

@@ -15,13 +15,8 @@ cp deploy/staging/.env.example deploy/staging/.env
 ## 2. Build Frontend Portals
 Before starting the cluster, ensure both React portals are statically built so Nginx can serve them:
 ```bash
-# Build Police Portal
-cd apps/police-portal
-npm install
-npm run build
-
 # Build Admin Portal
-cd ../admin-portal
+cd apps/admin-portal
 npm install
 npm run build
 ```
@@ -49,12 +44,10 @@ bash deploy/scripts/healthcheck.sh
 ```
 
 ## 6. Accessing the Staging Environment
-- **Police Portal**: `http://localhost/police/`
 - **Admin Portal**: `http://localhost/admin/`
 - **API Health**: `http://localhost/api/v1/health`
 
 ### Staging Credentials
 - **Admin**: `superadmin@nari.test` / `Test@1234`
-- **Police**: `rahim.dhaka@police.test` / `Test@1234`
 - **Responder**: `+8801912345699` / `Test@1234`
 - **Citizen**: `+8801912345678` / `Test@1234`

@@ -78,15 +78,6 @@ services:
     depends_on:
       - api
 
-  police-portal:
-    build:
-      context: .
-      dockerfile: apps/police-portal/Dockerfile
-    ports:
-      - "8082:80"
-    depends_on:
-      - api
-
 volumes:
   postgres_data:
   redis_data:

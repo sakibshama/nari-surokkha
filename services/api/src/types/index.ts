@@ -11,12 +11,10 @@ import { FastifyRequest } from 'fastify';
 
 export interface AuthenticatedUser {
   id: string;
-  /** Role key (e.g. 'citizen', 'police', 'admin') — carried in the JWT. */
+  /** Role key (e.g. 'citizen', 'responder', 'admin') — carried in the JWT. */
   role: string;
   phone: string;
   permissions: string[];
-  stationId?: string;
-  badgeNumber?: string;
 }
 
 // Extend Fastify's request type so req.user is always typed
@@ -30,12 +28,10 @@ declare module 'fastify' {
 
 export interface JwtAccessPayload {
   sub: string;        // user id
-  /** Role key (e.g. 'citizen', 'police', 'admin'). */
+  /** Role key (e.g. 'citizen', 'responder', 'admin'). */
   role: string;
   phone: string;
   permissions: string[];
-  stationId?: string;
-  badgeNumber?: string;
   type: 'access';
   /**
    * Token version, from utils/token-version. Compared against the user's

@@ -67,35 +67,6 @@ jobs:
           NODE_ENV: test
         run: npm test
 
-  # ─── Police Portal ──────────────────────────────────────────
-  police-portal-checks:
-    name: Police Portal — Lint, Type-Check, Build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/police-portal
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npm run type-check
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
-
   # ─── Shared Package ─────────────────────────────────────────
   shared-checks:
     name: Shared Package — Type-Check, Build

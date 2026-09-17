@@ -9,11 +9,6 @@ const victimIcon = L.divIcon({
   html: `<div style="width:20px;height:20px;border-radius:50%;background:#ef4444;border:3px solid #fff;box-shadow:0 0 0 rgba(239,68,68,0.4);animation:alert-pulse 1.5s infinite;"></div>`,
   iconSize: [20, 20], iconAnchor: [10, 10],
 });
-const stationIcon = L.divIcon({
-  className: 'custom-station-marker',
-  html: `<div style="width:26px;height:26px;border-radius:7px;background:#3b82f6;border:2px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(59,130,246,0.6);color:#fff;font-weight:bold;font-family:sans-serif;font-size:13px;">P</div>`,
-  iconSize: [26, 26], iconAnchor: [13, 13],
-});
 const responderIcon = L.divIcon({
   className: 'custom-responder-marker',
   html: `<div style="width:18px;height:18px;border-radius:50%;background:#10b981;border:2px solid #fff;box-shadow:0 2px 8px rgba(16,185,129,0.6);"></div>`,
@@ -41,15 +36,14 @@ function haversineKm(a: [number, number], b: [number, number]): number {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
-interface Station { id: string; name?: string; latitude?: unknown; longitude?: unknown }
 interface Responder { id: string; latitude?: unknown; longitude?: unknown; user?: { profile?: { fullName?: string } } }
 interface Poi { id: string; pos: [number, number]; label: string; emoji: string }
-interface RouteInfo { coords: [number, number][]; km: number; min: number; stationName: string; stationPos: [number, number] }
+interface RouteInfo { coords: [number, number][]; km: number; min: number; fromName: string; fromPos: [number, number] }
 
 const POI_KINDS: Record<string, { emoji: string; label: string }> = {
   hospital: { emoji: '🏥', label: 'Hospital' }, clinic: { emoji: '🏥', label: 'Clinic' },
   doctors: { emoji: '🏥', label: 'Doctor' }, pharmacy: { emoji: '💊', label: 'Pharmacy' },
-  police: { emoji: '🚓', label: 'Police' }, restaurant: { emoji: '🍴', label: 'Restaurant' },
+  restaurant: { emoji: '🍴', label: 'Restaurant' },
   cafe: { emoji: '☕', label: 'Cafe' }, fast_food: { emoji: '🍔', label: 'Fast food' },
   marketplace: { emoji: '🛒', label: 'Bazar / Market' }, fuel: { emoji: '⛽', label: 'Fuel' },
   bank: { emoji: '🏦', label: 'Bank' }, atm: { emoji: '🏧', label: 'ATM' },
@@ -68,30 +62,31 @@ function MapBridge({ center, isFullscreen, onMap }: { center: [number, number]; 
 }
 
 export default function LiveLocationMap({
-  center, stations = [], responders = [], victimLabel = 'SOS Victim',
-}: { center: [number, number]; stations?: Station[]; responders?: Responder[]; victimLabel?: string }) {
+  center, responders = [], victimLabel = 'SOS Victim',
+}: { center: [number, number]; responders?: Responder[]; victimLabel?: string }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [route, setRoute] = useState<RouteInfo | null>(null);
   const [pois, setPois] = useState<Poi[]>([]);
   const [showPois, setShowPois] = useState(true);
   const mapRef = useRef<L.Map | null>(null);
 
-  const nearestStation = useMemo(() => {
+  // Nearest volunteer responder — the route shows how far help is.
+  const nearest = useMemo(() => {
     let best: { pos: [number, number]; name: string; km: number } | null = null;
-    for (const s of stations) {
-      const p = validPoint(s.latitude, s.longitude);
+    for (const r of responders) {
+      const p = validPoint(r.latitude, r.longitude);
       if (!p) continue;
       const km = haversineKm(center, p);
-      if (!best || km < best.km) best = { pos: p, name: s.name || 'Police Station', km };
+      if (!best || km < best.km) best = { pos: p, name: r.user?.profile?.fullName || 'Nearest responder', km };
     }
     return best;
-  }, [stations, center]);
+  }, [responders, center]);
 
   useEffect(() => {
-    if (!nearestStation) { setRoute(null); return; }
+    if (!nearest) { setRoute(null); return; }
     let cancelled = false;
     const [vLat, vLng] = center;
-    const [sLat, sLng] = nearestStation.pos;
+    const [sLat, sLng] = nearest.pos;
     const url = `https://router.project-osrm.org/route/v1/driving/${sLng},${sLat};${vLng},${vLat}?overview=full&geometries=geojson`;
     fetch(url)
       .then((r) => r.json())
@@ -99,14 +94,14 @@ export default function LiveLocationMap({
         if (cancelled || !data?.routes?.[0]) return;
         const r0 = data.routes[0];
         const coords: [number, number][] = r0.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
-        setRoute({ coords, km: r0.distance / 1000, min: r0.duration / 60, stationName: nearestStation.name, stationPos: nearestStation.pos });
+        setRoute({ coords, km: r0.distance / 1000, min: r0.duration / 60, fromName: nearest.name, fromPos: nearest.pos });
       })
       .catch(() => {
         if (cancelled) return;
-        setRoute({ coords: [nearestStation.pos, center], km: nearestStation.km, min: (nearestStation.km / 30) * 60, stationName: nearestStation.name, stationPos: nearestStation.pos });
+        setRoute({ coords: [nearest.pos, center], km: nearest.km, min: (nearest.km / 30) * 60, fromName: nearest.name, fromPos: nearest.pos });
       });
     return () => { cancelled = true; };
-  }, [nearestStation, center]);
+  }, [nearest, center]);
 
   useEffect(() => {
     if (!showPois) return;
@@ -199,15 +194,6 @@ export default function LiveLocationMap({
         </Marker>
         <Circle center={center} radius={200} pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.12, weight: 2 }} />
 
-        {stations.map((s) => {
-          const p = validPoint(s.latitude, s.longitude);
-          return p ? (
-            <Marker key={s.id} position={p} icon={stationIcon}>
-              <Tooltip direction="top" offset={[0, -12]}>Police Station: {s.name || 'Station'}</Tooltip>
-            </Marker>
-          ) : null;
-        })}
-
         {responders.map((r) => {
           const p = validPoint(r.latitude, r.longitude);
           return p ? (
@@ -233,7 +219,7 @@ export default function LiveLocationMap({
         }}>
           <Navigation size={16} color="#60a5fa" />
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-            <span style={{ fontSize: 12, color: '#93c5fd' }}>{route.stationName} → victim</span>
+            <span style={{ fontSize: 12, color: '#93c5fd' }}>{route.fromName} → victim</span>
             <span style={{ fontSize: 14, fontWeight: 700 }}>
               {route.km.toFixed(1)} km · ~{Math.max(1, Math.round(route.min))} min drive
             </span>
@@ -264,7 +250,6 @@ export default function LiveLocationMap({
         boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
       }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444' }} /> SOS victim</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: '#3b82f6' }} /> Police station ({stations.length})</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981' }} /> Responder ({responders.length})</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>🏥🛒🍴 Nearby places ({showPois ? pois.length : 'off'})</span>
       </div>

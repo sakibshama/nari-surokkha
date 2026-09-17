@@ -4,6 +4,11 @@ import { EvidenceType } from '@prisma/client';
 import type { Readable } from 'stream';
 import { emitToAlert } from '@/utils/alert-rooms';
 
+/** Roles allowed to view any user's evidence. */
+function isAdminRole(role: string): boolean {
+  return role === 'admin' || role === 'superadmin';
+}
+
 export class EvidenceService {
   constructor(
     private readonly repository: EvidenceRepository,
@@ -54,11 +59,11 @@ export class EvidenceService {
       checksum
     });
 
-    // 5. Emit Realtime Event to Police.
-    //    Scoped to the alert room, the handling station and global dispatch.
+    // 5. Emit realtime event.
+    //    Scoped to the alert room and the admin view.
     //    This used to be a bare io.emit(), which broadcast the alert id to
     //    every connected client on the platform — including every citizen.
-    emitToAlert(this.fastify, alertId, alert.assignedStationId, 'evidence_uploaded', {
+    emitToAlert(this.fastify, alertId, 'evidence_uploaded', {
       alertId,
       evidenceId: evidence.id,
       type: evidence.type,
@@ -76,8 +81,8 @@ export class EvidenceService {
       throw this.fastify.httpErrors.notFound('Alert not found');
     }
 
-    // Citizen can see their own, police/admin can see any
-    if (requestUser.role === 'citizen' && alert.userId !== requestUser.id) {
+    // Owners see their own; admins can see any.
+    if (!isAdminRole(requestUser.role) && alert.userId !== requestUser.id) {
       throw this.fastify.httpErrors.forbidden('Not authorized to view this alert');
     }
 
@@ -143,10 +148,10 @@ export class EvidenceService {
       throw this.fastify.httpErrors.notFound('Evidence not found');
     }
 
-    // Access Control: Owner or Police/Admin
+    // Access Control: Owner or Admin
     // Note: evidence.alert is populated from repository
     const alert = (evidence as any).alert;
-    if (requestUser.role === 'citizen' && alert.userId !== requestUser.id) {
+    if (!isAdminRole(requestUser.role) && alert.userId !== requestUser.id) {
       throw this.fastify.httpErrors.forbidden('Not authorized to access this evidence');
     }
 
@@ -175,10 +180,7 @@ export class EvidenceService {
   /**
    * Permanently erase a piece of evidence at the owner's request.
    *
-   * Only the owner may do this, and only while no case is open against the
-   * alert — once police are working a case, the evidence is part of an
-   * investigation and is not the uploader's alone to delete. The deletion
-   * itself is recorded in the audit log.
+   * Only the owner may do this. The deletion itself is recorded in the audit log.
    */
   async deleteOwnEvidence(evidenceId: string, requestUser: { id: string; role: string }): Promise<void> {
     const evidence = await this.repository.getEvidenceById(evidenceId);
@@ -189,16 +191,6 @@ export class EvidenceService {
     const alert = (evidence as unknown as { alert: { id: string; userId: string } }).alert;
     if (alert.userId !== requestUser.id) {
       throw this.fastify.httpErrors.forbidden('You can only delete your own evidence');
-    }
-
-    const openCase = await this.fastify.prisma.case.findFirst({
-      where: { alertId: alert.id, status: { notIn: ['closed', 'false_alarm'] } },
-      select: { id: true, caseNumber: true },
-    });
-    if (openCase) {
-      throw this.fastify.httpErrors.conflict(
-        `This evidence is attached to an open police case (${openCase.caseNumber}) and cannot be deleted yet.`,
-      );
     }
 
     await this.fastify.storage.deleteFile(evidence.fileKey);

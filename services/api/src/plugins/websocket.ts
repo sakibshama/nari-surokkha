@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken';
 import { env } from '@/config/env';
 import type { JwtAccessPayload } from '@/types/index';
 import { wsConnections } from '@/plugins/metrics';
+import { ADMIN_ROOM } from '@/utils/alert-rooms';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -19,7 +20,6 @@ interface SocketUser {
   id: string;
   role: string;
   phone: string;
-  stationId?: string;
 }
 
 // Augment the Socket type so `socket.data.user` is typed.
@@ -28,8 +28,8 @@ interface AuthedSocket extends Socket {
 }
 
 function isPrivileged(role: string): boolean {
-  // Police / admin / dispatch may observe alerts across users.
-  return role === 'police' || role === 'admin' || role === 'dispatch';
+  // Only admins may observe alerts across users.
+  return role === 'admin' || role === 'superadmin';
 }
 
 async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
@@ -84,7 +84,6 @@ async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
         id: payload.sub,
         role: payload.role,
         phone: payload.phone,
-        stationId: payload.stationId,
       };
       return next();
     } catch {
@@ -100,19 +99,14 @@ async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
 
     // ─── Room joins (authorized) ─────────────────────────────
     // Citizens may only join rooms scoped to their own identity/alerts.
-    // Police/admin may join station and alert rooms for coordination.
-    socket.on('join:station', (stationId: string) => {
+    // Admins may join the global admin room for the live dashboard.
+    socket.on('join:admin', () => {
       if (!isPrivileged(user.role)) {
-        socket.emit('error', { message: 'Forbidden: cannot join station room' });
+        socket.emit('error', { message: 'Forbidden: cannot join admin room' });
         return;
       }
-      // Station officers may only join their own station.
-      if (user.role === 'police' && user.stationId && user.stationId !== stationId) {
-        socket.emit('error', { message: 'Forbidden: not your station' });
-        return;
-      }
-      void socket.join(`station:${stationId}`);
-      fastify.log.info(`Socket ${socket.id} joined room station:${stationId}`);
+      void socket.join(ADMIN_ROOM);
+      fastify.log.info(`Socket ${socket.id} joined room ${ADMIN_ROOM}`);
     });
 
     socket.on('join:user', (userId: string) => {

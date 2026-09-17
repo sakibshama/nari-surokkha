@@ -61,8 +61,6 @@ export function setupAuthenticateMiddleware(
           role: payload.role,
           phone: payload.phone,
           permissions: payload.permissions || [],
-          stationId: payload.stationId,
-          badgeNumber: payload.badgeNumber,
         };
       } catch (err) {
         throw new UnauthorizedError(

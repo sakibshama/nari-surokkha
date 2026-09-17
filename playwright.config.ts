@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Playwright E2E Testing Configuration for Nari Surokkha Portals
- * (Admin Portal & Police Portal end-to-end user workflows)
+ * (Admin Portal end-to-end user workflows)
  */
 export default defineConfig({
   testDir: './e2e',

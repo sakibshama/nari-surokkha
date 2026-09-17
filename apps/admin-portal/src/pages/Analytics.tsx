@@ -147,7 +147,7 @@ export default function Analytics() {
             <MapPin size={20} color="var(--primary)" /> Incident Heatmap (Last 30 Days)
           </h2>
           <p style={{ margin: '8px 0 0', color: 'var(--text-sub)', fontSize: 14 }}>
-            Use this map to identify high-risk areas for strategic placement of streetlights and police patrols.
+            Use this map to identify high-risk areas for strategic placement of streetlights, CCTV and volunteer responders.
           </p>
         </div>
         <div style={{ height: 400, width: '100%', backgroundColor: 'var(--bg-input)' }}>

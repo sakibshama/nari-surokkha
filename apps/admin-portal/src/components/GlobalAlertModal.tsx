@@ -41,7 +41,7 @@ export default function GlobalAlertModal({ alert, onDismiss }: GlobalAlertModalP
 
   if (!alert) return null;
 
-  const handleViewCase = () => {
+  const handleViewAlert = () => {
     onDismiss();
     navigate(`/alerts/${alert.alertId}`);
   };
@@ -99,8 +99,8 @@ export default function GlobalAlertModal({ alert, onDismiss }: GlobalAlertModalP
               Dismiss
             </button>
           )}
-          <button style={styles.viewBtn} onClick={handleViewCase}>
-            View Case Details
+          <button style={styles.viewBtn} onClick={handleViewAlert}>
+            View Alert Details
           </button>
         </div>
       </div>

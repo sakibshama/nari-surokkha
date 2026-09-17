@@ -1,14 +1,17 @@
 import React, { useCallback, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Image,
-  ActivityIndicator, Linking, RefreshControl, Alert as RNAlert, Modal, Dimensions,
+  View, Text, StyleSheet, ScrollView, Image,
+  Linking, RefreshControl, Alert as RNAlert, Modal, Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-  ShieldCheck, Image as ImageIcon, Video, Music, FileText, Download, Clock, Inbox, X, Maximize2,
+  Image as ImageIcon, Video, Music, FileText, Download, Clock, Inbox, X, Maximize2, AlertCircle,
 } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { useLanguage, useT, type TFunction } from '../../i18n';
+import { AppBar, Badge, Button, EmptyState, PressableScale, Shimmer, Txt } from '../../components/ui';
 import { radius, spacing, type } from '../../theme/tokens';
 import type { Palette } from '../../theme/tokens';
 import api, { getAccessToken, evidenceRawUrl, API_BASE_URL } from '../../services/api';
@@ -26,11 +29,11 @@ interface EvidenceItem {
   url: string;
 }
 
-const typeMeta = (colors: Palette): Record<string, { Icon: any; color: string; label: string }> => ({
-  photo: { Icon: ImageIcon, color: colors.successText, label: 'Photo' },
-  video: { Icon: Video, color: colors.infoText, label: 'Video' },
-  audio: { Icon: Music, color: colors.warningText, label: 'Audio' },
-  document: { Icon: FileText, color: colors.accentText, label: 'File' },
+const typeMeta = (colors: Palette): Record<string, { Icon: any; color: string; label: string; tone: 'success' | 'info' | 'warning' | 'accent' }> => ({
+  photo: { Icon: ImageIcon, color: colors.successText, label: 'Photo', tone: 'success' },
+  video: { Icon: Video, color: colors.infoText, label: 'Video', tone: 'info' },
+  audio: { Icon: Music, color: colors.warningText, label: 'Audio', tone: 'warning' },
+  document: { Icon: FileText, color: colors.accentText, label: 'File', tone: 'accent' },
 });
 
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
@@ -47,26 +50,32 @@ function isImageItem(it: EvidenceItem): boolean {
   return it.type === 'photo' || (it.mimeType?.startsWith('image/') ?? false);
 }
 
-function formatSize(bytes: number): string {
+function formatSize(bytes: number, t: TFunction): string {
   if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024) return t('{n} B', { n: bytes });
+  if (bytes < 1024 * 1024) return t('{n} KB', { n: Math.round(bytes / 1024) });
+  return t('{d} MB', { d: (bytes / (1024 * 1024)).toFixed(1) });
 }
 
-function formatDate(ts?: string | null): string {
+function formatDate(ts: string | null | undefined, locale: string): string {
   if (!ts) return '';
   const d = new Date(ts);
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-    + ' · ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  try {
+    return d.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })
+      + ' · ' + d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return d.toLocaleString();
+  }
 }
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 export default function EvidenceLibraryScreen() {
   const styles = useThemedStyles(makeStyles);
-  const { colors, gradients, shadows } = useTheme();
-  void gradients; void shadows;
+  const { colors, shadows } = useTheme();
+  const t = useT();
+  const { isBangla } = useLanguage();
+  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<EvidenceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -107,9 +116,9 @@ export default function EvidenceLibraryScreen() {
     try {
       const ok = await Linking.canOpenURL(target);
       if (ok) await Linking.openURL(target);
-      else RNAlert.alert('Unavailable', 'This file link could not be opened.');
+      else RNAlert.alert(t('Unavailable'), t('This file link could not be opened.'));
     } catch {
-      RNAlert.alert('Download failed', 'Please try again in a moment.');
+      RNAlert.alert(t('Download failed'), t('Please try again in a moment.'));
     }
   };
 
@@ -118,158 +127,189 @@ export default function EvidenceLibraryScreen() {
     else downloadItem(item);
   };
 
+  const locale = isBangla ? 'bn-BD' : 'en-GB';
+
   return (
-    <LinearGradient colors={gradients.hero} style={styles.root}>
+    <View style={styles.root}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.danger} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.accent} colors={[colors.accent]} />}
       >
-        <View style={styles.header}>
-          <View style={styles.headerIcon}><ShieldCheck color={colors.danger} size={22} /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Evidence Library</Text>
-            <Text style={styles.subtitle}>Your captured SOS evidence, stored securely</Text>
-          </View>
-        </View>
+        <AppBar title={t('Evidence Library')} subtitle={t('Your captured SOS evidence, stored securely')} />
 
         {loading ? (
-          <View style={styles.center}><ActivityIndicator size="large" color={colors.danger} /><Text style={styles.centerText}>Loading your evidence…</Text></View>
-        ) : error ? (
-          <View style={styles.center}><Text style={styles.centerText}>{error}</Text></View>
-        ) : items.length === 0 ? (
-          <View style={styles.center}>
-            <Inbox color={colors.textMuted} size={44} />
-            <Text style={styles.emptyTitle}>No evidence yet</Text>
-            <Text style={styles.centerText}>
-              Photos and recordings you capture during an SOS are saved here privately, and you can view or download them anytime.
-            </Text>
+          <View style={{ gap: spacing.md }}>
+            {[0, 1, 2].map((i) => (
+              <Shimmer key={i} width="100%" height={82} radius={radius.lg} />
+            ))}
           </View>
+        ) : error ? (
+          <EmptyState
+            icon={<AlertCircle color={colors.dangerText} size={30} />}
+            title={t('Something went wrong')}
+            message={t(error)}
+            action={<Button label={t('Try again')} full={false} onPress={() => load()} />}
+          />
+        ) : items.length === 0 ? (
+          <EmptyState
+            icon={<Inbox color={colors.textMuted} size={30} />}
+            title={t('No evidence yet')}
+            message={t('Photos and recordings you capture during an SOS are saved here privately, and you can view or download them anytime.')}
+          />
         ) : (
-          items.map((it) => {
+          items.map((it, index) => {
             const TYPE_META = typeMeta(colors);
             const meta = TYPE_META[it.type] || TYPE_META.document;
             const showThumb = isImageItem(it) && !failedThumbs[it.id];
             return (
-              <TouchableOpacity key={it.id} style={styles.card} activeOpacity={0.85} onPress={() => openItem(it)}>
-                <View style={styles.thumb}>
-                  {showThumb ? (
-                    <Image
-                      source={imgSource(it)}
-                      style={styles.thumbImg}
-                      resizeMode="cover"
-                      onError={() => setFailedThumbs((p) => ({ ...p, [it.id]: true }))}
-                    />
-                  ) : (
-                    <View style={[styles.thumbIcon, { backgroundColor: `${meta.color}22` }]}>
-                      <meta.Icon color={meta.color} size={26} />
-                    </View>
-                  )}
-                  {isImageItem(it) && showThumb && (
-                    <View style={styles.thumbOverlay}><Maximize2 color={colors.onFill} size={14} /></View>
-                  )}
-                </View>
-
-                <View style={styles.cardBody}>
-                  <Text style={styles.cardName} numberOfLines={1}>{it.originalName || `${meta.label} evidence`}</Text>
-                  <View style={styles.metaRow}>
-                    <View style={[styles.typePill, { backgroundColor: `${meta.color}1f` }]}>
-                      <meta.Icon color={meta.color} size={11} />
-                      <Text style={[styles.typePillText, { color: meta.color }]}>{meta.label}</Text>
-                    </View>
-                    {!!it.sizeBytes && <Text style={styles.metaText}>{formatSize(it.sizeBytes)}</Text>}
+              <Animated.View key={it.id} entering={FadeInDown.delay(Math.min(index, 8) * 60).duration(350)}>
+                <PressableScale style={[styles.card, shadows.soft]} scaleTo={0.98} onPress={() => openItem(it)}>
+                  <View style={styles.thumb}>
+                    {showThumb ? (
+                      <Image
+                        source={imgSource(it)}
+                        style={styles.thumbImg}
+                        resizeMode="cover"
+                        onError={() => setFailedThumbs((p) => ({ ...p, [it.id]: true }))}
+                      />
+                    ) : (
+                      <View style={[styles.thumbIcon, { backgroundColor: `${meta.color}22` }]}>
+                        <meta.Icon color={meta.color} size={26} />
+                      </View>
+                    )}
+                    {isImageItem(it) && showThumb && (
+                      <View style={styles.thumbOverlay}><Maximize2 color="#fff" size={12} /></View>
+                    )}
                   </View>
-                  <View style={styles.dateRow}>
-                    <Clock color={colors.textMuted} size={11} />
-                    <Text style={styles.dateText}>{formatDate(it.uploadedAt || it.alertDate)}</Text>
-                  </View>
-                </View>
 
-                <TouchableOpacity style={styles.dlBtn} onPress={() => downloadItem(it)}>
-                  <Download color={colors.danger} size={18} />
-                </TouchableOpacity>
-              </TouchableOpacity>
+                  <View style={styles.cardBody}>
+                    <Txt variant="bodyStrong" numberOfLines={1}>{it.originalName || t(meta.label)}</Txt>
+                    <View style={styles.metaRow}>
+                      <Badge label={t(meta.label)} tone={meta.tone} icon={<meta.Icon color={meta.color} size={11} />} />
+                      {!!it.sizeBytes && <Txt variant="xs" tone="sub">{formatSize(it.sizeBytes, t)}</Txt>}
+                    </View>
+                    <View style={styles.dateRow}>
+                      <Clock color={colors.textMuted} size={11} />
+                      <Txt variant="xs" tone="muted">{formatDate(it.uploadedAt || it.alertDate, locale)}</Txt>
+                    </View>
+                  </View>
+
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={t('Download')}
+                    style={styles.dlBtn}
+                    onPress={() => downloadItem(it)}
+                  >
+                    <Download color={colors.accentText} size={18} />
+                  </PressableScale>
+                </PressableScale>
+              </Animated.View>
             );
           })
         )}
       </ScrollView>
 
-      {/* Full-screen image viewer */}
+      {/* Full-screen image viewer — always dark, like a photo app. */}
       <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)}>
         <View style={styles.viewerRoot}>
-          <View style={styles.viewerTop}>
-            <Text style={styles.viewerName} numberOfLines={1}>{viewer?.originalName || 'Evidence'}</Text>
-            <TouchableOpacity style={styles.viewerBtn} onPress={() => setViewer(null)}>
-              <X color={colors.onFill} size={22} />
-            </TouchableOpacity>
+          <View style={[styles.viewerTop, { top: insets.top + spacing.sm }]}>
+            <Text style={styles.viewerName} numberOfLines={1}>{viewer?.originalName || t('Evidence')}</Text>
+            <PressableScale style={styles.viewerBtn} onPress={() => setViewer(null)} accessibilityLabel={t('Close')}>
+              <X color="#fff" size={22} />
+            </PressableScale>
           </View>
 
           {viewer && (
-            <Image source={imgSource(viewer)} style={styles.viewerImg} resizeMode="contain" />
+            <Animated.View entering={ZoomIn.duration(250)}>
+              <Image source={imgSource(viewer)} style={styles.viewerImg} resizeMode="contain" />
+            </Animated.View>
           )}
 
-          <TouchableOpacity style={styles.viewerDownload} activeOpacity={0.85} onPress={() => viewer && downloadItem(viewer)}>
-            <Download color={colors.onFill} size={18} />
-            <Text style={styles.viewerDownloadText}>Download / Save</Text>
-          </TouchableOpacity>
+          <PressableScale
+            style={[styles.viewerDownload, { bottom: insets.bottom + spacing.xl }]}
+            onPress={() => viewer && downloadItem(viewer)}
+          >
+            <Download color={colors.onAccent} size={18} />
+            <Text style={styles.viewerDownloadText}>{t('Download / save')}</Text>
+          </PressableScale>
         </View>
       </Modal>
-    </LinearGradient>
+    </View>
   );
 }
 
-const makeStyles = ({ colors, shadows, gradients }: Theme) => {
-  const font = {
-    hero: { ...type.hero, color: colors.text },
-    h1: { ...type.h1, color: colors.text },
-    h2: { ...type.h2, color: colors.text },
-    h3: { ...type.h3, color: colors.text },
-    body: { ...type.body, color: colors.text },
-    sm: { ...type.sm, color: colors.textSub },
-    xs: { ...type.xs, color: colors.textMuted },
-    label: { ...type.label, color: colors.textSub },
-    regular: 'System' as const, medium: 'System' as const,
-    semiBold: 'System' as const, bold: 'System' as const,
-  };
-  void gradients;
-  return StyleSheet.create({
-  root: { flex: 1 },
-  scroll: { padding: spacing.lg, paddingTop: Platform.OS === 'ios' ? 60 : 48, paddingBottom: 40 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.lg },
-  headerIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(244,63,94,0.12)', borderWidth: 1, borderColor: 'rgba(244,63,94,0.25)', alignItems: 'center', justifyContent: 'center' },
-  title: { ...font.h1, color: colors.text },
-  subtitle: { ...font.sm, color: colors.textMuted, marginTop: 2 },
-
-  center: { alignItems: 'center', paddingTop: 70, paddingHorizontal: spacing.lg, gap: 10 },
-  centerText: { ...font.sm, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
-  emptyTitle: { ...font.h3, color: colors.text, marginTop: 8 },
-
-  card: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    backgroundColor: colors.surfaceAlt, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.sm + 2, marginBottom: spacing.md,
-  },
-  thumb: { width: 60, height: 60, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface },
-  thumbImg: { width: '100%', height: '100%' },
-  thumbIcon: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
-  thumbOverlay: { position: 'absolute', right: 4, bottom: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  cardBody: { flex: 1, gap: 5 },
-  cardName: { ...font.body, color: colors.text, fontWeight: '600' },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  typePill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  typePillText: { fontSize: 11, fontWeight: '700' },
-  metaText: { ...font.xs, color: colors.textSub },
-  dateRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  dateText: { ...font.xs, color: colors.textMuted },
-  dlBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(244,63,94,0.10)', borderWidth: 1, borderColor: 'rgba(244,63,94,0.22)', alignItems: 'center', justifyContent: 'center' },
-
-  viewerRoot: { flex: 1, backgroundColor: colors.surface, justifyContent: 'center' },
-  viewerTop: { position: 'absolute', top: Platform.OS === 'ios' ? 54 : 32, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, zIndex: 2 },
-  viewerName: { ...font.sm, color: colors.onFill, flex: 1, marginRight: 12 },
-  viewerBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' },
-  viewerImg: { width: SCREEN_W, height: SCREEN_H * 0.75, alignSelf: 'center' },
-  viewerDownload: { position: 'absolute', bottom: Platform.OS === 'ios' ? 48 : 32, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.danger, paddingHorizontal: 22, paddingVertical: 13, borderRadius: 999 },
-  viewerDownloadText: { color: colors.onFill, fontWeight: '700', fontSize: 15 },
-});
-};
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: colors.bg },
+    scroll: { paddingHorizontal: spacing.md, paddingBottom: spacing.xxl },
+    card: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.sm + 2,
+      marginBottom: spacing.md,
+    },
+    thumb: { width: 62, height: 62, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surfaceAlt },
+    thumbImg: { width: '100%', height: '100%' },
+    thumbIcon: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+    thumbOverlay: {
+      position: 'absolute',
+      right: 4,
+      bottom: 4,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cardBody: { flex: 1, gap: 5 },
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    dateRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    dlBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.accentSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    viewerRoot: { flex: 1, backgroundColor: '#050505', justifyContent: 'center' },
+    viewerTop: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.lg,
+      zIndex: 2,
+    },
+    viewerName: { ...type.sm, color: '#fff', flex: 1, marginRight: 12 },
+    viewerBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(255,255,255,0.14)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    viewerImg: { width: SCREEN_W, height: SCREEN_H * 0.75, alignSelf: 'center' },
+    viewerDownload: {
+      position: 'absolute',
+      alignSelf: 'center',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: colors.accent,
+      paddingHorizontal: 22,
+      paddingVertical: 13,
+      borderRadius: 999,
+    },
+    viewerDownloadText: { color: colors.onAccent, fontWeight: '700', fontSize: 15 },
+  });

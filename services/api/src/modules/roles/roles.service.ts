@@ -10,7 +10,7 @@ export class RolesService {
 
   async createRole(data: { name: string; key: string; description?: string }) {
     // Basic validation to avoid system keys
-    if (['admin', 'superadmin', 'citizen', 'responder', 'police'].includes(data.key)) {
+    if (['admin', 'superadmin', 'citizen', 'responder'].includes(data.key)) {
       throw new ValidationError('Reserved role key');
     }
     try {

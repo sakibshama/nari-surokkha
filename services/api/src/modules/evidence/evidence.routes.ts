@@ -39,8 +39,7 @@ export async function evidenceRoutes(fastify: FastifyInstance) {
     controller.uploadEvidence as any,
   );
 
-  // Right to erasure: the uploader deleting their own evidence. Blocked while
-  // a police case is open against the alert (see EvidenceService).
+  // Right to erasure: the uploader deleting their own evidence.
   fastify.delete(
     '/:id',
     {
@@ -49,8 +48,7 @@ export async function evidenceRoutes(fastify: FastifyInstance) {
         tags: ['Evidence'],
         summary: 'Permanently delete your own evidence',
         description:
-          'Removes the stored file and its database record. Refused with 409 while a ' +
-          'police case is still open against the alert. The deletion is audit-logged.',
+          'Removes the stored file and its database record. The deletion is audit-logged.',
       },
     },
     controller.deleteEvidence as any,

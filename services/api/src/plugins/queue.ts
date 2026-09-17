@@ -35,7 +35,7 @@ async function queuePlugin(fastify: FastifyInstance): Promise<void> {
     },
   });
 
-  // Everything the SOS request used to do inline: audit log, police case
+  // Everything the SOS request used to do inline: audit log
   // creation and the nearby-responder fan-out. Keeping it off the request path
   // is what makes the panic button fast; keeping it in a queue is what makes it
   // reliable, because a transient failure retries instead of being lost.

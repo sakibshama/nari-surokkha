@@ -58,8 +58,7 @@ export class EvidenceController {
    * DELETE /evidence/:id — the uploader erasing their own evidence.
    *
    * A user should be able to remove a recording of the worst moment of their
-   * life once it is no longer needed. The service refuses while a police case
-   * is still open against the alert, and records the deletion in the audit log.
+   * life once it is no longer needed.
    */
   deleteEvidence = async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     const requestUser = { id: req.user?.id as string, role: req.user?.role as string };

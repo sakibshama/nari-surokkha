@@ -17,10 +17,11 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { trySendDirectSms } from './directSms';
 import { logSms } from './smsHistory';
+import { tStatic } from '../i18n';
 
 const CONTACTS_CACHE_KEY = '@trusted_contacts';
 
-// National emergency SMS gateway / police shortcode fallback.
+// National emergency SMS gateway fallback.
 // PILOT MODE: disabled — do not SMS 999 until the service is officially
 // integrated with the national emergency gateway. Re-enable at launch by
 // restoring ['999'] and passing includeGateway: true.
@@ -63,15 +64,22 @@ export async function getCachedContactPhones(): Promise<string[]> {
 }
 
 export function buildSosMessage(userName: string | undefined, coords: Coords | null): string {
-  const who = userName && userName.trim() ? userName.trim() : 'I';
-  const verb = who === 'I' ? 'am' : 'is';
+  const who = userName && userName.trim() ? userName.trim() : '';
   if (coords) {
     const link = `https://maps.google.com/?q=${coords.latitude},${coords.longitude}`;
-    return `SOS EMERGENCY! ${who} ${verb} in danger and offline. Location: ${link} (lat ${coords.latitude.toFixed(
-      5,
-    )}, lng ${coords.longitude.toFixed(5)}). Please send help / call 999.`;
+    return tStatic(
+      who
+        ? 'SOS EMERGENCY! {who} is in danger and offline. Location: {link} (lat {lat}, lng {lng}). Please send help / call 999.'
+        : 'SOS EMERGENCY! I am in danger and offline. Location: {link} (lat {lat}, lng {lng}). Please send help / call 999.',
+      { who, link, lat: coords.latitude.toFixed(5), lng: coords.longitude.toFixed(5) },
+    );
   }
-  return `SOS EMERGENCY! ${who} ${verb} in danger and offline. Location unavailable. Please try to reach me and call 999.`;
+  return tStatic(
+    who
+      ? 'SOS EMERGENCY! {who} is in danger and offline. Location unavailable. Please try to reach me and call 999.'
+      : 'SOS EMERGENCY! I am in danger and offline. Location unavailable. Please try to reach me and call 999.',
+    { who },
+  );
 }
 
 /**
@@ -92,7 +100,7 @@ export async function sendOfflineSosSms(
 
   if (recipients.length === 0) {
     await logSms({ channel: 'offline-sim', recipients, message, status: 'failed', reason: 'No trusted contacts saved.' });
-    return { opened: false, reason: 'No trusted contacts saved for offline SMS.' };
+    return { opened: false, reason: tStatic('No trusted contacts saved for offline SMS.') };
   }
 
   // 1. Preferred: silent auto-send via the SIM (Android + SEND_SMS granted).
@@ -107,7 +115,7 @@ export async function sendOfflineSosSms(
   const available = await SMS.isAvailableAsync();
   if (!available) {
     await logSms({ channel: 'offline-sim', recipients, message, status: 'failed', reason: 'SMS not available on device.' });
-    return { opened: false, reason: 'SMS is not available on this device.' };
+    return { opened: false, reason: tStatic('SMS is not available on this device.') };
   }
   try {
     await SMS.sendSMSAsync(recipients, message);

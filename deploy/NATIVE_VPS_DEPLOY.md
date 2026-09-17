@@ -5,7 +5,7 @@ The API runs as a systemd service, the two portals are built to static files
 served by Nginx, and everything talks to your local Postgres/Redis.
 
 Domain used below: `mystrix-soft.com` → change if different.
-Layout: `api.` = API, `admin.` = admin portal, `police.` = police portal.
+Layout: `api.` = API, `admin.` = admin portal.
 
 ---
 
@@ -23,7 +23,7 @@ sudo apt install -y postgresql-16-postgis-3
 ```
 
 DNS: point three A-records at the VPS IP — `api.mystrix-soft.com`,
-`admin.mystrix-soft.com`, `police.mystrix-soft.com`.
+`admin.mystrix-soft.com`.
 
 ---
 
@@ -82,8 +82,8 @@ JWT_REFRESH_SECRET=CHANGE_ME_DIFFERENT
 CONFIG_ENCRYPTION_KEY=CHANGE_ME
 
 # Explicit portal origins (wildcards are rejected in production)
-CORS_ORIGINS=https://admin.mystrix-soft.com,https://police.mystrix-soft.com
-WS_CORS_ORIGINS=https://admin.mystrix-soft.com,https://police.mystrix-soft.com
+CORS_ORIGINS=https://admin.mystrix-soft.com
+WS_CORS_ORIGINS=https://admin.mystrix-soft.com
 
 STORAGE_LOCAL_DIR=/opt/nari-surokkha/data/uploads
 LOG_LEVEL=info
@@ -154,12 +154,9 @@ The API URL is baked in at build time, so pass it as env vars:
 cd /opt/nari-surokkha
 VITE_API_URL=https://api.mystrix-soft.com/api/v1 VITE_WS_URL=https://api.mystrix-soft.com \
   npm run build --workspace=apps/admin-portal
-VITE_API_URL=https://api.mystrix-soft.com/api/v1 VITE_WS_URL=https://api.mystrix-soft.com \
-  npm run build --workspace=apps/police-portal
 
-sudo mkdir -p /var/www/admin.mystrix-soft.com /var/www/police.mystrix-soft.com
+sudo mkdir -p /var/www/admin.mystrix-soft.com
 sudo cp -r apps/admin-portal/dist/*  /var/www/admin.mystrix-soft.com/
-sudo cp -r apps/police-portal/dist/* /var/www/police.mystrix-soft.com/
 ```
 
 ---
@@ -197,14 +194,6 @@ server {
     listen 80;
 }
 
-# ---- Police portal (static SPA) ----
-server {
-    server_name police.mystrix-soft.com;
-    root /var/www/police.mystrix-soft.com;
-    index index.html;
-    location / { try_files $uri $uri/ /index.html; }
-    listen 80;
-}
 NGINX
 
 sudo ln -sf /etc/nginx/sites-available/nari-surokkha /etc/nginx/sites-enabled/
@@ -217,14 +206,14 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ```bash
 sudo certbot --nginx \
-  -d api.mystrix-soft.com -d admin.mystrix-soft.com -d police.mystrix-soft.com
+  -d api.mystrix-soft.com -d admin.mystrix-soft.com
 ```
 
 Certbot edits the Nginx config to add HTTPS + auto-redirect, and installs a
 renewal timer. Verify:
 
 - `https://api.mystrix-soft.com/health` → JSON status
-- `https://admin.mystrix-soft.com` and `https://police.mystrix-soft.com` load
+- `https://admin.mystrix-soft.com` loads
 
 ---
 

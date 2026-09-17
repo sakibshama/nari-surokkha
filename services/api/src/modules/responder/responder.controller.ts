@@ -91,8 +91,8 @@ export class ResponderController {
     reply: FastifyReply,
   ) => {
     const user = req.user!;
-    if (user.role !== 'police' && user.role !== 'admin') {
-      throw req.server.httpErrors.forbidden('Only police/admins can verify dispatches');
+    if (user.role !== 'admin' && user.role !== 'superadmin') {
+      throw req.server.httpErrors.forbidden('Only admins can verify dispatches');
     }
     const updated = await this.service.verifyDispatch(user.id, req.params.dispatchId);
     return reply.send({ message: 'Responder verified and reputation points awarded', data: updated });

@@ -18,7 +18,7 @@
 All production traffic **must** run over HTTPS/WSS.
 If using Nginx directly (no managed load balancer), use `certbot` for Let's Encrypt:
 ```bash
-sudo certbot --nginx -d api.yourdomain.com -d police.yourdomain.com -d admin.yourdomain.com
+sudo certbot --nginx -d api.yourdomain.com -d admin.yourdomain.com
 ```
 In your `nginx.conf`, ensure WebSocket upgrade headers use `wss://`:
 ```nginx

@@ -17,25 +17,26 @@ import { Monitor, Moon, Sun } from 'lucide-react-native';
 import { useTheme } from '../theme';
 import type { ThemeMode } from '../theme/tokens';
 import { SegmentedControl, Txt, type Segment } from './ui';
+import { useT } from '../i18n';
 import { spacing } from '../theme/tokens';
-
-const SEGMENTS: Segment<ThemeMode>[] = [
-  { value: 'system', label: 'System', icon: (c) => <Monitor size={15} color={c} /> },
-  { value: 'light', label: 'Light', icon: (c) => <Sun size={15} color={c} /> },
-  { value: 'dark', label: 'Dark', icon: (c) => <Moon size={15} color={c} /> },
-];
 
 export default function ThemeModeControl({ showCaption = true }: { showCaption?: boolean }) {
   const { mode, setMode, scheme } = useTheme();
+  const t = useT();
+  const segments: Segment<ThemeMode>[] = [
+    { value: 'system', label: t('System'), icon: (c) => <Monitor size={15} color={c} /> },
+    { value: 'light', label: t('Light'), icon: (c) => <Sun size={15} color={c} /> },
+    { value: 'dark', label: t('Dark'), icon: (c) => <Moon size={15} color={c} /> },
+  ];
 
   return (
     <View style={{ gap: spacing.sm }}>
-      <SegmentedControl segments={SEGMENTS} value={mode} onChange={setMode} />
+      <SegmentedControl segments={segments} value={mode} onChange={setMode} />
       {showCaption ? (
         <Txt variant="xs" tone="muted">
           {mode === 'system'
-            ? `Following your phone — currently ${scheme}.`
-            : `Always ${mode} on this device, whatever your phone is set to.`}
+            ? t('Following your phone — currently {scheme}.', { scheme: t(scheme === 'dark' ? 'Dark' : 'Light') })
+            : t(mode === 'dark' ? 'Always dark on this device.' : 'Always light on this device.')}
         </Txt>
       ) : null}
     </View>

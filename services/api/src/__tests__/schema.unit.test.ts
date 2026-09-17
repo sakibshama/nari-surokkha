@@ -11,14 +11,13 @@ import { Prisma } from '@prisma/client';
 import {
   AlertStatus as PrismaAlertStatus,
   AlertType as PrismaAlertType,
-  CaseStatus as PrismaCaseStatus,
   EvidenceType as PrismaEvidenceType,
   ResponderStatus as PrismaResponderStatus,
   AuditAction as PrismaAuditAction,
   MlDetectionType as PrismaMlDetectionType,
   NotificationChannel as PrismaNotificationChannel,
 } from '@prisma/client';
-import { AlertStatus, AlertType, CaseStatus } from '@nari-surokkha/shared';
+import { AlertStatus, AlertType } from '@nari-surokkha/shared';
 
 describe('Prisma Schema — Model Existence', () => {
   it('should have all 22 required models defined', () => {
@@ -52,12 +51,6 @@ describe('Enum Alignment — Shared Types vs Prisma', () => {
     expect(prismaValues).toEqual(sharedValues);
   });
 
-
-  it('CaseStatus matches between shared types and Prisma', () => {
-    const prismaValues = Object.values(PrismaCaseStatus).sort();
-    const sharedValues = Object.values(CaseStatus).sort();
-    expect(prismaValues).toEqual(sharedValues);
-  });
 });
 
 describe('Schema Integrity — README Spec', () => {

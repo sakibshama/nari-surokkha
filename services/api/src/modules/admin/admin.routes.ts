@@ -29,12 +29,6 @@ export function adminRoutes(
   fastify.patch('/responders/:id/verify', { preHandler: [requirePermissions(['manage_users'])] }, controller.verifyResponder as any);
   fastify.delete('/responders/:id', { preHandler: [requirePermissions(['manage_users'])] }, controller.deleteResponder as any);
 
-  // Stations
-  fastify.get('/stations', { preHandler: [requirePermissions(['manage_stations'])] }, controller.listStations as any);
-  fastify.post('/stations', { preHandler: [requirePermissions(['manage_stations'])] }, controller.createStation as any);
-  fastify.put('/stations/:id', { preHandler: [requirePermissions(['manage_stations'])] }, controller.updateStation as any);
-  fastify.delete('/stations/:id', { preHandler: [requirePermissions(['manage_stations'])] }, controller.deleteStation as any);
-
   // Audit Logs
   fastify.get('/audit-logs', { preHandler: [requirePermissions(['view_audit_logs'])] }, controller.listAuditLogs as any);
   

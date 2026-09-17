@@ -28,7 +28,7 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: "SOS dispatch p95 above 10s"
-          description: "Time from alert creation to police/responders being told is {{ $value | humanizeDuration }}."
+          description: "Time from alert creation to responders being told is {{ $value | humanizeDuration }}."
 
       - alert: SosDispatchFailing
         expr: |

@@ -3,8 +3,8 @@
  *
  * Simulates the complete 5-phase emergency pipeline:
  * 1. Citizen Triggers SOS (with real GPS coordinates)
- * 2. PostGIS Nearest Police Station Dispatch & Auto-Case Creation
- * 3. Station WebSocket Broadcast & Socket Room Dispatch Notification
+ * 2. Alert persisted and handed to the dispatch queue
+ * 3. Audit trail for the SOS
  * 4. WebRTC Live Stream Signaling & Tracking Token Verification
  * 5. SMS Notification Logging & Trusted Contact Dispatch Delivery
  */
@@ -21,14 +21,13 @@ function randomPhone(): string {
   return `+88017${digits}`;
 }
 
-describe('E2E Emergency Flow: Citizen SOS -> PostGIS Dispatch -> Station Notification -> WebRTC Stream -> SMS Delivery', () => {
+describe('E2E Emergency Flow: Citizen SOS -> Dispatch -> Audit -> WebRTC Stream -> SMS Delivery', () => {
   let app: FastifyInstance;
   const citizenPhone = randomPhone();
   const citizenPassword = 'Password123!';
   let citizenToken = '';
   let citizenUserId = '';
   let alertId = '';
-  let stationId = '';
   let trackingToken = '';
 
   beforeAll(async () => {
@@ -46,7 +45,6 @@ describe('E2E Emergency Flow: Citizen SOS -> PostGIS Dispatch -> Station Notific
   afterAll(async () => {
     try {
       if (alertId) {
-        await app.prisma.case.deleteMany({ where: { alertId } }).catch(() => undefined);
         await app.prisma.notificationLog.deleteMany({ where: { alertId } }).catch(() => undefined);
         await app.prisma.alertLocation.deleteMany({ where: { alertId } }).catch(() => undefined);
         await app.prisma.emergencyAlert.deleteMany({ where: { id: alertId } }).catch(() => undefined);
@@ -110,9 +108,9 @@ describe('E2E Emergency Flow: Citizen SOS -> PostGIS Dispatch -> Station Notific
   });
 
   // ─────────────────────────────────────────────────────────────
-  // Phase 2: Citizen Triggers SOS & PostGIS Station Dispatch
+  // Phase 2: Citizen Triggers SOS
   // ─────────────────────────────────────────────────────────────
-  it('Phase 2: Citizen triggers manual SOS -> PostGIS matches nearest police station', async () => {
+  it('Phase 2: Citizen triggers manual SOS -> alert is persisted', async () => {
     // Coordinates near Dhaka Dhanmondi (23.7461, 90.3742)
     const sosRes = await app.inject({
       method: 'POST',
@@ -132,30 +130,19 @@ describe('E2E Emergency Flow: Citizen SOS -> PostGIS Dispatch -> Station Notific
     expect(alertId).toBeTruthy();
     expect(trackingToken).toBeTruthy();
 
-    // Verify database record persisted with PostGIS spatial query assignment
+    // Verify database record persisted
     const alertRow = await app.prisma.emergencyAlert.findUnique({
       where: { id: alertId },
     });
     expect(alertRow).not.toBeNull();
     expect(alertRow?.status).toBe('confirmed');
     expect(alertRow?.type).toBe('manual');
-    stationId = alertRow?.assignedStationId ?? '';
   });
 
   // ─────────────────────────────────────────────────────────────
-  // Phase 3: Police Station Notification & Automatic Case Creation
+  // Phase 3: Audit trail
   // ─────────────────────────────────────────────────────────────
-  it('Phase 3: Auto-creates police case and verifies station dispatch record', async () => {
-    // Check if police case was auto-created for assigned station
-    if (stationId) {
-      const caseRow = await app.prisma.case.findFirst({
-        where: { alertId },
-      });
-      expect(caseRow).not.toBeNull();
-      expect(caseRow?.stationId).toBe(stationId);
-      expect(caseRow?.status).toBe('open');
-    }
-
+  it('Phase 3: Writes an audit log entry for the SOS', async () => {
     // Verify audit log entry for SOS trigger
     const auditLogRow = await app.prisma.auditLog.findFirst({
       where: { entityId: alertId, action: 'sos_triggered' },

@@ -8,6 +8,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Image, StyleSheet, View } from 'react-native';
 import { useTheme } from '../theme';
+import { useT } from '../i18n';
 
 const GREEN = '#00875f';  // brand marks, fixed on purpose
 const ROSE = '#f43f5e';   // brand marks, fixed on purpose
@@ -18,6 +19,7 @@ export default function AnimatedSplash({ onFinish }: { onFinish: () => void }) {
   // ground the app will land on — otherwise a light-mode phone flashes dark
   // for a second and then snaps white.
   const { colors } = useTheme();
+  const t = useT();
   const logoScale = useRef(new Animated.Value(0.4)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const ring1 = useRef(new Animated.Value(0)).current;
@@ -81,10 +83,10 @@ export default function AnimatedSplash({ onFinish }: { onFinish: () => void }) {
       </View>
 
       <Animated.Text style={[styles.caption, { color: colors.text, opacity: captionOpacity, transform: [{ translateY: captionShift }] }]}>
-        Government of Bangladesh
+        {t('Government of Bangladesh')}
       </Animated.Text>
       <Animated.Text style={[styles.captionSub, { color: colors.textMuted, opacity: captionOpacity }]}>
-        National Women Safety Service
+        {t('National Women Safety Service')}
       </Animated.Text>
     </Animated.View>
   );

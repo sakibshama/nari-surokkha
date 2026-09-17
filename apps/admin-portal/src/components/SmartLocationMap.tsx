@@ -14,9 +14,8 @@ import api from '../services/api';
 const LeafletLocationMap = lazy(() => import('./LiveLocationMap'));
 const GoogleLocationMap = lazy(() => import('./GoogleLocationMap'));
 
-interface Station { id: string; name?: string; latitude?: unknown; longitude?: unknown }
 interface Responder { id: string; latitude?: unknown; longitude?: unknown; user?: { profile?: { fullName?: string } } }
-interface Props { center: [number, number]; stations?: Station[]; responders?: Responder[]; victimLabel?: string }
+interface Props { center: [number, number]; responders?: Responder[]; victimLabel?: string }
 
 // Module-level cache so we only hit /config once per session.
 let cachedKey: string | null | undefined; // undefined = not fetched yet

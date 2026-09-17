@@ -70,8 +70,8 @@ export class EvidenceRepository {
    * CLOSED longer ago than the cutoff, and with no case still open against it.
    *
    * Evidence for an open alert or a live case is never returned here, however
-   * old it is. Deleting the record of an assault while someone is still being
-   * prosecuted for it would be considerably worse than keeping it too long.
+   * old it is. (Legacy case records from the retired police module are still
+   * honoured so historical investigations are never purged.)
    */
   async findExpiredEvidence(olderThan: Date, limit = 500) {
     return this.prisma.alertEvidence.findMany({

@@ -1,257 +1,248 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
-import { UserMinus, UserPlus, Users, Phone, Heart, ChevronLeft } from 'lucide-react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, KeyboardAvoidingView, Platform, Text, View } from 'react-native';
+import Animated, { FadeInDown, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Heart, Phone, User, UserMinus, UserPlus, Users } from 'lucide-react-native';
+
 import api from '../../services/api';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { useTheme } from '../../theme';
+import { useT } from '../../i18n';
 import { radius, spacing, type } from '../../theme/tokens';
 import type { Palette } from '../../theme/tokens';
-import { useNavigation } from '@react-navigation/native';
+import {
+  AppBar,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  PressableScale,
+  Screen,
+  SectionLabel,
+  Shimmer,
+  Txt,
+} from '../../components/ui';
 
-interface Contact { id: string; name: string; phone: string; relation: string; }
+interface Contact { id: string; name: string; phone: string; relation: string }
+
+const MAX_CONTACTS = 5;
 
 /** Deterministic avatar tint, drawn from the palette so it follows the theme. */
 const getColor = (name: string, colors: Palette) => {
   const wheel = [colors.accent, colors.info, colors.success, colors.warning, colors.accentText, colors.infoText];
   return wheel[name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % wheel.length];
 };
-const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+const getInitials = (name: string) =>
+  name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
 
 export default function TrustedContactsScreen() {
-  const styles = useThemedStyles(makeStyles);
-  const { colors, gradients, shadows } = useTheme();
-  void gradients; void shadows;
-  const navigation = useNavigation();
+  const { colors, shadows } = useTheme();
+  const t = useT();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [relation, setRelation] = useState('');
-  const [focusedField, setFocusedField] = useState('');
 
-  const fetch = async () => {
+  const load = async () => {
     try {
       const res = await api.get('/contacts');
       const data = res.data.data;
       setContacts(data);
       await AsyncStorage.setItem('@trusted_contacts', JSON.stringify(data));
     } catch (e) {
-      console.error(e);
-      // Fallback to offline cache
+      if (__DEV__) console.error(e);
+      // Offline: fall back to the cached list.
       try {
         const cached = await AsyncStorage.getItem('@trusted_contacts');
         if (cached) setContacts(JSON.parse(cached));
-      } catch (err) {}
+      } catch {
+        /* nothing cached */
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetch(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   const addContact = async () => {
-    if (!name || !phone) { Alert.alert('Required', 'Name and phone are required.'); return; }
-    
-    // Ensure phone has +88 prefix for Bangladeshi numbers
-    let formattedPhone = phone.trim();
-    if (formattedPhone.startsWith('01')) {
-      formattedPhone = `+88${formattedPhone}`;
-    } else if (!formattedPhone.startsWith('+')) {
-      formattedPhone = `+880${formattedPhone}`;
+    if (!name.trim() || !phone.trim()) {
+      Alert.alert(t('Required'), t('Name and phone are required.'));
+      return;
     }
+    // Bangladeshi numbers need the +88 prefix.
+    let formattedPhone = phone.trim();
+    if (formattedPhone.startsWith('01')) formattedPhone = `+88${formattedPhone}`;
+    else if (!formattedPhone.startsWith('+')) formattedPhone = `+880${formattedPhone}`;
 
     setAdding(true);
     try {
-      await api.post('/contacts', { name, phone: formattedPhone, relation });
-      setName(''); setPhone(''); setRelation('');
-      fetch();
+      await api.post('/contacts', { name: name.trim(), phone: formattedPhone, relation: relation.trim() });
+      setName('');
+      setPhone('');
+      setRelation('');
+      load();
     } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.error?.message || 'Failed to add contact');
-    } finally { setAdding(false); }
+      Alert.alert(t('Error'), e.response?.data?.error?.message || t('Failed to add contact'));
+    } finally {
+      setAdding(false);
+    }
   };
 
   const removeContact = (id: string) => {
-    Alert.alert('Remove Contact', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: async () => { try { await api.delete(`/contacts/${id}`); fetch(); } catch { Alert.alert('Error', 'Failed.'); } } }
+    Alert.alert(t('Remove contact'), t('Are you sure?'), [
+      { text: t('Cancel'), style: 'cancel' },
+      {
+        text: t('Remove'),
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.delete(`/contacts/${id}`);
+            load();
+          } catch {
+            Alert.alert(t('Error'), t('Failed.'));
+          }
+        },
+      },
     ]);
   };
 
-  const renderContact = ({ item }: { item: Contact }) => {
-    const ac = getColor(item.name, colors);
-    return (
-      <View style={styles.contactCard}>
-        <View style={[styles.avatar, { backgroundColor: `${ac}20`, borderColor: `${ac}50` }]}>
-          <Text style={[styles.avatarText, { color: ac }]}>{getInitials(item.name)}</Text>
-        </View>
-        <View style={styles.contactInfo}>
-          <Text style={styles.contactName}>{item.name}</Text>
-          <View style={styles.contactMeta}>
-            <Phone color={colors.textMuted} size={12} />
-            <Text style={styles.contactPhone}>{item.phone}</Text>
-          </View>
-          {!!item.relation && (
-            <View style={[styles.relationTag, { borderColor: `${ac}50`, backgroundColor: `${ac}15` }]}>
-              <Heart color={ac} size={10} />
-              <Text style={[styles.relationText, { color: ac }]}>{item.relation}</Text>
-            </View>
-          )}
-        </View>
-        <TouchableOpacity onPress={() => removeContact(item.id)} style={styles.removeBtn} activeOpacity={0.7}>
-          <UserMinus color={colors.danger} size={20} />
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  const fStyle = (id: string) => [styles.inputRow, focusedField === id && styles.inputFocused];
+  const full = contacts.length >= MAX_CONTACTS;
 
   return (
-    <LinearGradient colors={gradients.hero} style={styles.root}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <View style={styles.navHeader}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navBackBtn} activeOpacity={0.7}>
-            <ChevronLeft color={colors.text} size={24} />
-          </TouchableOpacity>
-          <Text style={styles.navTitle}>Trusted Contacts</Text>
-          <View style={{ width: 40 }} />
-        </View>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <Screen>
+        <AppBar
+          title={t('Trusted Contacts')}
+          subtitle={t('They get an SMS with your live location when you press SOS.')}
+        />
 
-        {/* Add Form */}
-        <View style={styles.addSection}>
-          <View style={styles.addHeader}>
-            <UserPlus color={colors.info} size={20} />
-            <Text style={styles.addTitle}>Add Trusted Contact</Text>
-          </View>
-
-          <View style={fStyle('name')}>
-            <TextInput style={styles.input} placeholder="Full Name *" placeholderTextColor={colors.textMuted} value={name} onChangeText={setName}
-              onFocus={() => setFocusedField('name')} onBlur={() => setFocusedField('')} />
-          </View>
-          <View style={fStyle('phone')}>
-            <TextInput style={styles.input} placeholder="Phone Number *" placeholderTextColor={colors.textMuted} keyboardType="phone-pad" value={phone} onChangeText={setPhone}
-              onFocus={() => setFocusedField('phone')} onBlur={() => setFocusedField('')} />
-          </View>
-          <View style={[fStyle('relation'), { marginBottom: 0 }]}>
-            <TextInput style={styles.input} placeholder="Relation (e.g. Sister, Mother)" placeholderTextColor={colors.textMuted} value={relation} onChangeText={setRelation}
-              onFocus={() => setFocusedField('relation')} onBlur={() => setFocusedField('')} />
-          </View>
-
-          <TouchableOpacity onPress={addContact} disabled={adding} activeOpacity={0.85} style={styles.addBtnWrapper}>
-            <LinearGradient colors={gradients.accent} style={styles.addBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-              {adding
-                ? <ActivityIndicator color={colors.onFill} />
-                : <>
-                    <UserPlus color={colors.onFill} size={18} />
-                    <Text style={styles.addBtnText}>Add Contact</Text>
-                  </>
-              }
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-
-        {/* List Header */}
-        <View style={styles.listHeader}>
-          <Users color={colors.textMuted} size={16} />
-          <Text style={styles.listHeaderText}>Your Trusted Contacts</Text>
-          {!loading && (
-            <View style={[styles.countBadge, { backgroundColor: contacts.length > 0 ? colors.danger : colors.surface }]}>
-              <Text style={styles.countText}>{contacts.length}</Text>
+        {/* Add form */}
+        <Card elevation="raised" delay={40}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md }}>
+            <View style={{ width: 36, height: 36, borderRadius: radius.md, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+              <UserPlus color={colors.accent} size={18} />
             </View>
-          )}
-        </View>
-
-        {loading
-          ? <ActivityIndicator style={{ marginTop: spacing.xl }} color={colors.danger} />
-          : (
-            <FlatList
-              data={contacts}
-              keyExtractor={i => i.id}
-              renderItem={renderContact}
-              contentContainerStyle={styles.list}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={
-                <View style={styles.empty}>
-                  <Users color={colors.border} size={56} />
-                  <Text style={styles.emptyTitle}>No contacts yet</Text>
-                  <Text style={styles.emptySub}>Add people who will be alerted in an emergency. They'll receive your live location via SMS.</Text>
-                </View>
-              }
+            <Txt variant="h3" style={{ flex: 1 }}>{t('Add trusted contact')}</Txt>
+            <Badge
+              label={t('{n} of {max}', { n: contacts.length, max: MAX_CONTACTS })}
+              tone={full ? 'warning' : 'accent'}
             />
-          )
-        }
-      </KeyboardAvoidingView>
-    </LinearGradient>
+          </View>
+
+          <Field
+            placeholder={t('Full name *')}
+            value={name}
+            onChangeText={setName}
+            autoCapitalize="words"
+            icon={(c) => <User size={17} color={c} />}
+          />
+          <Field
+            placeholder={t('Phone number *')}
+            keyboardType="phone-pad"
+            value={phone}
+            onChangeText={setPhone}
+            icon={(c) => <Phone size={17} color={c} />}
+          />
+          <Field
+            placeholder={t('Relation (e.g. Sister, Mother)')}
+            value={relation}
+            onChangeText={setRelation}
+            icon={(c) => <Heart size={17} color={c} />}
+          />
+          <Button
+            label={full ? t('Contact limit reached') : t('Add contact')}
+            onPress={addContact}
+            loading={adding}
+            disabled={full}
+            icon={<UserPlus color={colors.onAccent} size={18} />}
+          />
+        </Card>
+
+        <SectionLabel>{t('Your trusted contacts')}</SectionLabel>
+
+        {loading ? (
+          <View style={{ gap: spacing.sm }}>
+            {[0, 1].map((i) => (
+              <Shimmer key={i} width="100%" height={76} radius={radius.lg} />
+            ))}
+          </View>
+        ) : contacts.length === 0 ? (
+          <EmptyState
+            icon={<Users color={colors.textMuted} size={30} />}
+            title={t('No contacts yet')}
+            message={t("Add people who will be alerted in an emergency. They'll receive your live location via SMS.")}
+          />
+        ) : (
+          contacts.map((item, index) => {
+            const ac = getColor(item.name, colors);
+            return (
+              <Animated.View
+                key={item.id}
+                entering={FadeInDown.delay(index * 60).duration(360)}
+                exiting={FadeOutLeft.duration(250)}
+                layout={LinearTransition.springify().damping(18)}
+                style={[
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: spacing.md,
+                    backgroundColor: colors.surface,
+                    borderRadius: radius.lg,
+                    padding: spacing.md,
+                    marginBottom: spacing.sm,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  },
+                  shadows.soft,
+                ]}
+              >
+                <View
+                  style={{
+                    width: 50,
+                    height: 50,
+                    borderRadius: 25,
+                    borderWidth: 1.5,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: `${ac}20`,
+                    borderColor: `${ac}55`,
+                  }}
+                >
+                  <Text style={{ fontSize: 17, fontWeight: '800', color: ac }}>{getInitials(item.name)}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Txt variant="bodyStrong" numberOfLines={1}>{item.name}</Txt>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                    <Phone color={colors.textMuted} size={12} />
+                    <Text style={[type.sm, { color: colors.textMuted }]}>{item.phone}</Text>
+                  </View>
+                  {!!item.relation && (
+                    <Badge
+                      label={item.relation}
+                      tone="accent"
+                      icon={<Heart color={colors.accentText} size={10} />}
+                      style={{ marginTop: 6 }}
+                    />
+                  )}
+                </View>
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={t('Remove contact')}
+                  onPress={() => removeContact(item.id)}
+                  style={{ padding: spacing.sm + 2, backgroundColor: colors.dangerSoft, borderRadius: radius.md }}
+                >
+                  <UserMinus color={colors.dangerText} size={19} />
+                </PressableScale>
+              </Animated.View>
+            );
+          })
+        )}
+      </Screen>
+    </KeyboardAvoidingView>
   );
 }
-
-const makeStyles = ({ colors, shadows, gradients }: Theme) => {
-  const font = {
-    hero: { ...type.hero, color: colors.text },
-    h1: { ...type.h1, color: colors.text },
-    h2: { ...type.h2, color: colors.text },
-    h3: { ...type.h3, color: colors.text },
-    body: { ...type.body, color: colors.text },
-    sm: { ...type.sm, color: colors.textSub },
-    xs: { ...type.xs, color: colors.textMuted },
-    label: { ...type.label, color: colors.textSub },
-    regular: 'System' as const, medium: 'System' as const,
-    semiBold: 'System' as const, bold: 'System' as const,
-  };
-  void gradients;
-  return StyleSheet.create({
-  root: { flex: 1 },
-  navHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 52 : 40, paddingBottom: 12,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  navBackBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  navTitle: { ...font.h3, color: colors.text },
-  addSection: {
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    paddingTop: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  addHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
-  addTitle: { ...font.h3, color: colors.text },
-  inputRow: {
-    backgroundColor: colors.inputBg, borderRadius: radius.md, borderWidth: 1.5,
-    borderColor: colors.border, marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2,
-  },
-  inputFocused: { borderColor: colors.info, backgroundColor: 'rgba(59,130,246,0.06)' },
-  input: { ...font.body, color: colors.text, height: 36 },
-  addBtnWrapper: { marginTop: spacing.sm, borderRadius: radius.lg, ...shadows.accent },
-  addBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg },
-  addBtnText: { ...font.h3, color: colors.onFill },
-  listHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm + 4, borderBottomWidth: 1, borderBottomColor: colors.border },
-  listHeaderText: { ...font.label, flex: 1 },
-  countBadge: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  countText: { ...font.xs, color: colors.onFill, fontWeight: '700' },
-  list: { padding: spacing.md, paddingBottom: spacing.xxl },
-  contactCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.border, ...shadows.card },
-  avatar: { width: 50, height: 50, borderRadius: 25, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginRight: spacing.md },
-  avatarText: { fontSize: 17, fontWeight: 'bold' },
-  contactInfo: { flex: 1 },
-  contactName: { ...font.body, color: colors.text, fontWeight: '700' },
-  contactMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
-  contactPhone: { ...font.sm, color: colors.textMuted },
-  relationTag: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start', marginTop: 5 },
-  relationText: { fontSize: 11, fontWeight: '700' },
-  removeBtn: { padding: spacing.sm, backgroundColor: `${colors.danger}15`, borderRadius: radius.sm },
-  empty: { alignItems: 'center', paddingTop: spacing.xxl + spacing.xl, paddingHorizontal: spacing.xl },
-  emptyTitle: { ...font.h3, color: colors.textMuted, marginTop: spacing.lg },
-  emptySub: { ...font.sm, color: colors.textMuted, textAlign: 'center', lineHeight: 22, marginTop: spacing.sm },
-});
-};

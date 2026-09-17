@@ -5,9 +5,9 @@
  * -----------
  * Role and permissions are baked into the access token at sign time. Revoking
  * an admin's `manage_users` permission, suspending an account, or demoting a
- * police user therefore had no effect until their token expired — up to 15
+ * user therefore had no effect until their token expired — up to 15
  * minutes of continued privileged access after the decision to remove it. For
- * a system that dispatches police and exposes victims' live locations, that
+ * a system that dispatches responders and exposes victims' live locations, that
  * window is not acceptable.
  *
  * The approach

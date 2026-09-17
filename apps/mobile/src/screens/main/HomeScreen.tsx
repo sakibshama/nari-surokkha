@@ -1,93 +1,105 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  Alert,
   ActivityIndicator,
+  Alert,
+  Linking,
   Platform,
   ScrollView,
-  Image,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DrawerActions } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Location from 'expo-location';
+import NetInfo from '@react-native-community/netinfo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeIn as RFadeIn, FadeOut } from 'react-native-reanimated';
+import {
+  Activity,
+  AlertTriangle,
+  ChevronRight,
+  Map as MapIcon,
+  Menu,
+  Mic,
+  Navigation,
+  Phone,
+  PhoneCall,
+  ShieldAlert,
+  ShieldCheck,
+  Timer,
+  Users,
+} from 'lucide-react-native';
+
 import { MainStackParamList } from '../../navigation/MainStack';
 import { useAuthStore } from '../../store/authStore';
 import { useLocationStore } from '../../store/locationStore';
-import * as Location from 'expo-location';
-import {
-  ShieldAlert,
-  Users,
-  User,
-  Map,
-  AlertTriangle,
-  PhoneCall,
-  Bell,
-  Menu,
-} from 'lucide-react-native';
+import { useSettingsStore } from '../../store/settingsStore';
 import api from '../../services/api';
 import { sensorProcessor } from '../../services/ml/SensorProcessor';
 import { audioProcessor } from '../../services/ml/AudioProcessor';
 import { motionModelLoader } from '../../services/ml/ModelLoader';
-import NetInfo from '@react-native-community/netinfo';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { sendOfflineSosSms, getCachedContactPhones } from '../../services/offlineSos';
 import { hasSmsPermission, requestSmsPermission } from '../../services/directSms';
 import { logSms } from '../../services/smsHistory';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withTiming,
-  Easing,
-} from 'react-native-reanimated';
-
 import { useTheme } from '../../theme';
+import { useT } from '../../i18n';
 import { radius, spacing, type as typeScale } from '../../theme/tokens';
-import FlagRoundel from '../../components/FlagRoundel';
+import GovStrip from '../../components/GovStrip';
+import AmbientBackground from '../../components/AmbientBackground';
+import ThemeToggle from '../../components/ThemeToggle';
+import LanguageToggle from '../../components/LanguageToggle';
+import { Breathing, FadeIn, PressableScale, PulseRings, Txt } from '../../components/ui';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'Home'>;
 
+type Action = {
+  id: string;
+  label: string;
+  hint: string;
+  icon: React.ComponentType<{ color: string; size: number }>;
+};
+
 /**
- * The tiles used to be six different candy colours. That made the grid the
- * busiest thing on a screen whose only job is to make one red circle
- * unmissable. They are one accent now; the SOS is the only saturated object.
+ * One accent for every tile: the SOS stays the only saturated object on the
+ * screen, which is the whole point of the layout.
  */
-const MENU = [
-  { id: 'fakecall', label: 'Fake Call', icon: PhoneCall },
-  { id: 'contacts', label: 'Contacts', icon: Users },
-  { id: 'profile', label: 'Profile', icon: User },
-  { id: 'responder', label: 'Responder', icon: ShieldAlert },
-  { id: 'report', label: 'Report', icon: AlertTriangle },
-  { id: 'map', label: 'Safety Map', icon: Map },
+const ACTIONS: Action[] = [
+  { id: 'contacts', label: 'Contacts', hint: 'Who gets your SOS', icon: Users },
+  { id: 'route', label: 'Safe Route', hint: 'Walk with a guardian', icon: Navigation },
+  { id: 'fakecall', label: 'Fake Call', hint: 'Excuse yourself safely', icon: PhoneCall },
+  { id: 'silent', label: 'Silent Alert', hint: 'Countdown, no sound', icon: Timer },
+  { id: 'map', label: 'Safety Map', hint: 'Know the area', icon: MapIcon },
+  { id: 'report', label: 'Report', hint: 'Flag an unsafe place', icon: AlertTriangle },
 ];
+
+const SOS_SIZE = 212;
 
 export default function HomeScreen({ navigation }: Props) {
   const { colors, gradients, shadows, isDark } = useTheme();
+  const t = useT();
+  const insets = useSafeAreaInsets();
   const { user, updateUser } = useAuthStore();
   const { isSosActive, setSosActive, activeAlertId } = useLocationStore();
+  const { mlVoiceEnabled, mlGyroEnabled } = useSettingsStore();
   const [loading, setLoading] = useState(false);
 
-  // Fetch fresh profile so the name is always up to date.
-  // NOTE: the API nests the profile under `data.profile`.
+  // Fresh profile so the name is current. The API nests it under data.profile.
   useEffect(() => {
     api
       .get('/profile')
       .then((res) => {
         const profile = res.data?.data?.profile;
         if (profile?.fullName) {
-          updateUser({
-            profile: { fullName: profile.fullName, bloodGroup: profile.bloodGroup },
-          });
+          updateUser({ profile: { fullName: profile.fullName, bloodGroup: profile.bloodGroup } });
         }
       })
       .catch(() => {});
   }, []);
 
-  // First-run: ask for SMS permission ONCE so the offline SOS can auto-send
-  // an emergency text via the SIM without the user tapping "send".
+  // First run: ask for SMS permission once so the offline SOS can auto-send.
   useEffect(() => {
     (async () => {
       try {
@@ -100,47 +112,15 @@ export default function HomeScreen({ navigation }: Props) {
     })();
   }, []);
 
-  const pulse1 = useSharedValue(1);
-  const pulse1Op = useSharedValue(0.6);
-  const pulse2 = useSharedValue(1);
-  const pulse2Op = useSharedValue(0.4);
-
   useEffect(() => {
-    pulse1.value = withRepeat(
-      withTiming(1.6, { duration: 1800, easing: Easing.out(Easing.quad) }),
-      -1,
-      false,
-    );
-    pulse1Op.value = withRepeat(
-      withTiming(0, { duration: 1800, easing: Easing.out(Easing.quad) }),
-      -1,
-      false,
-    );
-    pulse2.value = withRepeat(
-      withTiming(1.6, { duration: 1800, easing: Easing.out(Easing.quad) }),
-      -1,
-      false,
-    );
-    pulse2Op.value = withRepeat(
-      withTiming(0, { duration: 1800, easing: Easing.out(Easing.quad) }),
-      -1,
-      false,
-    );
-
-    setTimeout(() => {
-      pulse2.value = withRepeat(
-        withTiming(1.6, { duration: 1800, easing: Easing.out(Easing.quad) }),
-        -1,
-        false,
-      );
-    }, 600);
-
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') Alert.alert('Permission Denied', 'SOS needs location permissions.');
+      if (status !== 'granted') {
+        Alert.alert(t('Permission denied'), t('SOS needs location permission.'));
+      }
     })();
 
-    // Pull a newer on-device model over-the-air if the server has one.
+    // Pull a newer on-device model over the air if the server has one.
     motionModelLoader.checkForUpdate();
 
     sensorProcessor.startListening();
@@ -149,8 +129,7 @@ export default function HomeScreen({ navigation }: Props) {
       if (c > 0.85) navigation.navigate('SoftAlert' as any);
     };
     const onAudio = (c: number, cls: string) => {
-      if (c > 0.85 && (cls === 'scream' || cls === 'trigger_word'))
-        navigation.navigate('SoftAlert' as any);
+      if (c > 0.85 && (cls === 'scream' || cls === 'trigger_word')) navigation.navigate('SoftAlert' as any);
     };
     sensorProcessor.addListener(onSensor);
     audioProcessor.addListener(onAudio);
@@ -162,24 +141,13 @@ export default function HomeScreen({ navigation }: Props) {
     };
   }, []);
 
-  const p1Style = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse1.value }],
-    opacity: pulse1Op.value,
-  }));
-  const p2Style = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse2.value }],
-    opacity: pulse2Op.value,
-  }));
-
-  const handleMenuAction = (id: string) => {
-    if (id === 'fakecall') navigation.navigate('FakeCall' as any);
+  const handleAction = (id: string) => {
+    if (id === 'fakecall') navigation.navigate('FakeCall');
     else if (id === 'contacts') navigation.navigate('TrustedContacts');
-    else if (id === 'profile') navigation.navigate('ProfileSetup');
-    else if (id === 'responder') navigation.navigate('ResponderHub');
     else if (id === 'report') navigation.navigate('ReportIncident');
     else if (id === 'map') navigation.navigate('SafetyMap');
-    else if (id === 'route') navigation.navigate('SafeRoute' as any);
-    else if (id === 'silent') navigation.navigate('SoftAlert' as any, { manual: true });
+    else if (id === 'route') navigation.navigate('SafeRoute');
+    else if (id === 'silent') navigation.navigate('SoftAlert', { manual: true });
   };
 
   const handleSos = async () => {
@@ -190,14 +158,14 @@ export default function HomeScreen({ navigation }: Props) {
     setLoading(true);
     const userName = user?.profile?.fullName || 'A user';
     try {
-      // Real GPS fix on every platform — an SOS must NEVER go out with a
-      // default/fallback location (responders would be sent to the wrong place).
+      // A real GPS fix every time — an SOS must never go out with a fallback
+      // location, or responders are sent to the wrong place.
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setLoading(false);
         Alert.alert(
-          'Location Required',
-          'Location permission is needed so responders can find you. Please enable it and try again.',
+          t('Location required'),
+          t('Location permission is needed so responders can find you. Please enable it and try again.'),
         );
         return;
       }
@@ -210,8 +178,8 @@ export default function HomeScreen({ navigation }: Props) {
       if (!loc) {
         setLoading(false);
         Alert.alert(
-          'No GPS Signal',
-          'Could not determine your location. Move near a window or open area and try again.',
+          t('No GPS signal'),
+          t('Could not determine your location. Move near a window or open area and try again.'),
         );
         return;
       }
@@ -223,7 +191,7 @@ export default function HomeScreen({ navigation }: Props) {
         if (!netInfo.isConnected) {
           setLoading(false);
           await triggerOfflineSms(coords, userName);
-          navigation.navigate('OfflineSos' as any);
+          navigation.navigate('OfflineSos');
           return;
         }
       }
@@ -253,9 +221,9 @@ export default function HomeScreen({ navigation }: Props) {
     } catch (err: any) {
       const msg = err.response?.data?.error?.message;
       if (msg && msg.includes('trusted contact')) {
-        Alert.alert('Missing Setup', msg, [
-          { text: 'Add Contact', onPress: () => navigation.navigate('TrustedContacts') },
-          { text: 'Cancel', style: 'cancel' },
+        Alert.alert(t('Missing setup'), msg, [
+          { text: t('Add contact'), onPress: () => navigation.navigate('TrustedContacts') },
+          { text: t('Cancel'), style: 'cancel' },
         ]);
       } else if (!err.response) {
         let coords: { latitude: number; longitude: number } | undefined;
@@ -269,45 +237,45 @@ export default function HomeScreen({ navigation }: Props) {
         }
         await triggerOfflineSms(coords, userName);
       } else {
-        Alert.alert('SOS Failed', 'Could not trigger SOS. Call 999 directly.');
+        Alert.alert(t('SOS failed'), t('Could not trigger SOS. Call 999 directly.'));
       }
     } finally {
       setLoading(false);
     }
   };
 
-  /** Offline SOS: auto-send SMS via SIM (Android) or open the composer (fallback). */
+  /** Offline SOS: auto-send SMS via the SIM (Android) or open the composer. */
   const triggerOfflineSms = async (
     coords: { latitude: number; longitude: number } | undefined,
     userName: string,
   ) => {
     const result = await sendOfflineSosSms({ coords, userName });
     if (result.opened && result.auto) {
-      Alert.alert(
-        'Emergency SMS sent',
-        'You are offline — your SOS text went to your trusted contacts over SMS.',
-        [
-          { text: 'View history', onPress: () => navigation.navigate('SmsHistory') },
-          { text: 'OK', style: 'cancel' },
-        ],
-      );
+      Alert.alert(t('Emergency SMS sent'), t('You are offline — your SOS text went to your trusted contacts over SMS.'), [
+        { text: t('View history'), onPress: () => navigation.navigate('SmsHistory') },
+        { text: t('OK'), style: 'cancel' },
+      ]);
     } else if (!result.opened) {
       Alert.alert(
-        'Offline SOS',
-        `${result.reason || 'Could not open Messages.'} Please call 999 directly.`,
+        t('Offline SOS'),
+        `${result.reason || t('Could not open Messages.')} ${t('Please call 999 directly.')}`,
       );
     }
   };
 
-  const displayName = user?.profile?.fullName?.trim() || 'there';
-
-  const getGreeting = () => {
-    const h = new Date().getHours();
-    if (h >= 5 && h < 12) return 'Good morning,';
-    if (h >= 12 && h < 17) return 'Good afternoon,';
-    if (h >= 17 && h < 21) return 'Good evening,';
-    return 'Good night,';
+  const callEmergency = () => {
+    Linking.openURL('tel:999').catch(() => Alert.alert(t('Call failed'), t('Please dial 999 manually.')));
   };
+
+  const displayName = user?.profile?.fullName?.trim() || t('there');
+
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h >= 5 && h < 12) return t('Good morning');
+    if (h >= 12 && h < 17) return t('Good afternoon');
+    if (h >= 17 && h < 21) return t('Good evening');
+    return t('Good night');
+  })();
 
   const statusTone = isSosActive
     ? { bg: colors.dangerSoft, border: colors.danger, dot: colors.danger, fg: colors.dangerText }
@@ -315,108 +283,77 @@ export default function HomeScreen({ navigation }: Props) {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-        {/* Government identity strip */}
-        <View
-          style={[
-            styles.govStrip,
-            { backgroundColor: colors.govGreenSoft, borderColor: colors.border },
-          ]}
-        >
-          <Image
-            source={require('../../../assets/icon.png')}
-            style={styles.govStripLogo}
-            resizeMode="contain"
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={[typeScale.smStrong, { color: colors.text }]}>
-              গণপ্রজাতন্ত্রী বাংলাদেশ সরকার
-            </Text>
-            <Text
-              style={[
-                typeScale.xs,
-                { color: colors.textMuted, letterSpacing: 0.5, textTransform: 'uppercase' },
-              ]}
-            >
-              National Women Safety Service
-            </Text>
-          </View>
-        </View>
+      <AmbientBackground />
+      <ScrollView
+        contentContainerStyle={{ paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.xl }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Top bar ───────────────────────────────────────────── */}
+        <FadeIn from="up" style={styles.topBar}>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={t('Open menu')}
+            onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+            hitSlop={6}
+            style={[styles.roundBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
+            <Menu color={colors.text} size={22} />
+          </PressableScale>
+          <View style={{ flex: 1 }} />
+          <LanguageToggle />
+          <ThemeToggle />
+        </FadeIn>
 
-        {/* Header */}
-        <View style={styles.topBar}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open menu"
-              onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
-              hitSlop={8}
-              style={{ marginRight: spacing.md, padding: 4 }}
-            >
-              <Menu color={colors.text} size={26} />
-            </Pressable>
+        {/* ── Greeting ──────────────────────────────────────────── */}
+        <FadeIn delay={60} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
+          <Txt variant="sm" tone="muted">{greeting},</Txt>
+          <Txt variant="hero" numberOfLines={1} style={{ marginTop: 2 }}>
+            {displayName}
+          </Txt>
+        </FadeIn>
+
+        <FadeIn delay={110} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
+          <GovStrip />
+        </FadeIn>
+
+        {/* ── Status ────────────────────────────────────────────── */}
+        <FadeIn delay={160} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
+          <View style={[styles.statusCard, { backgroundColor: statusTone.bg, borderColor: statusTone.border }]}>
+            <Breathing>
+              <View style={[styles.statusDotOuter, { backgroundColor: statusTone.dot + '33' }]}>
+                <View style={[styles.statusDot, { backgroundColor: statusTone.dot }]} />
+              </View>
+            </Breathing>
             <View style={{ flex: 1 }}>
-              <Text style={[typeScale.sm, { color: colors.textMuted }]}>{getGreeting()}</Text>
-              <Text style={[typeScale.h1, { color: colors.text, marginTop: 2 }]} numberOfLines={1}>
-                {displayName}
+              <Text style={[typeScale.smStrong, { color: statusTone.fg }]}>
+                {isSosActive ? t('SOS active — sharing your location') : t('You are protected')}
               </Text>
+              <View style={styles.chips}>
+                <Chip on={mlVoiceEnabled} icon={Mic} label={t('Voice')} />
+                <Chip on={mlGyroEnabled} icon={Activity} label={t('Motion')} />
+                <Chip on icon={ShieldCheck} label={t('Contacts')} />
+              </View>
             </View>
           </View>
-          <Pressable
+        </FadeIn>
+
+        {/* ── The one loud thing on this screen ─────────────────── */}
+        <FadeIn from="zoom" delay={220} style={styles.sosArea}>
+          <PulseRings color={colors.danger} size={SOS_SIZE + 40} count={3} duration={isSosActive ? 1500 : 2600} />
+          <PressableScale
             accessibilityRole="button"
-            accessibilityLabel="Notifications"
-            style={[
-              styles.notifBtn,
-              { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
-            ]}
-          >
-            <Bell color={colors.textSub} size={20} />
-          </Pressable>
-        </View>
-
-        {/* Status pill */}
-        <View
-          style={[
-            styles.statusBanner,
-            { backgroundColor: statusTone.bg, borderColor: statusTone.border },
-          ]}
-        >
-          <View style={[styles.statusDot, { backgroundColor: statusTone.dot }]} />
-          <Text style={[typeScale.xs, { color: statusTone.fg, fontWeight: '700' }]}>
-            {isSosActive ? 'SOS ACTIVE — broadcasting your location' : 'Protected — monitoring active'}
-          </Text>
-        </View>
-
-        {/* ── The one loud thing on this screen ───────────────────── */}
-        <View style={styles.sosArea}>
-          <Animated.View
-            style={[styles.pulseRing, p1Style, { borderColor: colors.danger, opacity: 0.5 }]}
-          />
-          <Animated.View
-            style={[styles.pulseRing, p2Style, { borderColor: colors.danger, opacity: 0.3 }]}
-          />
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={isSosActive ? 'SOS is active. Open the active alert.' : 'Send SOS'}
-            accessibilityHint="Alerts your trusted contacts and the nearest police station"
+            accessibilityLabel={isSosActive ? t('SOS is active. Open the active alert.') : t('Send SOS')}
+            accessibilityHint={t('Alerts your trusted contacts and nearby volunteer responders')}
             onPress={handleSos}
             disabled={loading}
-            style={({ pressed }) => [
-              styles.sosOuter,
-              shadows.danger,
-              pressed && { transform: [{ scale: 0.97 }] },
-            ]}
+            scaleTo={0.93}
+            style={[styles.sosOuter, shadows.danger]}
           >
             <LinearGradient
-              colors={
-                isSosActive
-                  ? ([colors.dangerPressed, colors.danger] as const)
-                  : gradients.danger
-              }
+              colors={isSosActive ? ([colors.dangerPressed, colors.danger] as const) : gradients.danger}
               style={[
                 styles.sosInner,
-                { borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.34)' },
+                { borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.4)' },
               ]}
               start={{ x: 0.15, y: 0 }}
               end={{ x: 0.85, y: 1 }}
@@ -424,177 +361,183 @@ export default function HomeScreen({ navigation }: Props) {
               {loading ? (
                 <ActivityIndicator size="large" color={colors.onDanger} />
               ) : (
-                <>
-                  <ShieldAlert color={colors.onDanger} size={48} />
+                <Animated.View
+                  key={isSosActive ? 'active' : 'idle'}
+                  entering={RFadeIn.duration(250)}
+                  exiting={FadeOut.duration(150)}
+                  style={{ alignItems: 'center' }}
+                >
+                  <ShieldAlert color={colors.onDanger} size={44} />
                   <Text style={[styles.sosLabel, { color: colors.onDanger }]}>
-                    {isSosActive ? 'ACTIVE' : 'SOS'}
+                    {isSosActive ? t('ACTIVE') : 'SOS'}
                   </Text>
                   <Text style={[styles.sosSublabel, { color: colors.onDanger }]}>
-                    {isSosActive ? 'Help is on the way' : 'Tap in an emergency'}
+                    {isSosActive ? t('Help is on the way') : t('Tap in an emergency')}
                   </Text>
-                </>
+                </Animated.View>
               )}
             </LinearGradient>
-          </Pressable>
-        </View>
+          </PressableScale>
+        </FadeIn>
 
-        {/* Quick actions */}
-        <View style={styles.menuGrid}>
-          {MENU.map((item) => (
-            <Pressable
-              key={item.id}
-              accessibilityRole="button"
-              accessibilityLabel={item.label}
-              onPress={() => handleMenuAction(item.id)}
-              style={({ pressed }) => [
-                styles.menuTile,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: colors.border,
-                },
-                shadows.soft,
-                pressed && { backgroundColor: colors.surfaceAlt, transform: [{ scale: 0.98 }] },
-              ]}
-            >
-              <View style={[styles.tileIcon, { backgroundColor: colors.accentSoft }]}>
-                <item.icon color={colors.accent} size={24} />
-              </View>
-              <Text
-                style={[typeScale.xs, { color: colors.textSub, fontWeight: '600', textAlign: 'center' }]}
-              >
-                {item.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Government footer */}
-        <View style={styles.govFooter}>
-          <FlagRoundel size={16} />
-          <Text
-            style={[
-              typeScale.xs,
-              { color: colors.textMuted, textAlign: 'center', flexShrink: 1, fontSize: 10.5 },
-            ]}
+        {/* ── Emergency call ───────────────────────────────────── */}
+        <FadeIn delay={280} style={{ paddingHorizontal: spacing.lg }}>
+          <PressableScale
+            accessibilityRole="button"
+            onPress={callEmergency}
+            style={[styles.callRow, { backgroundColor: colors.surface, borderColor: colors.border }, shadows.soft]}
           >
-            জাতীয় নারী নিরাপত্তা সেবা · Govt. of the People's Republic of Bangladesh
-          </Text>
+            <View style={[styles.callIcon, { backgroundColor: colors.dangerSoft }]}>
+              <Phone size={18} color={colors.dangerText} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Txt variant="bodyStrong">{t('Call 999')}</Txt>
+              <Txt variant="xs" tone="muted">{t('National emergency service')}</Txt>
+            </View>
+            <ChevronRight size={18} color={colors.textMuted} />
+          </PressableScale>
+        </FadeIn>
+
+        {/* ── Quick actions ─────────────────────────────────────── */}
+        <FadeIn delay={320} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.lg, marginBottom: spacing.sm }}>
+          <Txt variant="h3">{t('Quick actions')}</Txt>
+        </FadeIn>
+        <View style={styles.grid}>
+          {ACTIONS.map((item, i) => (
+            <FadeIn key={item.id} delay={360 + i * 55} style={styles.tileWrap}>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={t(item.label)}
+                onPress={() => handleAction(item.id)}
+                style={[styles.tile, { backgroundColor: colors.surface, borderColor: colors.border }, shadows.soft]}
+              >
+                <View style={[styles.tileIcon, { backgroundColor: colors.accentSoft }]}>
+                  <item.icon color={colors.accent} size={22} />
+                </View>
+                <Txt variant="smStrong" numberOfLines={1}>{t(item.label)}</Txt>
+                <Txt variant="xs" tone="muted" numberOfLines={2}>{t(item.hint)}</Txt>
+              </PressableScale>
+            </FadeIn>
+          ))}
         </View>
       </ScrollView>
     </View>
   );
 }
 
-const TILE_SIZE = '30%';
+function Chip({
+  on,
+  icon: Icon,
+  label,
+}: {
+  on: boolean;
+  icon: React.ComponentType<{ color: string; size: number }>;
+  label: string;
+}) {
+  const { colors } = useTheme();
+  const fg = on ? colors.successText : colors.textMuted;
+  return (
+    <View style={[styles.chip, { backgroundColor: on ? colors.surface : colors.surfaceAlt, borderColor: colors.border }]}>
+      <Icon color={fg} size={11} />
+      <Text style={[typeScale.xs, { color: fg, fontWeight: '600', fontSize: 11 }]}>{label}</Text>
+    </View>
+  );
+}
 
-/**
- * Layout only — every colour on this screen comes from the palette at render
- * time, so this sheet can stay static.
- */
+/** Layout only — every colour comes from the palette at render time. */
 const styles = StyleSheet.create({
-  govStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm + 2,
-    marginTop: Platform.OS === 'ios' ? 54 : 42,
-    marginHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-  },
-  govStripLogo: { width: 34, height: 34, borderRadius: 9 },
   topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
-  },
-  notifBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  roundBtn: {
+    width: 40,
+    height: 40,
     borderRadius: radius.full,
     borderWidth: 1,
-    paddingHorizontal: spacing.md + 2,
-    paddingVertical: spacing.sm + 2,
-  },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  sosArea: {
-    flex: 1,
-    minHeight: 320,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.lg,
   },
-  pulseRing: { position: 'absolute', width: 280, height: 280, borderRadius: 140, borderWidth: 2 },
-  sosOuter: { width: 216, height: 216, borderRadius: 108 },
+  statusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+  },
+  statusDotOuter: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  statusDot: { width: 12, height: 12, borderRadius: 6 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  sosArea: {
+    height: SOS_SIZE + 110,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sosOuter: { width: SOS_SIZE, height: SOS_SIZE, borderRadius: SOS_SIZE / 2 },
   sosInner: {
     width: '100%',
     height: '100%',
-    borderRadius: 108,
+    borderRadius: SOS_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
+    borderWidth: 4,
     paddingHorizontal: spacing.md,
   },
   sosLabel: {
-    fontSize: 40,
-    fontWeight: '800',
+    fontSize: 42,
+    fontWeight: '900',
     letterSpacing: 3,
-    marginTop: 4,
+    marginTop: 2,
     ...Platform.select({
       web: { textShadow: '0px 2px 6px rgba(0,0,0,0.35)' } as object,
       default: {
-        textShadowColor: 'rgba(0,0,0,0.35)',
+        textShadowColor: 'rgba(0,0,0,0.3)',
         textShadowOffset: { width: 0, height: 2 },
         textShadowRadius: 6,
       },
     }),
   },
-  sosSublabel: { fontSize: 12.5, fontWeight: '600', marginTop: 2, opacity: 0.9, textAlign: 'center' },
-  menuGrid: {
+  sosSublabel: { fontSize: 13, fontWeight: '600', marginTop: 2, opacity: 0.92, textAlign: 'center' },
+  callRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-evenly',
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xl,
-    gap: spacing.sm,
-  },
-  menuTile: {
-    width: TILE_SIZE,
     alignItems: 'center',
+    gap: spacing.md,
     borderRadius: radius.lg,
     borderWidth: 1,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
+    padding: spacing.md,
+  },
+  callIcon: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: spacing.lg - 6,
+  },
+  tileWrap: { width: '50%', padding: 6 },
+  tile: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    gap: 4,
+    minHeight: 124,
   },
   tileIcon: {
-    width: 50,
-    height: 50,
+    width: 44,
+    height: 44,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
-  },
-  govFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    paddingBottom: spacing.xxl,
-    paddingHorizontal: spacing.lg,
   },
 });

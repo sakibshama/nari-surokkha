@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Alert as RNAlert, Platform, Vibration } from 'react-native';
+import { View, Text, StyleSheet, Alert as RNAlert, Platform, Vibration } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainStack';
@@ -11,7 +12,9 @@ import { uploadMotionSample, uploadConfirmedEmergencySample } from '../../servic
 import { LinearGradient } from 'expo-linear-gradient';
 import { Theme, useTheme, useThemedStyles } from '../../theme';
 import { radius, spacing, type } from '../../theme/tokens';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
+import Animated, { ZoomIn, useAnimatedStyle, useSharedValue, withTiming, Easing } from 'react-native-reanimated';
+import { Breathing, FadeIn, PressableScale, PulseRings } from '../../components/ui';
+import { useT } from '../../i18n';
 import { AlertTriangle, CheckCircle } from 'lucide-react-native';
 
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>;
@@ -20,7 +23,9 @@ export default function SoftAlertScreen() {
     // Pinned dark: same alarm register as the active-SOS screen.
   const styles = useThemedStyles(makeStyles, 'dark');
   const { colors, gradients, shadows } = useTheme('dark');
-  void gradients; void shadows;
+  void shadows;
+  const t = useT();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProp<MainStackParamList, 'SoftAlert'>>();
   const manual = route.params?.manual ?? false;
@@ -28,12 +33,11 @@ export default function SoftAlertScreen() {
   const [countdown, setCountdown] = useState(15);
   const [alertId, setAlertId] = useState<string | null>(null);
 
-  const ringScale = useSharedValue(1);
-  const ringOp = useSharedValue(0.7);
+  const TOTAL = 15;
+  const progress = useSharedValue(1);
 
   useEffect(() => {
-    ringScale.value = withRepeat(withTiming(1.4, { duration: 800, easing: Easing.out(Easing.quad) }), -1, false);
-    ringOp.value = withRepeat(withTiming(0, { duration: 800, easing: Easing.out(Easing.quad) }), -1, false);
+    progress.value = withTiming(0, { duration: TOTAL * 1000, easing: Easing.linear });
 
     // Vibrate urgently to alert the user (pattern: vibrate 500ms, pause 300ms, repeat)
     if (Platform.OS !== 'web') {
@@ -49,15 +53,12 @@ export default function SoftAlertScreen() {
 
   useEffect(() => {
     if (countdown > 0) {
-      const t = setTimeout(() => setCountdown(c => c - 1), 1000);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
+      return () => clearTimeout(timer);
     } else confirmEmergency();
   }, [countdown]);
 
-  const ringStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: ringScale.value }],
-    opacity: ringOp.value,
-  }));
+  const barStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
 
   const createBackendAlert = async () => {
     try {
@@ -91,9 +92,9 @@ export default function SoftAlertScreen() {
       if (alertData?.contactPhones && alertData.contactPhones.length > 0) {
         const isAvailable = await SMS.isAvailableAsync();
         if (isAvailable) {
-          const name = user?.profile?.fullName || 'A user';
+          const name = user?.profile?.fullName || t('A user');
           const link = alertData.trackingToken ? `https://narisurokkha.app/track?token=${alertData.trackingToken}` : '';
-          const message = `EMERGENCY: ${name} has triggered an SOS! Track live location here: ${link}`;
+          const message = t('EMERGENCY: {name} has triggered an SOS! Track live location here: {link}', { name, link });
           
           setTimeout(async () => {
              try {
@@ -105,7 +106,7 @@ export default function SoftAlertScreen() {
         }
       }
     } catch {
-      RNAlert.alert('Error', 'Connection failed. Check your network.');
+      RNAlert.alert(t('Error'), t('Connection failed. Check your network.'));
       navigation.goBack();
     }
   };
@@ -120,92 +121,127 @@ export default function SoftAlertScreen() {
 
   return (
     <LinearGradient colors={gradients.dangerBackdrop} style={styles.root}>
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.content}>
+      <View style={[styles.content, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.lg }]}>
+        {/* Badge */}
+        <FadeIn from="up" style={[styles.badge, { borderColor: `${urgencyColor}66`, backgroundColor: `${urgencyColor}1A` }]}>
+          <AlertTriangle color={urgencyColor} size={18} />
+          <Text style={[styles.badgeText, { color: urgencyColor }]}>
+            {manual ? t('Silent alert armed') : t('Fall / danger detected')}
+          </Text>
+        </FadeIn>
 
-          {/* Alert Badge */}
-          <View style={styles.badge}>
-            <AlertTriangle color={urgencyColor} size={22} />
-            <Text style={[styles.badgeText, { color: urgencyColor }]}>{manual ? 'Silent Alert Armed' : 'Fall / Danger Detected'}</Text>
-          </View>
-
-          <Text style={styles.title}>{manual ? 'Stay safe' : 'Are you okay?'}</Text>
+        <FadeIn delay={80} style={{ alignItems: 'center' }}>
+          <Text style={styles.title}>{manual ? t('Stay safe') : t('Are you okay?')}</Text>
           <Text style={styles.sub}>
             {manual
-              ? 'A silent countdown is running. If you don’t cancel, we’ll alert your contacts and police.'
-              : 'We detected an unusual event. Tap to confirm if you need help.'}
+              ? t("A silent countdown is running. If you don't cancel, we'll alert your contacts and nearby responders.")
+              : t('We detected an unusual event. Tap to confirm if you need help.')}
           </Text>
+        </FadeIn>
 
-          {/* Timer */}
-          <View style={styles.timerArea}>
-            <Animated.View style={[styles.timerRing, { borderColor: `${urgencyColor}60` }, ringStyle]} />
-            <LinearGradient colors={urgencyGrad} style={styles.timerCircle}>
-              <Text style={styles.timerCount}>{countdown}</Text>
-              <Text style={styles.timerLabel}>SEC</Text>
-            </LinearGradient>
-          </View>
+        {/* Timer */}
+        <FadeIn from="zoom" delay={140} style={styles.timerArea}>
+          <PulseRings color={urgencyColor} size={170} count={2} duration={countdown > 5 ? 1400 : 800} />
+          <LinearGradient colors={urgencyGrad} style={styles.timerCircle}>
+            <Animated.Text key={countdown} entering={ZoomIn.duration(220)} style={styles.timerCount}>
+              {t('{n}', { n: countdown })}
+            </Animated.Text>
+            <Text style={styles.timerLabel}>{t('SEC')}</Text>
+          </LinearGradient>
+        </FadeIn>
 
-          <Text style={styles.warningLine}>
-            Alerting contacts & police in <Text style={{ color: urgencyColor, fontWeight: 'bold' }}>{countdown}s</Text> unless cancelled
-          </Text>
-
-          {/* Need Help */}
-          <TouchableOpacity onPress={confirmEmergency} activeOpacity={0.85} style={[styles.helpWrapper, { ...shadows.danger }]}>
-            <LinearGradient colors={urgencyGrad} style={styles.helpBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-              <AlertTriangle color={colors.onFill} size={22} />
-              <Text style={styles.helpText}>I Need Help NOW</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          {/* I'm okay */}
-          <TouchableOpacity onPress={cancelAlert} activeOpacity={0.8} style={styles.okBtn}>
-            <CheckCircle color={colors.success} size={22} />
-            <Text style={styles.okText}>I'm Okay — Cancel Alert</Text>
-          </TouchableOpacity>
-
+        <View style={styles.track}>
+          <Animated.View style={[styles.trackFill, { backgroundColor: urgencyColor }, barStyle]} />
         </View>
-      </SafeAreaView>
+
+        <Text style={styles.warningLine}>
+          {t('Alerting your contacts in {n}s unless cancelled', { n: countdown })}
+        </Text>
+
+        {/* Need help */}
+        <FadeIn delay={220} style={{ width: '100%' }}>
+          <Breathing min={0.98} max={1.02} duration={600}>
+            <PressableScale onPress={confirmEmergency} style={[styles.helpWrapper, shadows.danger]} accessibilityRole="button">
+              <LinearGradient colors={urgencyGrad} style={styles.helpBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+                <AlertTriangle color={colors.onFill} size={22} />
+                <Text style={styles.helpText}>{t('I need help now')}</Text>
+              </LinearGradient>
+            </PressableScale>
+          </Breathing>
+        </FadeIn>
+
+        {/* I'm okay */}
+        <FadeIn delay={280} style={{ width: '100%' }}>
+          <PressableScale onPress={cancelAlert} style={styles.okBtn} accessibilityRole="button">
+            <CheckCircle color={colors.success} size={22} />
+            <Text style={styles.okText}>{t("I'm okay — cancel alert")}</Text>
+          </PressableScale>
+        </FadeIn>
+      </View>
     </LinearGradient>
   );
 }
 
-const makeStyles = ({ colors, shadows, gradients }: Theme) => {
-  const font = {
-    hero: { ...type.hero, color: colors.text },
-    h1: { ...type.h1, color: colors.text },
-    h2: { ...type.h2, color: colors.text },
-    h3: { ...type.h3, color: colors.text },
-    body: { ...type.body, color: colors.text },
-    sm: { ...type.sm, color: colors.textSub },
-    xs: { ...type.xs, color: colors.textMuted },
-    label: { ...type.label, color: colors.textSub },
-    regular: 'System' as const, medium: 'System' as const,
-    semiBold: 'System' as const, bold: 'System' as const,
-  };
-  void gradients;
-  return StyleSheet.create({
-  root: { flex: 1 },
-  safe: { flex: 1 },
-  content: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  badge: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)',
-    borderRadius: radius.full, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  badgeText: { ...font.label, fontWeight: '700' },
-  title: { ...font.hero, color: colors.text, marginBottom: spacing.sm, textAlign: 'center' },
-  sub: { ...font.sm, color: colors.textMuted, textAlign: 'center', lineHeight: 22, marginBottom: spacing.xl },
-  timerArea: { width: 180, height: 180, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xl },
-  timerRing: { position: 'absolute', width: 180, height: 180, borderRadius: 90, borderWidth: 3 },
-  timerCircle: { width: 140, height: 140, borderRadius: 70, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.border },
-  timerCount: { fontSize: 56, fontWeight: 'bold', color: colors.onFill, lineHeight: 60 },
-  timerLabel: { ...font.xs, color: colors.textSub, fontWeight: '700', letterSpacing: 2 },
-  warningLine: { ...font.sm, color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl },
-  helpWrapper: { width: '100%', borderRadius: radius.xl, marginBottom: spacing.md },
-  helpBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md + 4, borderRadius: radius.xl },
-  helpText: { ...font.h3, color: colors.onFill },
-  okBtn: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md + 4, borderRadius: radius.xl, borderWidth: 1.5, borderColor: `${colors.success}60`, backgroundColor: `${colors.success}12` },
-  okText: { ...font.body, color: colors.success, fontWeight: '700' },
-});
-};
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    root: { flex: 1 },
+    content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },
+    badge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      borderWidth: 1,
+      borderRadius: radius.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    badgeText: { ...type.label, fontWeight: '800', textTransform: 'uppercase' },
+    title: { ...type.hero, color: colors.text, marginBottom: spacing.sm, textAlign: 'center' },
+    sub: { ...type.sm, color: colors.textSub, textAlign: 'center', lineHeight: 22, marginBottom: spacing.lg },
+    timerArea: { width: 220, height: 220, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+    timerCircle: {
+      width: 146,
+      height: 146,
+      borderRadius: 73,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 3,
+      borderColor: 'rgba(255,255,255,0.2)',
+    },
+    timerCount: { fontSize: 58, fontWeight: '800', color: colors.onFill, lineHeight: 64 },
+    timerLabel: { ...type.xs, color: colors.onFill, opacity: 0.8, fontWeight: '700', letterSpacing: 2 },
+    track: {
+      width: '100%',
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: 'rgba(255,255,255,0.1)',
+      overflow: 'hidden',
+      marginBottom: spacing.sm,
+    },
+    trackFill: { height: '100%', borderRadius: 3 },
+    warningLine: { ...type.sm, color: colors.textSub, textAlign: 'center', marginBottom: spacing.xl },
+    helpWrapper: { width: '100%', borderRadius: radius.xl, marginBottom: spacing.md },
+    helpBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.md + 4,
+      borderRadius: radius.xl,
+    },
+    helpText: { ...type.h3, fontWeight: '800', color: colors.onFill },
+    okBtn: {
+      width: '100%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.md + 4,
+      borderRadius: radius.xl,
+      borderWidth: 1.5,
+      borderColor: `${colors.success}66`,
+      backgroundColor: `${colors.success}14`,
+    },
+    okText: { ...type.bodyStrong, color: colors.successText },
+  });

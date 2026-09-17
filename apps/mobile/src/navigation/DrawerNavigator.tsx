@@ -1,36 +1,102 @@
 import React, { useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { createDrawerNavigator, DrawerContentScrollView, DrawerContentComponentProps } from '@react-navigation/drawer';
-import { Settings, Home, LogOut, ShieldAlert, FileText, User, Users, Shield, Navigation, Timer, MessageSquare, Archive } from 'lucide-react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
+import {
+  createDrawerNavigator,
+  DrawerContentComponentProps,
+  DrawerContentScrollView,
+  useDrawerStatus,
+} from '@react-navigation/drawer';
+import Animated, { FadeInLeft } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  Archive,
+  FileText,
+  Home,
+  LogOut,
+  Map as MapIcon,
+  MessageSquare,
+  Navigation,
+  PhoneCall,
+  Settings,
+  Shield,
+  ShieldAlert,
+  Timer,
+  User,
+  Users,
+} from 'lucide-react-native';
+
 import MainStack from './MainStack';
 import { Theme, useTheme, useThemedStyles } from '../theme';
 import { radius, spacing, type } from '../theme/tokens';
 import { useAuthStore } from '../store/authStore';
+import { useT } from '../i18n';
 import api from '../services/api';
+import LanguageToggle from '../components/LanguageToggle';
+import ThemeToggle from '../components/ThemeToggle';
+import { PressableScale } from '../components/ui/motion';
 
 const Drawer = createDrawerNavigator();
 
+type Item = {
+  key: string;
+  label: string;
+  icon: React.ComponentType<{ color: string; size: number }>;
+  screen?: string;
+  params?: object;
+};
+
+const PRIMARY: Item[] = [
+  { key: 'home', label: 'Home', icon: Home, screen: 'Home' },
+  { key: 'contacts', label: 'Trusted Contacts', icon: Users, screen: 'TrustedContacts' },
+  { key: 'profile', label: 'Profile', icon: User, screen: 'ProfileSetup' },
+  { key: 'settings', label: 'Settings', icon: Settings, screen: 'Settings' },
+];
+
+const SAFETY: Item[] = [
+  { key: 'route', label: 'Safe Route', icon: Navigation, screen: 'SafeRoute' },
+  { key: 'map', label: 'Safety Map', icon: MapIcon, screen: 'SafetyMap' },
+  { key: 'silent', label: 'Silent Alert', icon: Timer, screen: 'SoftAlert', params: { manual: true } },
+  { key: 'fake', label: 'Fake Call', icon: PhoneCall, screen: 'FakeCall' },
+  { key: 'report', label: 'Report Incident', icon: FileText, screen: 'ReportIncident' },
+  { key: 'responder', label: 'Responder Hub', icon: ShieldAlert, screen: 'ResponderHub' },
+];
+
+const RECORDS: Item[] = [
+  { key: 'sms', label: 'SOS SMS History', icon: MessageSquare, screen: 'SmsHistory' },
+  { key: 'evidence', label: 'Evidence Library', icon: Archive, screen: 'EvidenceLibrary' },
+];
+
+function activeScreen(props: DrawerContentComponentProps): string {
+  const main = props.state.routes[props.state.index];
+  const nested = main.state as { index?: number; routes?: { name: string }[] } | undefined;
+  if (nested?.routes && typeof nested.index === 'number') return nested.routes[nested.index].name;
+  return 'Home';
+}
+
 function CustomDrawerContent(props: DrawerContentComponentProps) {
-  // Sibling of DrawerNavigator, so it reads the theme itself.
   const styles = useThemedStyles(makeStyles);
-  const { colors } = useTheme();
+  const { colors, gradients } = useTheme();
+  const t = useT();
   const { user, updateUser, logout } = useAuthStore();
-  const state = props.state;
-  const currentRoute = state.routes[state.index].name;
+  const isOpen = useDrawerStatus() === 'open';
+  const current = activeScreen(props);
 
-  // Refresh profile from server so we always show the latest name.
-  // NOTE: the API nests the profile under `data.profile`.
+  // Refresh profile from the server so the name is always current.
   useEffect(() => {
-    api.get('/profile').then(res => {
-      const profile = res.data?.data?.profile;
-      if (profile?.fullName) {
-        updateUser({ profile: { fullName: profile.fullName, bloodGroup: profile.bloodGroup } });
-      }
-    }).catch(() => { });
-  }, []);
+    api
+      .get('/profile')
+      .then((res) => {
+        const profile = res.data?.data?.profile;
+        if (profile?.fullName) {
+          updateUser({ profile: { fullName: profile.fullName, bloodGroup: profile.bloodGroup } });
+        }
+      })
+      .catch(() => {});
+  }, [updateUser]);
 
-  const roleName = typeof user?.role === 'object' ? user.role?.name : user?.role || 'Citizen';
-  const displayName = user?.profile?.fullName?.trim() || 'Citizen User';
+  const roleKey = typeof user?.role === 'object' ? user.role?.key ?? user.role?.name : user?.role;
+  const roleName = t(roleKey === 'responder' ? 'Responder' : roleKey === 'admin' ? 'Admin' : 'Citizen');
+  const displayName = user?.profile?.fullName?.trim() || t('Citizen User');
   const initials = displayName
     .split(' ')
     .map((w: string) => w[0])
@@ -38,111 +104,88 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
     .toUpperCase()
     .slice(0, 2);
 
+  const go = (item: Item) => {
+    props.navigation.navigate('Main', { screen: item.screen, params: item.params });
+    props.navigation.closeDrawer();
+  };
+
+  const confirmLogout = () => {
+    Alert.alert(t('Log out?'), t('You will stop receiving alerts on this device until you sign in again.'), [
+      { text: t('Cancel'), style: 'cancel' },
+      { text: t('Log out'), style: 'destructive', onPress: logout },
+    ]);
+  };
+
+  // Re-mount the list each time the drawer opens so the items cascade in.
+  let index = 0;
+  const renderItem = (item: Item) => {
+    const active = current === item.screen;
+    const Icon = item.icon;
+    const delay = 40 + index++ * 35;
+    return (
+      <Animated.View key={item.key} entering={FadeInLeft.delay(delay).duration(320)}>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityState={{ selected: active }}
+          onPress={() => go(item)}
+          scaleTo={0.97}
+          style={[styles.item, active && styles.itemActive]}
+        >
+          <View style={[styles.itemIcon, active && { backgroundColor: colors.accent }]}>
+            <Icon color={active ? colors.onAccent : colors.accentText} size={18} />
+          </View>
+          <Text style={[styles.itemText, active && styles.itemTextActive]}>{t(item.label)}</Text>
+        </PressableScale>
+      </Animated.View>
+    );
+  };
+
   return (
     <View style={styles.drawerContainer}>
       <DrawerContentScrollView {...props} contentContainerStyle={styles.scrollContent}>
-        {/* Profile Header */}
-        <View style={styles.header}>
+        <LinearGradient
+          colors={gradients.accent}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.header}
+        >
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
-          <View style={styles.userInfo}>
+          <View style={{ flex: 1 }}>
             <Text style={styles.userName} numberOfLines={1}>{displayName}</Text>
             <Text style={styles.userPhone}>{user?.phone}</Text>
             <View style={styles.roleBadge}>
-              <Shield color={colors.accent} size={10} />
+              <Shield color={colors.onAccent} size={10} />
               <Text style={styles.roleBadgeText}>{roleName}</Text>
             </View>
           </View>
+        </LinearGradient>
+
+        <View style={styles.toggles}>
+          <LanguageToggle style={{ flex: 1 }} />
+          <ThemeToggle />
         </View>
 
-        <View style={styles.divider} />
-
-        {/* Navigation Items */}
-        <DrawerItem
-          icon={<Home color={currentRoute === 'Main' ? colors.accent : colors.textSub} size={22} />}
-          label="Home"
-          isActive={currentRoute === 'Main'}
-          onPress={() => props.navigation.navigate('Main')}
-        />
-
-        <DrawerItem
-          icon={<Settings color={currentRoute === 'Settings' ? colors.accent : colors.textSub} size={22} />}
-          label="Settings"
-          isActive={currentRoute === 'Settings'}
-          onPress={() => props.navigation.navigate('Main', { screen: 'Settings' })}
-        />
-
-        <View style={styles.divider} />
-        <Text style={styles.sectionLabel}>Other Features</Text>
-
-        <DrawerItem
-          icon={<User color={colors.textSub} size={22} />}
-          label="Profile"
-          isActive={false}
-          onPress={() => props.navigation.navigate('Main', { screen: 'ProfileSetup' })}
-        />
-        <DrawerItem
-          icon={<Users color={colors.textSub} size={22} />}
-          label="Trusted Contacts"
-          isActive={false}
-          onPress={() => props.navigation.navigate('Main', { screen: 'TrustedContacts' })}
-        />
-        <DrawerItem
-          icon={<FileText color={colors.textSub} size={22} />}
-          label="Report Incident"
-          isActive={false}
-          onPress={() => props.navigation.navigate('Main', { screen: 'ReportIncident' })}
-        />
-        <DrawerItem
-          icon={<Navigation color={colors.textSub} size={22} />}
-          label="Safe Route"
-          isActive={false}
-          onPress={() => props.navigation.navigate('Main', { screen: 'SafeRoute' })}
-        />
-        <DrawerItem
-          icon={<Timer color={colors.textSub} size={22} />}
-          label="Silent Alert"
-          isActive={false}
-          onPress={() => props.navigation.navigate('Main', { screen: 'SoftAlert', params: { manual: true } })}
-        />
-        <DrawerItem
-          icon={<MessageSquare color={colors.textSub} size={22} />}
-          label="SOS SMS History"
-          isActive={false}
-          onPress={() => props.navigation.navigate('Main', { screen: 'SmsHistory' })}
-        />
-        <DrawerItem
-          icon={<Archive color={colors.textSub} size={22} />}
-          label="Evidence Library"
-          isActive={false}
-          onPress={() => props.navigation.navigate('Main', { screen: 'EvidenceLibrary' })}
-        />
-
+        {isOpen && (
+          <>
+            {PRIMARY.map(renderItem)}
+            <Text style={styles.sectionLabel}>{t('Safety tools')}</Text>
+            {SAFETY.map(renderItem)}
+            <Text style={styles.sectionLabel}>{t('Records')}</Text>
+            {RECORDS.map(renderItem)}
+          </>
+        )}
       </DrawerContentScrollView>
 
-      {/* Footer */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
-          <LogOut color={colors.danger} size={20} />
-          <Text style={styles.logoutText}>Log Out</Text>
-        </TouchableOpacity>
+        <PressableScale style={styles.logoutBtn} onPress={confirmLogout} accessibilityRole="button">
+          <LogOut color={colors.dangerText} size={19} />
+          <Text style={styles.logoutText}>{t('Log out')}</Text>
+        </PressableScale>
+        <Text style={styles.footerNote}>নারী সুরক্ষা · {t('National Women Safety Service')}</Text>
       </View>
     </View>
-  );
-}
-
-function DrawerItem({ icon, label, isActive, onPress }: { icon: React.ReactNode, label: string, isActive: boolean, onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <TouchableOpacity
-      style={[styles.item, isActive && styles.itemActive]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <View style={styles.itemIcon}>{icon}</View>
-      <Text style={[styles.itemText, isActive && styles.itemTextActive]}>{label}</Text>
-    </TouchableOpacity>
   );
 }
 
@@ -153,148 +196,107 @@ export default function DrawerNavigator() {
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{
         headerShown: false,
-        drawerStyle: {
-          backgroundColor: colors.bg,
-          width: 280,
-        },
+        drawerStyle: { backgroundColor: colors.bg, width: 300 },
         drawerType: 'front',
+        overlayColor: colors.scrim,
       }}
     >
-      {/* We load MainStack inside Drawer so hamburger menu handles all screens */}
+      {/* MainStack lives inside the drawer so the menu reaches every screen. */}
       <Drawer.Screen name="Main" component={MainStack} />
     </Drawer.Navigator>
   );
 }
 
-const makeStyles = ({ colors, shadows, gradients }: Theme) => {
-  const font = {
-    hero: { ...type.hero, color: colors.text },
-    h1: { ...type.h1, color: colors.text },
-    h2: { ...type.h2, color: colors.text },
-    h3: { ...type.h3, color: colors.text },
-    body: { ...type.body, color: colors.text },
-    sm: { ...type.sm, color: colors.textSub },
-    xs: { ...type.xs, color: colors.textMuted },
-    label: { ...type.label, color: colors.textSub },
-    regular: 'System' as const, medium: 'System' as const,
-    semiBold: 'System' as const, bold: 'System' as const,
-  };
-  void gradients;
-  return StyleSheet.create({
-    drawerContainer: {
-      flex: 1,
-      backgroundColor: colors.bg,
-    },
-    scrollContent: {
-      paddingTop: spacing.xl,
-    },
+const makeStyles = ({ colors, shadows }: Theme) =>
+  StyleSheet.create({
+    drawerContainer: { flex: 1, backgroundColor: colors.bg },
+    scrollContent: { paddingTop: spacing.md, paddingHorizontal: spacing.sm },
     header: {
-      paddingHorizontal: spacing.lg,
-      paddingBottom: spacing.lg,
       flexDirection: 'row',
       alignItems: 'center',
+      gap: spacing.md,
+      padding: spacing.md,
+      borderRadius: radius.lg,
+      marginBottom: spacing.md,
+      ...shadows.accent,
     },
     avatar: {
-      width: 50,
-      height: 50,
-      borderRadius: 25,
-      backgroundColor: colors.accentSoft,
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: 'rgba(255,255,255,0.22)',
+      borderWidth: 2,
+      borderColor: 'rgba(255,255,255,0.45)',
       justifyContent: 'center',
       alignItems: 'center',
-      marginRight: spacing.md,
     },
-    avatarText: {
-      color: colors.accentText,
-      fontFamily: font.bold,
-      fontSize: 16,
-    },
-    userInfo: {
-      flex: 1,
-    },
-    userName: {
-      color: colors.text,
-      fontFamily: font.semiBold,
-      fontSize: 18,
-      marginBottom: 2,
-    },
-    userPhone: {
-      color: colors.textSub,
-      fontFamily: font.medium,
-      fontSize: 14,
-    },
-    divider: {
-      height: 1,
-      backgroundColor: 'rgba(255,255,255,0.05)',
-      marginVertical: spacing.md,
-      marginHorizontal: spacing.lg,
-    },
-    sectionLabel: {
-      color: colors.textSub,
-      fontFamily: font.semiBold,
-      fontSize: 12,
-      textTransform: 'uppercase',
-      letterSpacing: 1,
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.sm,
-      marginTop: spacing.md,
-    },
-    item: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.lg,
-      marginHorizontal: spacing.sm,
-      borderRadius: radius.md,
-      marginBottom: 4,
-    },
-    itemActive: {
-      backgroundColor: colors.accentSoft,
-    },
-    itemIcon: {
-      marginRight: spacing.md,
-    },
-    itemText: {
-      color: colors.text,
-      fontFamily: font.medium,
-      fontSize: 16,
-    },
-    itemTextActive: {
-      color: colors.accent,
-      fontFamily: font.semiBold,
-    },
-    footer: {
-      padding: spacing.lg,
-      paddingBottom: spacing['2xl'],
-      borderTopWidth: 1,
-      borderTopColor: 'rgba(255,255,255,0.05)',
-    },
-    logoutBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: spacing.sm,
-    },
-    logoutText: {
-      color: colors.danger,
-      fontFamily: font.semiBold,
-      fontSize: 16,
-      marginLeft: spacing.md,
-    },
+    avatarText: { color: colors.onAccent, fontWeight: '800', fontSize: 17 },
+    userName: { ...type.h3, fontWeight: '700', color: colors.onAccent },
+    userPhone: { ...type.xs, color: colors.onAccent, opacity: 0.85 },
     roleBadge: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      marginTop: 4,
-      backgroundColor: colors.accentSoft,
+      marginTop: 6,
+      backgroundColor: 'rgba(255,255,255,0.2)',
       borderRadius: radius.full,
       paddingHorizontal: 8,
       paddingVertical: 2,
       alignSelf: 'flex-start',
     },
-    roleBadgeText: {
-      color: colors.accent,
-      fontSize: 11,
-      fontFamily: font.semiBold,
-      textTransform: 'capitalize',
+    roleBadgeText: { color: colors.onAccent, fontSize: 11, fontWeight: '700' },
+    toggles: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+      paddingHorizontal: spacing.xs,
     },
+    sectionLabel: {
+      ...type.label,
+      color: colors.textMuted,
+      textTransform: 'uppercase',
+      marginHorizontal: spacing.md,
+      marginTop: spacing.lg,
+      marginBottom: spacing.sm,
+    },
+    item: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      paddingVertical: 10,
+      paddingHorizontal: spacing.sm,
+      borderRadius: radius.md,
+      marginBottom: 2,
+    },
+    itemActive: { backgroundColor: colors.accentSoft },
+    itemIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: radius.sm,
+      backgroundColor: colors.surfaceAlt,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    itemText: { ...type.body, fontWeight: '500', color: colors.text, flexShrink: 1 },
+    itemTextActive: { color: colors.accentText, fontWeight: '700' },
+    footer: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.xl,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      gap: spacing.sm,
+    },
+    logoutBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.md,
+      backgroundColor: colors.dangerSoft,
+    },
+    logoutText: { ...type.bodyStrong, color: colors.dangerText },
+    footerNote: { ...type.xs, color: colors.textMuted, textAlign: 'center' },
   });
-};

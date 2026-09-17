@@ -32,6 +32,17 @@ import { ChevronRight } from 'lucide-react-native';
 
 import { Theme, useTheme, useThemedStyles } from '../../theme';
 import { radius, spacing, type as typeScale } from '../../theme/tokens';
+import { useLanguageStore } from '../../i18n';
+import { FadeIn, PressableScale } from './motion';
+
+export * from './motion';
+
+/** Bangla glyphs sit taller than Latin ones; give them a little more room. */
+function useScriptLineHeight(style: TextStyle): TextStyle {
+  const isBangla = useLanguageStore((st) => st.lang === 'bn');
+  if (!isBangla || !style.lineHeight) return style;
+  return { ...style, lineHeight: Math.round(style.lineHeight * 1.18) };
+}
 
 /* ────────────────────────────────────────────────────────────── Screen ── */
 
@@ -109,6 +120,7 @@ export function Txt({
   center,
 }: TxtProps) {
   const { colors } = useTheme();
+  const scaled = useScriptLineHeight(typeScale[variant] as TextStyle);
   const toneColor: Record<TextTone, string> = {
     default: colors.text,
     sub: colors.textSub,
@@ -122,7 +134,7 @@ export function Txt({
     <Text
       numberOfLines={numberOfLines}
       style={[
-        typeScale[variant] as TextStyle,
+        scaled,
         { color: toneColor[tone] },
         center && { textAlign: 'center' },
         style,
@@ -160,6 +172,8 @@ interface CardProps {
   padded?: boolean;
   /** Tint the card for a status: a soft background and matching border. */
   tone?: 'neutral' | 'accent' | 'danger' | 'warning' | 'success' | 'info';
+  /** Animate the card in after this many ms. Omit for no entrance. */
+  delay?: number;
 }
 
 export function Card({
@@ -168,6 +182,7 @@ export function Card({
   elevation = 'soft',
   padded = true,
   tone = 'neutral',
+  delay,
 }: CardProps) {
   const { colors, shadows } = useTheme();
 
@@ -180,11 +195,11 @@ export function Card({
     info: { backgroundColor: colors.infoSoft, borderColor: colors.info },
   };
 
-  return (
+  const card = (
     <View
       style={[
         {
-          borderRadius: radius.lg,
+          borderRadius: radius.xl - 6,
           borderWidth: 1,
           padding: padded ? spacing.md : 0,
           overflow: 'hidden',
@@ -198,6 +213,8 @@ export function Card({
       {children}
     </View>
   );
+
+  return delay === undefined ? card : <FadeIn delay={delay}>{card}</FadeIn>;
 }
 
 /* ──────────────────────────────────────────────────────────── Button ──── */
@@ -257,7 +274,7 @@ export function Button({
     gap: dims.gap,
     paddingVertical: dims.padV,
     paddingHorizontal: dims.padH,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: 'transparent',
     alignSelf: full ? 'stretch' : 'flex-start',
@@ -305,16 +322,15 @@ export function Button({
   const useGradient = variant === 'primary' || variant === 'danger';
 
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       onPress={isDisabled ? undefined : onPress}
       disabled={isDisabled}
-      style={({ pressed }) => [
-        { borderRadius: radius.md, alignSelf: full ? 'stretch' : 'flex-start' },
+      scaleTo={0.97}
+      style={[
+        { borderRadius: radius.lg, alignSelf: full ? 'stretch' : 'flex-start' },
         !isDisabled && elevation,
-        isDisabled && { opacity: 0.5 },
-        pressed && !isDisabled && { transform: [{ scale: 0.985 }], opacity: 0.92 },
         style,
       ]}
       {...rest}
@@ -331,7 +347,7 @@ export function Button({
       ) : (
         <View style={[base, fills[variant]]}>{content}</View>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -524,9 +540,9 @@ export function ListRow({
       {icon ? (
         <View
           style={{
-            width: 38,
-            height: 38,
-            borderRadius: radius.sm,
+            width: 40,
+            height: 40,
+            borderRadius: radius.md,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: destructive ? colors.dangerSoft : colors.surfaceAlt,
@@ -560,13 +576,9 @@ export function ListRow({
   if (!onPress) return body;
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [pressed && { backgroundColor: colors.surfaceAlt, opacity: 0.9 }]}
-    >
+    <PressableScale accessibilityRole="button" onPress={onPress} scaleTo={0.98}>
       {body}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -666,7 +678,7 @@ export function AppBar({
 }) {
   const { colors } = useTheme();
   return (
-    <View
+    <FadeIn
       style={[
         {
           flexDirection: 'row',
@@ -687,7 +699,7 @@ export function AppBar({
         ) : null}
       </View>
       {right}
-    </View>
+    </FadeIn>
   );
 }
 
@@ -706,7 +718,7 @@ export function EmptyState({
 }) {
   const { colors } = useTheme();
   return (
-    <View style={{ alignItems: 'center', paddingVertical: spacing.xxl, paddingHorizontal: spacing.lg, gap: spacing.sm }}>
+    <FadeIn from="zoom" style={{ alignItems: 'center', paddingVertical: spacing.xxl, paddingHorizontal: spacing.lg, gap: spacing.sm }}>
       {icon ? (
         <View
           style={{
@@ -729,7 +741,7 @@ export function EmptyState({
         </Text>
       ) : null}
       {action ? <View style={{ marginTop: spacing.md }}>{action}</View> : null}
-    </View>
+    </FadeIn>
   );
 }
 

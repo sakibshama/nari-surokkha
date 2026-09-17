@@ -2,6 +2,7 @@ import React, { Component, ReactNode } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { ThemeContext } from '../theme/ThemeProvider';
 import { lightPalette, radius, spacing, type as typeScale } from '../theme/tokens';
+import { tStatic } from '../i18n';
 
 interface Props {
   children: ReactNode;
@@ -18,7 +19,7 @@ export class ErrorBoundary extends Component<Props, State> {
    * state that lands us here — the light palette is a readable fallback.
    */
   static contextType = ThemeContext;
-  context!: React.ContextType<typeof ThemeContext>;
+  declare context: React.ContextType<typeof ThemeContext>;
 
   constructor(props: Props) {
     super(props);
@@ -39,14 +40,14 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <View style={[styles.container, { backgroundColor: colors.bg }]}>
           <Text style={styles.icon}>⚠️</Text>
-          <Text style={[styles.title, { color: colors.text }]}>Something went wrong</Text>
+          <Text style={[styles.title, { color: colors.text }]}>{tStatic('Something went wrong')}</Text>
           <Text style={[styles.message, { color: colors.textMuted }]}>{this.state.error}</Text>
           <TouchableOpacity
             accessibilityRole="button"
             style={[styles.btn, { backgroundColor: colors.accent }]}
             onPress={() => this.setState({ hasError: false, error: '' })}
           >
-            <Text style={[styles.btnText, { color: colors.onAccent }]}>Try again</Text>
+            <Text style={[styles.btnText, { color: colors.onAccent }]}>{tStatic('Try again')}</Text>
           </TouchableOpacity>
         </View>
       );

@@ -31,6 +31,6 @@ npm run build
 
 ## Notes
 
-- This package is used by `services/api`, `apps/police-portal`, and `apps/admin-portal`
+- This package is used by `services/api` and `apps/admin-portal`
 - For mobile (`apps/mobile`), copy types manually to avoid RN build complications
 - Always update schemas here first, then update API routes accordingly

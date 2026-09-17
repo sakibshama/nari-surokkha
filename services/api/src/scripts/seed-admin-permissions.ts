@@ -15,7 +15,7 @@ async function main() {
     await prisma.user.update({
       where: { id: admin.id },
       data: {
-        permissions: ['manage_users', 'manage_admins', 'manage_stations', 'view_audit_logs']
+        permissions: ['manage_users', 'manage_admins', 'view_audit_logs']
       }
     });
     console.log(`Updated admin ${admin.phone}`);

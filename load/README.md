@@ -29,7 +29,7 @@ k6 run --vus 2000 load/ws-fanout.js
 ```
 
 **Run these against staging, never production.** `sos-spike.js` creates real
-alerts, which dispatch real police cases and — if SMS is enabled — send real
+alerts, which dispatch real responders and — if SMS is enabled — send real
 messages to real trusted contacts. Set `SMS_PROVIDER=mock` on the target
 environment first.
 

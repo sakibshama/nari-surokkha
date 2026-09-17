@@ -128,16 +128,3 @@ export const CreateIncidentReportSchema = z.object({
   isAnonymous: z.boolean().default(true),
 });
 
-// ─── Case Management ──────────────────────────────────────────
-
-export const UpdateCaseSchema = z.object({
-  status: z
-    .enum(['open', 'assigned', 'in_progress', 'resolved', 'closed', 'false_alarm'])
-    .optional(),
-  assignedOfficerId: z.string().uuid().optional(),
-  notes: z.string().max(2000).optional(),
-});
-
-export const AddCaseNoteSchema = z.object({
-  note: z.string().min(1).max(2000),
-});

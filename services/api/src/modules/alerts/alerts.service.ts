@@ -19,7 +19,7 @@ import {
   recordPing,
 } from './alert-location.buffer';
 
-import { CasesService } from '../cases/cases.service';
+import { ADMIN_ROOM } from '@/utils/alert-rooms';
 
 /** Responders are dispatched within this radius of the alert. */
 const RESPONDER_DISPATCH_RADIUS_M = 5000;
@@ -40,7 +40,6 @@ export interface AlertFanOutPayload {
   userId: string;
   latitude: number;
   longitude: number;
-  stationId: string | null;
   alertType: string;
   ipAddress?: string;
 }
@@ -132,7 +131,6 @@ export class AlertsService {
     private readonly repo: AlertsRepository,
     private readonly contactsRepo: ContactsRepository,
     private readonly responderRepo: ResponderRepository,
-    private readonly casesService: CasesService,
     private readonly fastify: FastifyInstance,
   ) {}
 
@@ -144,25 +142,21 @@ export class AlertsService {
     // 1. Verify user has at least one trusted contact
     const contacts = await this.contactsRepo.getContactsByUserId(userId);
     if (contacts.length === 0) {
-      this.fastify.log.warn('User has no trusted contacts, but allowing SOS for police dispatch.');
+      this.fastify.log.warn('User has no trusted contacts, but allowing SOS for responder dispatch.');
     }
 
-    // 2. Find nearest police station using PostGIS
-    const nearestStation = await this.repo.findNearestPoliceStation(data.latitude, data.longitude);
-
-    // 3. Save the alert
+    // 2. Save the alert
     const alert = await this.repo.createAlert({
       userId,
       latitude: data.latitude,
       longitude: data.longitude,
       accuracy: data.accuracy,
-      assignedStationId: nearestStation?.id || null,
       status: 'confirmed',
     });
 
-    alertsTotal.inc({ type: 'manual', has_station: nearestStation ? 'yes' : 'no' });
+    alertsTotal.inc({ type: 'manual' });
 
-    await this.dispatchConfirmedAlert(alert, data, ipAddress, nearestStation);
+    await this.dispatchConfirmedAlert(alert, data, ipAddress);
 
     const trackingToken = generateTrackingToken(alert.id);
     const contactPhones = contacts.map(c => c.phone);
@@ -183,14 +177,13 @@ export class AlertsService {
    *   - queue the trusted-contact notifications (a Redis push, ~1 ms — kept on
    *     the request path so it can never be lost, since it is the most
    *     time-critical downstream action)
-   *   - light up the police portal over WebSocket (in-memory, immediate)
+   *   - light up the admin portal over WebSocket (in-memory, immediate)
    *   - hand the rest to the 'dispatch' queue
    */
   private async dispatchConfirmedAlert(
     alert: EmergencyAlert,
     data: { latitude: number; longitude: number; accuracy?: number },
     ipAddress?: string,
-    nearestStation?: { id: string } | null,
   ): Promise<void> {
     // ── 1. Trusted contacts (SMS + push) ────────────────────────────────
     if (this.fastify.queues?.notifications) {
@@ -204,7 +197,7 @@ export class AlertsService {
       this.fastify.log.warn('Notifications queue is not initialized. Skipping trusted contact notifications.');
     }
 
-    // ── 2. Police portal, immediately ───────────────────────────────────
+    // ── 2. Admin portal, immediately ────────────────────────────────────
     if (this.fastify.io) {
       const eventPayload = {
         alertId: alert.id,
@@ -213,13 +206,10 @@ export class AlertsService {
         longitude: data.longitude,
         timestamp: new Date().toISOString(),
       };
-      if (nearestStation) {
-        this.fastify.io.to(`station:${nearestStation.id}`).emit('alert:created', eventPayload);
-      }
-      // Always notify general dispatch (admin / global view).
-      this.fastify.io.to('station:dispatch').emit('alert:created', eventPayload);
+      // Admin global view.
+      this.fastify.io.to(ADMIN_ROOM).emit('alert:created', eventPayload);
     } else {
-      this.fastify.log.warn('WebSocket is not initialized. Skipping police portal notification.');
+      this.fastify.log.warn('WebSocket is not initialized. Skipping admin portal notification.');
     }
 
     // ── 3. Everything else, off the request path ────────────────────────
@@ -228,7 +218,6 @@ export class AlertsService {
       userId: alert.userId,
       latitude: data.latitude,
       longitude: data.longitude,
-      stationId: nearestStation?.id ?? null,
       alertType: alert.type,
       ipAddress,
     };
@@ -247,10 +236,10 @@ export class AlertsService {
   }
 
   /**
-   * The heavy half of an SOS: audit trail, police case, responder dispatch.
+   * The heavy half of an SOS: audit trail and responder dispatch.
    *
    * Runs in the BullMQ 'dispatch' worker (see plugins/worker.ts). Safe to
-   * retry — the audit log is append-only, case creation is guarded, and
+   * retry — the audit log is append-only and
    * responder dispatches are de-duplicated by the unique
    * (alert_id, responder_id) index.
    */
@@ -269,7 +258,7 @@ export class AlertsService {
   }
 
   private async doFanOutAlert(payload: AlertFanOutPayload): Promise<void> {
-    const { alertId, userId, latitude, longitude, stationId, alertType, ipAddress } = payload;
+    const { alertId, userId, latitude, longitude, alertType, ipAddress } = payload;
 
     // ── 1. Audit trail ──────────────────────────────────────────────────
     await this.repo.createAuditLog({
@@ -277,20 +266,11 @@ export class AlertsService {
       action: 'sos_triggered',
       entityType: 'alert',
       entityId: alertId,
-      metadata: { alertType, status: 'confirmed', nearestStationId: stationId },
+      metadata: { alertType, status: 'confirmed' },
       ipAddress,
     });
 
-    // ── 2. Police case ──────────────────────────────────────────────────
-    if (stationId) {
-      try {
-        await this.casesService.createCaseFromAlert(alertId, stationId);
-      } catch (err) {
-        this.fastify.log.error(err instanceof Error ? err : { err }, 'Failed to auto-create case for alert');
-      }
-    }
-
-    // ── 3. Nearby responders ────────────────────────────────────────────
+    // ── 2. Nearby responders ────────────────────────────────────────────
     try {
       const responders = await this.responderRepo.findNearbyResponders(
         latitude,
@@ -380,14 +360,11 @@ export class AlertsService {
     // We do NOT verify trusted contacts here because it's a passive sensor event.
     // If they have no contacts, it just won't notify anyone later, but we still record the event.
 
-    const nearestStation = await this.repo.findNearestPoliceStation(data.latitude, data.longitude);
-
     const alert = await this.repo.createAlert({
       userId,
       latitude: data.latitude,
       longitude: data.longitude,
       accuracy: data.accuracy,
-      assignedStationId: nearestStation?.id || null,
       type: 'sensor_triggered',
       status: 'created',
       isSoftAlert: true,
@@ -405,7 +382,7 @@ export class AlertsService {
       this.fastify.log.info({ alertId: alert.id }, 'Scheduled auto-escalation for soft alert');
     }
 
-    alertsTotal.inc({ type: 'sensor_triggered', has_station: nearestStation ? 'yes' : 'no' });
+    alertsTotal.inc({ type: 'sensor_triggered' });
 
     return alert;
   }
@@ -451,15 +428,11 @@ export class AlertsService {
     });
     await invalidateAlertMeta(this.fastify, alertId);
 
-    const nearestStation = updatedAlert.assignedStationId 
-      ? { id: updatedAlert.assignedStationId } 
-      : undefined;
-
     await this.dispatchConfirmedAlert(updatedAlert, {
       latitude: Number(updatedAlert.latitude),
       longitude: Number(updatedAlert.longitude),
       accuracy: updatedAlert.accuracy ? Number(updatedAlert.accuracy) : undefined
-    }, undefined, nearestStation);
+    });
 
     const trackingToken = generateTrackingToken(updatedAlert.id);
     const contactPhones = contacts.map(c => c.phone);
@@ -485,10 +458,7 @@ export class AlertsService {
 
     if (this.fastify.io) {
       const eventPayload = { alertId, status: 'false_alarm' };
-      if (alert.assignedStationId) {
-        this.fastify.io.to(`station:${alert.assignedStationId}`).emit('alert_status_update', eventPayload);
-      }
-      this.fastify.io.to('station:dispatch').emit('alert_status_update', eventPayload);
+      this.fastify.io.to(ADMIN_ROOM).emit('alert_status_update', eventPayload);
     }
   }
   
@@ -507,7 +477,7 @@ export class AlertsService {
      *   - the position is written to Redis and appended to a flush buffer
      *   - the worker batches the buffer into Postgres on an interval
      *
-     * The WebSocket emit still happens inline, so the police portal sees the
+     * The WebSocket emit still happens inline, so the admin portal sees the
      * movement immediately — liveness is unchanged, only the write is deferred.
      */
     async updateLocation(
@@ -550,8 +520,7 @@ export class AlertsService {
           timestamp,
         };
 
-        const rooms = [`alert:${alertId}`, 'station:dispatch'];
-        if (meta.assignedStationId) rooms.push(`station:${meta.assignedStationId}`);
+        const rooms = [`alert:${alertId}`, ADMIN_ROOM];
         this.fastify.io.to(rooms).emit('alert:location_update', eventPayload);
       }
     }

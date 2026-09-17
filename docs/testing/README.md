@@ -8,7 +8,7 @@ This directory contains test plans, checklists, and testing guidelines.
 |-------|------|------|
 | Unit Tests | Vitest (API), Jest (Mobile) | Every module |
 | Integration Tests | Vitest + real DB | Every API module |
-| Component Tests | React Testing Library | Police Portal |
+| Component Tests | React Testing Library | Admin Portal |
 | E2E Manual | Checklist below | Before each release |
 | Security Testing | Manual + OWASP checklist | Phase 20 |
 | Performance Testing | Artillery / k6 | Phase 19 |
@@ -23,33 +23,32 @@ This directory contains test plans, checklists, and testing guidelines.
 5. Verify: Alert created in DB
 6. Verify: SMS notification job queued
 7. Verify: Push notification job queued
-8. Verify: Police portal receives WebSocket event
+8. Verify: Admin portal receives WebSocket event
 9. User sends location update
-10. Verify: Police portal shows location on map
-11. Officer acknowledges alert
-12. Officer closes case
+10. Verify: Admin portal shows location on map
+11. Nearby responder accepts the dispatch
+12. User marks themselves safe
 13. Verify: Audit logs created for all steps
 
 ### 2. Sensor Soft Alert (Cancel Path)
 1. Trigger soft alert via test endpoint
 2. Verify: Countdown screen appears (15s)
 3. User cancels before countdown
-4. Verify: No police notification sent
+4. Verify: No contact or responder notification sent
 5. Verify: Cancelled event stored in DB
 
 ### 3. Evidence Upload
 1. Active SOS alert exists
 2. Upload photo evidence from mobile
 3. Verify: File stored in private S3 bucket
-4. Police officer requests evidence
+4. Admin requests evidence
 5. Verify: Signed URL generated with 5-min expiry
 6. Verify: Access audit logged
 
 ### 4. Role-Based Access
-1. Citizen tries to access police endpoint → 403
-2. Police tries to access admin endpoint → 403
-3. Officer from Station A tries to see Station B case → 403
-4. Responder tries to see victim details before acceptance → 403
+1. Citizen tries to access admin endpoint → 403
+2. Citizen tries to read another citizen's evidence → 403
+3. Responder tries to see victim details before acceptance → 403
 
 ## Test Commands
 
@@ -61,7 +60,7 @@ npm run test:unit         # Unit only
 npm run test:integration  # Integration only
 npm run test:coverage     # With coverage report
 
-# Police Portal
-cd apps/police-portal
+# Admin Portal
+cd apps/admin-portal
 npm test                  # Component tests
 ```

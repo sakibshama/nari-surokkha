@@ -15,9 +15,8 @@ interface DynamicRole {
 }
 
 const PERMISSIONS_EXPLAINED = [
-  { id: 'manage_users', label: 'Manage Users', icon: '👥', color: '#3b82f6', who: 'Admin', what: 'Allows listing, creating, editing, and deleting citizen, responder, and police accounts.' },
+  { id: 'manage_users', label: 'Manage Users', icon: '👥', color: '#3b82f6', who: 'Admin', what: 'Allows listing, creating, editing, and deleting citizen and responder accounts.' },
   { id: 'manage_admins', label: 'Manage Admins', icon: '👑', color: '#a78bfa', who: 'Super Admin', what: 'Allows creating and modifying other admin accounts and their permissions.' },
-  { id: 'manage_stations', label: 'Manage Stations', icon: '🏢', color: '#38bdf8', who: 'Admin', what: 'Allows creating, editing, and deactivating police station records in the system.' },
   { id: 'view_audit_logs', label: 'View Audit Logs', icon: '📋', color: '#34d399', who: 'Admin', what: 'Access to the full security audit trail of admin actions.' },
 ];
 

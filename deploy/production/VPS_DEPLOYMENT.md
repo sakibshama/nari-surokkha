@@ -17,7 +17,6 @@ Actions (build images → push to GHCR → SSH deploy → migrate → restart).
 | API (Fastify) | `…/api` | via nginx → `api.<domain>` |
 | ML service (FastAPI) | `…/ml-service` | internal |
 | Admin portal | `…/admin-portal` | via nginx → `admin.<domain>` |
-| Police portal | `…/police-portal` | via nginx → `police.<domain>` |
 | Nginx (TLS + proxy) | `nginx` | 80 / 443 |
 
 The **mobile app is not deployed here** — build it with EAS/Expo and point it at
@@ -29,7 +28,7 @@ The **mobile app is not deployed here** — build it with EAS/Expo and point it 
 
 - A VPS (2 vCPU / 4 GB RAM minimum) running Ubuntu 22.04+.
 - A domain with three A-records pointing at the VPS IP:
-  `api.<domain>`, `admin.<domain>`, `police.<domain>`.
+  `api.<domain>`, `admin.<domain>`.
 - This repo on GitHub.
 
 ## 1. Bootstrap the VPS
@@ -57,7 +56,7 @@ Port 80 must be free, so do this before starting nginx:
 
 ```bash
 sudo certbot certonly --standalone --cert-name <domain> \
-  -d api.<domain> -d admin.<domain> -d police.<domain>
+  -d api.<domain> -d admin.<domain>
 ```
 
 Certs land in `/etc/letsencrypt/live/<domain>/` (mounted read-only into nginx).

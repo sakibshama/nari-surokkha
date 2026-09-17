@@ -17,18 +17,15 @@
 
 import type { FastifyInstance } from 'fastify';
 
-/** The dispatch room — admins and the global police view. */
-export const DISPATCH_ROOM = 'station:dispatch';
+/** The global admin room — every admin sees every alert event. */
+export const ADMIN_ROOM = 'admin:global';
 
 /**
  * Everyone entitled to see an event about a given alert: the alert's own room
- * (its owner and assigned responders), the handling station, and global
- * dispatch. Never the whole server.
+ * (its owner and assigned responders) and the admin view. Never the whole server.
  */
-export function alertRooms(alertId: string, stationId?: string | null): string[] {
-  const rooms = [`alert:${alertId}`, DISPATCH_ROOM];
-  if (stationId) rooms.splice(1, 0, `station:${stationId}`);
-  return rooms;
+export function alertRooms(alertId: string): string[] {
+  return [`alert:${alertId}`, ADMIN_ROOM];
 }
 
 /**
@@ -38,7 +35,6 @@ export function alertRooms(alertId: string, stationId?: string | null): string[]
 export function emitToAlert(
   fastify: FastifyInstance,
   alertId: string,
-  stationId: string | null | undefined,
   event: string,
   payload: unknown,
 ): void {
@@ -46,6 +42,5 @@ export function emitToAlert(
     fastify.log.warn({ event, alertId }, 'WebSocket not initialized; skipping emit');
     return;
   }
-  const rooms = alertRooms(alertId, stationId);
-  fastify.io.to(rooms).emit(event, payload);
+  fastify.io.to(alertRooms(alertId)).emit(event, payload);
 }

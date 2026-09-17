@@ -37,10 +37,10 @@ export function incidentsRoutes(
   // Public route to get safety score
   fastify.get('/safety-score', { schema: getSafetyScoreSchema }, controller.getSafetyScore);
 
-  // Admin routes (requires police/admin role)
+  // Admin routes (requires admin role)
   fastify.register((adminRoutes, _opts, innerDone) => {
     adminRoutes.addHook('onRequest', fastify.authenticate);
-    adminRoutes.addHook('onRequest', requireRoles(['police', 'admin']));
+    adminRoutes.addHook('onRequest', requireRoles(['admin', 'superadmin']));
 
     adminRoutes.get('/admin', { schema: adminListIncidentsSchema }, controller.listIncidentsForAdmin);
     adminRoutes.patch('/:id/status', { schema: adminUpdateIncidentStatusSchema }, controller.updateIncidentStatus);

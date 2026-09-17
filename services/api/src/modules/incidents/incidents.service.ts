@@ -1,3 +1,4 @@
+import { ADMIN_ROOM } from '@/utils/alert-rooms';
 import { FastifyInstance } from 'fastify';
 import { IncidentsRepository } from './incidents.repository';
 import { IncidentType, IncidentStatus, IncidentReport } from '@prisma/client';
@@ -15,9 +16,9 @@ export class IncidentsService {
     const fuzzedLng = Math.round(longitude * 100) / 100;
     const incident = await this.repo.createIncident(type, fuzzedLat, fuzzedLng, description);
     
-    // Broadcast the new incident to the general police dispatch
+    // Broadcast the new incident to the admin view
     if (this.fastify.io) {
-      this.fastify.io.to('station:dispatch').emit('incident:created', incident);
+      this.fastify.io.to(ADMIN_ROOM).emit('incident:created', incident);
     }
     
     return incident;

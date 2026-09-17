@@ -18,17 +18,6 @@ export interface UpdateUserDTO {
   isVerified?: boolean;
 }
 
-export interface StationDTO {
-  name: string;
-  thanaCode: string;
-  district: string;
-  division: string;
-  address?: string;
-  phone?: string;
-  latitude: number;
-  longitude: number;
-}
-
 export class AdminController {
   constructor(private readonly service: AdminService) {}
 
@@ -92,26 +81,6 @@ export class AdminController {
   deleteResponder = async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     await this.service.deleteResponder(req.params.id);
     return reply.send({ success: true, message: 'Responder deleted successfully' });
-  };
-
-  listStations = async (req: FastifyRequest<{ Querystring: { search?: string; limit?: number } }>, reply: FastifyReply) => {
-    const data = await this.service.listStations(req.query.search, req.query.limit);
-    return reply.send({ success: true, data });
-  };
-
-  createStation = async (req: FastifyRequest<{ Body: StationDTO }>, reply: FastifyReply) => {
-    const station = await this.service.createStation(req.body);
-    return reply.send({ success: true, data: station });
-  };
-
-  updateStation = async (req: FastifyRequest<{ Params: { id: string }; Body: Partial<StationDTO> }>, reply: FastifyReply) => {
-    const station = await this.service.updateStation(req.params.id, req.body);
-    return reply.send({ success: true, data: station });
-  };
-
-  deleteStation = async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-    await this.service.deleteStation(req.params.id);
-    return reply.send({ success: true, message: 'Station deleted successfully' });
   };
 
   listAuditLogs = async (

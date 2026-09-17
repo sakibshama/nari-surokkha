@@ -20,7 +20,6 @@ export const LOGIN_LOCKOUT_MINUTES = 15;
 export const SOFT_ALERT_COUNTDOWN_SECONDS = 15;
 export const MAX_ACTIVE_ALERTS_PER_USER = 1;
 export const NEARBY_RESPONDER_RADIUS_METERS = 2000;
-export const NEAREST_POLICE_STATION_RADIUS_METERS = 50000; // 50 km
 
 // ─── Evidence ─────────────────────────────────────────────────
 
@@ -58,7 +57,6 @@ export const MAX_PAGE_SIZE = 100;
 
 // ─── WebSocket ────────────────────────────────────────────────
 
-export const WS_NAMESPACE_POLICE = '/police';
 export const WS_NAMESPACE_RESPONDER = '/responder';
 
 // ─── Safety Score ─────────────────────────────────────────────
@@ -101,7 +99,6 @@ export const ERROR_CODES = {
   ALERT_NOT_FOUND: 'ALERT_001',
   ALERT_ALREADY_ACTIVE: 'ALERT_002',
   ALERT_CLOSED: 'ALERT_003',
-  NO_POLICE_STATION_NEARBY: 'ALERT_004',
 
   // Evidence
   EVIDENCE_NOT_FOUND: 'EVIDENCE_001',

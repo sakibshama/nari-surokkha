@@ -108,7 +108,7 @@ USERS=$(q "SELECT count(*) FROM users;")
 check "user rows" "$USERS" ">0" "$([ "${USERS:-0}" -gt 0 ] && echo 1 || echo 0)"
 
 # 7. A spatial query runs on the restored data.
-SPATIAL_OK=$(q "SELECT CASE WHEN count(*) >= 0 THEN 1 ELSE 0 END FROM police_stations WHERE location IS NOT NULL;")
+SPATIAL_OK=$(q "SELECT CASE WHEN count(*) >= 0 THEN 1 ELSE 0 END FROM responders WHERE location IS NOT NULL;")
 check "spatial query executes" "${SPATIAL_OK:-0}" "1" "$([ "${SPATIAL_OK:-0}" = "1" ] && echo 1 || echo 0)"
 
 # 8. Migration history intact, so the app will not try to re-run everything.

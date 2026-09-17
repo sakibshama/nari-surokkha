@@ -29,7 +29,6 @@ interface User {
 
 const ROLE_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   admin:     { label: 'Admin',     color: '#a78bfa', bg: 'rgba(139,92,246,0.15)', icon: <Crown size={12} /> },
-  police:    { label: 'Police',    color: '#38bdf8', bg: 'rgba(56,189,248,0.15)',  icon: <Shield size={12} /> },
   responder: { label: 'Responder', color: '#34d399', bg: 'rgba(52,211,153,0.15)', icon: <UserCircle size={12} /> },
   citizen:   { label: 'Citizen',   color: '#94a3b8', bg: 'rgba(148,163,184,0.15)', icon: <UsersIcon size={12} /> },
 };
@@ -43,14 +42,12 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
 const ALL_PERMISSIONS = [
   { id: 'manage_users',    label: 'Manage Users',    desc: 'Create, edit, delete non-admin users', icon: '👥' },
   { id: 'manage_admins',   label: 'Manage Admins',   desc: 'Create and modify admin accounts', icon: '👑' },
-  { id: 'manage_stations', label: 'Manage Stations', desc: 'CRUD police stations', icon: '🏢' },
   { id: 'view_audit_logs', label: 'View Audit Logs', desc: 'Access security audit trail', icon: '📋' },
 ];
 
 const EMPTY_FORM = {
   phone: '', email: '', fullName: '', nationalId: '',
   role: 'citizen', password: '', permissions: [] as string[],
-  badgeNumber: '', stationId: '',
 };
 
 export default function Users() {
@@ -66,7 +63,6 @@ export default function Users() {
   const [submitting, setSubmitting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'details' | 'permissions'>('details');
-  const [stations, setStations] = useState<any[]>([]);
 
   const { user: currentUser } = useAuthStore();
   const canManageAdmins = !currentUser?.permissions || currentUser.permissions.includes('manage_admins');
@@ -88,17 +84,6 @@ export default function Users() {
   }, [search, roleFilter]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
-
-  const fetchStations = useCallback(async () => {
-    try {
-      const res = await api.get('/admin/stations');
-      setStations(res.data.data || []);
-    } catch {
-      console.error('Failed to load stations');
-    }
-  }, []);
-
-  useEffect(() => { fetchStations(); }, [fetchStations]);
 
   const handleDelete = async (id: string, name: string) => {
     if (!window.confirm(`Delete "${name}"? This action is irreversible.`)) return;
@@ -139,8 +124,6 @@ export default function Users() {
       role: typeof u.role === 'object' && u.role !== null ? (u.role as any).key : u.role,
       password: '',
       permissions: u.permissions || [],
-      badgeNumber: '',
-      stationId: '',
     });
     setActiveTab('details');
     setShowPassword(false);
@@ -189,7 +172,7 @@ export default function Users() {
   };
 
   const roleColors: Record<string, string> = {
-    admin: '#a78bfa', police: '#38bdf8', responder: '#34d399', citizen: '#94a3b8'
+    admin: '#a78bfa', responder: '#34d399', citizen: '#94a3b8'
   };
 
   const filtered = users;
@@ -255,7 +238,6 @@ export default function Users() {
         >
           <option value="">All Roles</option>
           <option value="admin">Admin</option>
-          <option value="police">Police</option>
           <option value="responder">Responder</option>
           <option value="citizen">Citizen</option>
         </select>
@@ -590,41 +572,6 @@ export default function Users() {
                         ))}
                       </div>
                     </div>
-
-                    {/* Police Fields */}
-                    {formData.role === 'police' && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Badge Number')}</label>
-                          <div style={{ position: 'relative' }}>
-                            <Shield size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                            <input
-                              type="text" required
-                              value={formData.badgeNumber}
-                              onChange={e => setFormData({ ...formData, badgeNumber: e.target.value })}
-                              placeholder="e.g. B-12345"
-                              style={{ width: '100%', padding: '9px 12px 9px 34px', background: 'var(--bg-card-alt)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 14, outline: 'none', boxSizing: 'border-box', fontFamily: 'monospace' }}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Station Assignment')}</label>
-                          <div style={{ position: 'relative' }}>
-                            <select
-                              required
-                              value={formData.stationId}
-                              onChange={e => setFormData({ ...formData, stationId: e.target.value })}
-                              style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-card-alt)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-                            >
-                              <option value="">Select a Station</option>
-                              {stations.map(st => (
-                                <option key={st.id} value={st.id}>{st.name} ({st.thanaCode})</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Password */}
                     <div>

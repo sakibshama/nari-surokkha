@@ -1,18 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, Linking, ActivityIndicator, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Alert, Linking, ActivityIndicator, ScrollView, Platform } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainStack';
 import { useLocationStore } from '../../store/locationStore';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
-import { Phone, XCircle, Camera, Wifi, Users, MapPin, Shield, VideoOff, Video } from 'lucide-react-native';
+import { Phone, XCircle, Camera, Wifi, Users, MapPin, Shield, ShieldAlert, VideoOff, Video } from 'lucide-react-native';
 import api, { fetchIceServers } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../services/backgroundTasks';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Theme, useTheme, useThemedStyles } from '../../theme';
 import { radius, spacing, type } from '../../theme/tokens';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Breathing, FadeIn, PressableScale, PulseRings } from '../../components/ui';
+import { useT, tStatic } from '../../i18n';
 let RTCPeerConnection: any;
 let RTCIceCandidate: any;
 let RTCSessionDescription: any;
@@ -41,7 +43,9 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
   // like an emergency, which is the only thing this screen has to do.
   const styles = useThemedStyles(makeStyles, 'dark');
   const { colors, gradients, shadows } = useTheme('dark');
-  void gradients; void shadows;
+  void shadows;
+  const t = useT();
+  const insets = useSafeAreaInsets();
   const { alertId } = route.params;
   const { setSosActive } = useLocationStore();
   const [locationSub, setLocationSub] = useState<Location.LocationSubscription | null>(null);
@@ -74,13 +78,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     }
   }, []);
 
-  const ringScale = useSharedValue(1);
-  const ringOpacity = useSharedValue(0.7);
-
   useEffect(() => {
-    ringScale.value = withRepeat(withTiming(1.5, { duration: 1200, easing: Easing.out(Easing.quad) }), -1, false);
-    ringOpacity.value = withRepeat(withTiming(0, { duration: 1200, easing: Easing.out(Easing.quad) }), -1, false);
-
     // Connect WebSocket — then set alert context once connected
     socketService.connect();
     
@@ -194,7 +192,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
       if (Platform.OS === 'web') {
         // Real browser geolocation — stream actual coordinates, never simulated ones.
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') { Alert.alert('Permission needed', 'Location permission required.'); return; }
+        if (status !== 'granted') { Alert.alert(tStatic('Permission needed'), tStatic('Location permission required.')); return; }
         const watcher = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.Highest, timeInterval: 5000, distanceInterval: 5 },
           (pos) => {
@@ -208,7 +206,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
         (window as any).webSosWatcher = watcher;
       } else {
         const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== 'granted') { Alert.alert('Permission needed', 'Location permission required.'); return; }
+        if (status !== 'granted') { Alert.alert(tStatic('Permission needed'), tStatic('Location permission required.')); return; }
         try {
           await startBackgroundLocationUpdates();
         } catch (e) { console.error(e); }
@@ -224,14 +222,9 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     };
   }, [alertId]);
 
-  const ringStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: ringScale.value }],
-    opacity: ringOpacity.value,
-  }));
-
   const captureEvidence = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission needed', 'Camera permission required.'); return; }
+    if (status !== 'granted') { Alert.alert(t('Permission needed'), t('Camera permission required.')); return; }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
     if (!result.canceled && result.assets?.[0]) {
       setUploading(true);
@@ -261,10 +254,10 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
             return data;
           },
         });
-        Alert.alert('Uploaded', 'Evidence secured.');
+        Alert.alert(t('Uploaded'), t('Evidence secured.'));
       } catch (e) {
         if (__DEV__) console.warn('[Evidence] upload failed', e);
-        Alert.alert('Failed', 'Upload error. Try again.');
+        Alert.alert(t('Failed'), t('Upload error. Try again.'));
       }
       finally { setUploading(false); }
     }
@@ -286,14 +279,14 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     };
 
     if (Platform.OS === 'web') {
-      const confirm = window.confirm('Cancel SOS? Are you sure you are safe?');
+      const confirm = window.confirm(`${t('Cancel SOS?')} ${t('Are you sure you are safe?')}`);
       if (confirm) {
         await proceedWithCancel();
       }
     } else {
-      Alert.alert('Cancel SOS?', 'Are you sure you are safe?', [
-        { text: 'Keep Active', style: 'cancel' },
-        { text: 'Yes, I\'m Safe', style: 'destructive', onPress: proceedWithCancel }
+      Alert.alert(t('Cancel SOS?'), t('Are you sure you are safe?'), [
+        { text: t('Keep active'), style: 'cancel' },
+        { text: t("Yes, I'm safe"), style: 'destructive', onPress: proceedWithCancel }
       ]);
     }
   };
@@ -311,44 +304,52 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
   };
 
   const STATUS = [
-    { label: 'Contacts notified via SMS', icon: Users, color: colors.success },
-    { label: 'Police station alerted', icon: Shield, color: colors.success },
-    { label: 'Live location transmitting', icon: Wifi, color: colors.info },
-    { label: 'GPS tracking active', icon: MapPin, color: colors.info },
+    { label: t('Contacts notified via SMS'), icon: Users, color: colors.success },
+    { label: t('Nearby responders alerted'), icon: Shield, color: colors.success },
+    { label: t('Live location transmitting'), icon: Wifi, color: colors.info },
+    { label: t('GPS tracking active'), icon: MapPin, color: colors.info },
   ];
 
   return (
     <LinearGradient colors={gradients.dangerBackdrop} style={styles.root} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-
-        {/* Pulsing Alert Ring */}
-        <View style={styles.alertRingContainer}>
-          <Animated.View style={[styles.alertRing, ringStyle]} />
-          <View style={styles.alertIconCircle}>
-            <LinearGradient colors={['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.05)']} style={styles.alertIconGrad}>
-              <Shield color={colors.onFill} size={44} />
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Pulsing alert beacon */}
+        <FadeIn from="zoom" style={styles.alertRingContainer}>
+          <PulseRings color={colors.danger} size={150} count={3} duration={1600} />
+          <Breathing min={0.95} max={1.05} duration={700}>
+            <LinearGradient colors={gradients.danger} style={styles.alertIconCircle}>
+              <ShieldAlert color={colors.onDanger} size={48} />
             </LinearGradient>
-          </View>
-        </View>
+          </Breathing>
+        </FadeIn>
 
-        <Text style={styles.title}>SOS ACTIVE</Text>
-        <Text style={styles.subtitle}>Broadcasting your location live to authorities and trusted contacts</Text>
+        <FadeIn delay={80} style={{ alignItems: 'center' }}>
+          <Text style={styles.title}>{t('SOS ACTIVE')}</Text>
+          <Text style={styles.subtitle}>
+            {t('Broadcasting your location live to your trusted contacts and nearby responders')}
+          </Text>
+        </FadeIn>
 
-        {/* Status Card */}
-        <View style={styles.statusCard}>
+        {/* Status */}
+        <FadeIn delay={140} style={styles.statusCard}>
           {isAudioOnly && (
             <View style={styles.audioOnlyBanner}>
-              <Text style={styles.audioOnlyText}>Audio-Only Mode Active (Saving Data & Battery)</Text>
+              <Text style={styles.audioOnlyText}>{t('Audio-only mode (saving data & battery)')}</Text>
             </View>
           )}
           {STATUS.map((s, i) => (
-            <View key={i} style={[styles.statusRow, i < STATUS.length - 1 && styles.statusRowBorder]}>
-              <View style={[styles.statusIconBox, { backgroundColor: `${s.color}20` }]}>
+            <FadeIn key={i} delay={200 + i * 70} style={[styles.statusRow, i < STATUS.length - 1 && styles.statusRowBorder]}>
+              <View style={[styles.statusIconBox, { backgroundColor: `${s.color}22` }]}>
                 <s.icon color={s.color} size={16} />
               </View>
               <Text style={styles.statusLabel}>{s.label}</Text>
-              <View style={[styles.liveDot, { backgroundColor: s.color }]} />
-            </View>
+              <Breathing min={0.7} max={1.2} duration={900 + i * 120}>
+                <View style={[styles.liveDot, { backgroundColor: s.color }]} />
+              </Breathing>
+            </FadeIn>
           ))}
           {localStream && Platform.OS !== 'web' && RTCView && (
             <View style={[styles.statusRow, { marginTop: 8 }]}>
@@ -356,91 +357,162 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
                 {/* @ts-ignore */}
                 <RTCView streamURL={localStream.toURL()} style={styles.rtcView} objectFit="cover" />
                 <View style={styles.streamOverlay}>
-                  <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>LIVE STREAM</Text></View>
+                  <View style={styles.liveBadge}>
+                    <Breathing min={0.6} max={1.2} duration={600}>
+                      <View style={styles.liveBadgeDot} />
+                    </Breathing>
+                    <Text style={styles.liveBadgeText}>{t('LIVE')}</Text>
+                  </View>
                 </View>
               </View>
             </View>
           )}
-        </View>
+        </FadeIn>
 
         {/* Call 999 */}
-        <TouchableOpacity onPress={() => Linking.openURL('tel:999')} style={styles.callWrapper} activeOpacity={0.85}>
-          <LinearGradient colors={[colors.onFill, colors.text]} style={styles.callBtn}>
-            <Phone color={colors.danger} size={24} />
-            <Text style={styles.callBtnText}>Call 999 Now</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+        <FadeIn delay={380} style={{ width: '100%' }}>
+          <PressableScale onPress={() => Linking.openURL('tel:999')} style={styles.callWrapper} accessibilityRole="button">
+            <View style={styles.callBtn}>
+              <Phone color={colors.danger} size={22} />
+              <Text style={styles.callBtnText}>{t('Call 999 now')}</Text>
+            </View>
+          </PressableScale>
+        </FadeIn>
 
-        {/* Capture Evidence */}
-        <TouchableOpacity onPress={captureEvidence} disabled={uploading} style={styles.evidenceBtn} activeOpacity={0.8}>
-          {uploading
-            ? <ActivityIndicator color={colors.onFill} />
-            : <>
+        {/* Evidence + stream mode */}
+        <FadeIn delay={440} style={styles.actionRow}>
+          <PressableScale onPress={captureEvidence} disabled={uploading} style={styles.actionBtn} accessibilityRole="button">
+            {uploading ? (
+              <ActivityIndicator color={colors.onFill} />
+            ) : (
+              <>
                 <Camera color={colors.onFill} size={20} />
-                <Text style={styles.evidenceBtnText}>Capture Photo Evidence</Text>
+                <Text style={styles.actionBtnText}>{t('Photo evidence')}</Text>
               </>
-          }
-        </TouchableOpacity>
-
-        {/* Audio Only Toggle */}
-        <TouchableOpacity onPress={toggleAudioOnly} style={styles.evidenceBtn} activeOpacity={0.8}>
-          {isAudioOnly ? <Video color={colors.onFill} size={20} /> : <VideoOff color={colors.onFill} size={20} />}
-          <Text style={styles.evidenceBtnText}>{isAudioOnly ? 'Enable Video' : 'Switch to Audio-Only Mode'}</Text>
-        </TouchableOpacity>
+            )}
+          </PressableScale>
+          <PressableScale onPress={toggleAudioOnly} style={styles.actionBtn} accessibilityRole="button">
+            {isAudioOnly ? <Video color={colors.onFill} size={20} /> : <VideoOff color={colors.onFill} size={20} />}
+            <Text style={styles.actionBtnText}>{isAudioOnly ? t('Enable video') : t('Audio only')}</Text>
+          </PressableScale>
+        </FadeIn>
 
         {/* Cancel */}
-        <TouchableOpacity onPress={cancelSos} style={styles.cancelBtn} activeOpacity={0.7}>
-          <XCircle color="rgba(255,255,255,0.5)" size={18} />
-          <Text style={styles.cancelBtnText}>I'm Safe — Cancel SOS</Text>
-        </TouchableOpacity>
+        <FadeIn delay={500}>
+          <PressableScale onPress={cancelSos} style={styles.cancelBtn} accessibilityRole="button">
+            <XCircle color={colors.textSub} size={18} />
+            <Text style={styles.cancelBtnText}>{t("I'm safe — cancel SOS")}</Text>
+          </PressableScale>
+        </FadeIn>
       </ScrollView>
     </LinearGradient>
   );
 }
 
-const makeStyles = ({ colors, shadows, gradients }: Theme) => {
-  const font = {
-    hero: { ...type.hero, color: colors.text },
-    h1: { ...type.h1, color: colors.text },
-    h2: { ...type.h2, color: colors.text },
-    h3: { ...type.h3, color: colors.text },
-    body: { ...type.body, color: colors.text },
-    sm: { ...type.sm, color: colors.textSub },
-    xs: { ...type.xs, color: colors.textMuted },
-    label: { ...type.label, color: colors.textSub },
-    regular: 'System' as const, medium: 'System' as const,
-    semiBold: 'System' as const, bold: 'System' as const,
-  };
-  void gradients;
-  return StyleSheet.create({
-  root: { flex: 1 },
-  scroll: { flexGrow: 1, alignItems: 'center', padding: spacing.lg, paddingTop: Platform.OS === 'ios' ? 80 : 60, paddingBottom: spacing.xxl },
-  alertRingContainer: { width: 160, height: 160, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.lg },
-  alertRing: { position: 'absolute', width: 160, height: 160, borderRadius: 80, borderWidth: 3, borderColor: colors.border },
-  alertIconCircle: { width: 110, height: 110, borderRadius: 55, overflow: 'hidden', borderWidth: 2, borderColor: colors.border },
-  alertIconGrad: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 44, fontWeight: 'bold', color: colors.onFill, letterSpacing: 4, marginBottom: spacing.sm, ...Platform.select({ web: { textShadow: '0px 2px 8px rgba(0,0,0,0.5)' } as object, default: { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 8 } }) },
-  subtitle: { ...font.sm, color: colors.textSub, textAlign: 'center', lineHeight: 22, marginBottom: spacing.xl, paddingHorizontal: spacing.md },
-  statusCard: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border },
-  statusRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm + 2, gap: spacing.sm },
-  statusRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
-  statusIconBox: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  statusLabel: { ...font.sm, color: colors.textSub, flex: 1 },
-  liveDot: { width: 7, height: 7, borderRadius: 4 },
-  callWrapper: { width: '100%', borderRadius: radius.xl, marginBottom: spacing.md, ...shadows.card },
-  callBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md + 2, borderRadius: radius.xl },
-  callBtnText: { ...font.h3, color: colors.danger },
-  evidenceBtn: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.xl, paddingVertical: spacing.md + 2, marginBottom: spacing.xl },
-  evidenceBtnText: { ...font.body, color: colors.onFill, fontWeight: '600' },
-  cancelBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md },
-  cancelBtnText: { ...font.sm, color: colors.textMuted },
-  // Live audio/video streaming UI (WebRTC)
-  audioOnlyBanner: { width: '100%', backgroundColor: 'rgba(234,179,8,0.15)', borderWidth: 1, borderColor: 'rgba(234,179,8,0.4)', borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm, alignItems: 'center' },
-  audioOnlyText: { ...font.xs, color: colors.warningText, fontWeight: '600', textAlign: 'center' },
-  streamContainer: { width: '100%', height: 200, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: '#000', position: 'relative' },
-  rtcView: { width: '100%', height: '100%' },
-  streamOverlay: { position: 'absolute', top: spacing.sm, left: spacing.sm },
-  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.danger, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm },
-  liveBadgeText: { ...font.xs, color: colors.onFill, fontWeight: '700', letterSpacing: 1 },
-});
-};
+const makeStyles = ({ colors, shadows }: Theme) =>
+  StyleSheet.create({
+    root: { flex: 1 },
+    scroll: { flexGrow: 1, alignItems: 'center', paddingHorizontal: spacing.lg },
+    alertRingContainer: { width: 200, height: 200, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+    alertIconCircle: {
+      width: 116,
+      height: 116,
+      borderRadius: 58,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 3,
+      borderColor: 'rgba(255,255,255,0.25)',
+      ...shadows.danger,
+    },
+    title: {
+      fontSize: 38,
+      fontWeight: '900',
+      color: colors.onFill,
+      letterSpacing: 3,
+      marginBottom: spacing.sm,
+      textAlign: 'center',
+      ...Platform.select({
+        web: { textShadow: '0px 2px 8px rgba(0,0,0,0.5)' } as object,
+        default: { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 8 },
+      }),
+    },
+    subtitle: { ...type.sm, color: colors.textSub, textAlign: 'center', lineHeight: 22, marginBottom: spacing.lg, paddingHorizontal: spacing.md },
+    statusCard: {
+      width: '100%',
+      backgroundColor: 'rgba(24,33,29,0.85)',
+      borderRadius: radius.xl - 6,
+      padding: spacing.md,
+      marginBottom: spacing.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    statusRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm + 2, gap: spacing.sm },
+    statusRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderStrong },
+    statusIconBox: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+    statusLabel: { ...type.sm, color: colors.text, flex: 1 },
+    liveDot: { width: 8, height: 8, borderRadius: 4 },
+    callWrapper: { width: '100%', borderRadius: radius.xl, marginBottom: spacing.md, ...shadows.card },
+    callBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.md + 2,
+      borderRadius: radius.xl,
+      backgroundColor: '#FFFFFF',
+    },
+    callBtnText: { ...type.h3, fontWeight: '800', color: colors.danger },
+    actionRow: { width: '100%', flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+    actionBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      backgroundColor: 'rgba(255,255,255,0.08)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.16)',
+      borderRadius: radius.lg,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.sm,
+      minHeight: 54,
+    },
+    actionBtnText: { ...type.smStrong, color: colors.onFill, flexShrink: 1 },
+    cancelBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm + 2,
+      paddingHorizontal: spacing.lg,
+      borderRadius: radius.full,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+    },
+    cancelBtnText: { ...type.smStrong, color: colors.textSub },
+    audioOnlyBanner: {
+      width: '100%',
+      backgroundColor: colors.warningSoft,
+      borderWidth: 1,
+      borderColor: colors.warning,
+      borderRadius: radius.md,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      marginBottom: spacing.sm,
+      alignItems: 'center',
+    },
+    audioOnlyText: { ...type.xs, color: colors.warningText, fontWeight: '600', textAlign: 'center' },
+    streamContainer: { width: '100%', height: 200, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: '#000', position: 'relative' },
+    rtcView: { width: '100%', height: '100%' },
+    streamOverlay: { position: 'absolute', top: spacing.sm, left: spacing.sm },
+    liveBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: colors.danger,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      borderRadius: radius.sm,
+    },
+    liveBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' },
+    liveBadgeText: { ...type.xs, color: colors.onFill, fontWeight: '800', letterSpacing: 1 },
+  });

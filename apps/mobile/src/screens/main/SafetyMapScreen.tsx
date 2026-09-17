@@ -1,209 +1,205 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as Location from 'expo-location';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { Easing, ZoomIn, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import {
+  AlertTriangle,
+  Eye,
+  Lightbulb,
+  MapPin,
+  MapPinOff,
+  ShieldAlert,
+  ShieldCheck,
+  TrendingUp,
+  UserX,
+  Wallet,
+} from 'lucide-react-native';
+
 import { MainStackParamList } from '../../navigation/MainStack';
 import api from '../../services/api';
-import * as Location from 'expo-location';
-import { AlertTriangle, ShieldCheck, ShieldAlert, TrendingUp, ChevronLeft } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Theme, useTheme, useThemedStyles } from '../../theme';
+import { useTheme } from '../../theme';
+import { useLanguage, useT } from '../../i18n';
 import { radius, spacing, type } from '../../theme/tokens';
 import type { Palette } from '../../theme/tokens';
+import { AppBar, Card, EmptyState, FadeIn, Screen, SectionLabel, Shimmer, Txt } from '../../components/ui';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'SafetyMap'>;
 
-function getScoreInfo(score: number, colors: Palette) {
-  if (score >= 75) return { label: 'Safe Area', color: colors.success, icon: ShieldCheck, gradient: [colors.successSoft, colors.success] as [string, string] };
-  if (score >= 50) return { label: 'Moderate Risk', color: colors.warning, icon: ShieldAlert, gradient: [colors.warningSoft, colors.warning] as [string, string] };
-  return { label: 'Danger Zone', color: colors.danger, icon: AlertTriangle, gradient: [colors.dangerSoft, colors.danger] as [string, string] };
+function scoreInfo(score: number, colors: Palette) {
+  if (score >= 75) return { label: 'Safe area', color: colors.success, icon: ShieldCheck, gradient: [colors.success, colors.accentPressed] as const };
+  if (score >= 50) return { label: 'Moderate risk', color: colors.warning, icon: ShieldAlert, gradient: [colors.warning, '#A8650C'] as const };
+  return { label: 'Danger zone', color: colors.danger, icon: AlertTriangle, gradient: [colors.danger, colors.dangerPressed] as const };
 }
 
 const RISK_FACTORS = [
-  { key: 'robbery', label: 'Robbery / Theft', emoji: '🔪' },
-  { key: 'harassment', label: 'Harassment', emoji: '😡' },
-  { key: 'suspicious_activity', label: 'Suspicious Activity', emoji: '👁️' },
-  { key: 'poor_lighting', label: 'Poor Lighting', emoji: '💡' },
+  { key: 'robbery', label: 'Robbery / Theft', icon: Wallet },
+  { key: 'harassment', label: 'Harassment', icon: UserX },
+  { key: 'suspicious_activity', label: 'Suspicious activity', icon: Eye },
+  { key: 'poor_lighting', label: 'Poor lighting', icon: Lightbulb },
 ];
 
-export default function SafetyMapScreen({ navigation }: Props) {
-  const styles = useThemedStyles(makeStyles);
-  const { colors, gradients, shadows } = useTheme();
-  void gradients; void shadows;
+function AnimatedBar({ pct, color, track, height = 6, delay = 0 }: { pct: number; color: string; track: string; height?: number; delay?: number }) {
+  const w = useSharedValue(0);
+  useEffect(() => {
+    w.value = withDelay(delay, withTiming(pct, { duration: 900, easing: Easing.out(Easing.cubic) }));
+  }, [delay, pct, w]);
+  const style = useAnimatedStyle(() => ({ width: `${w.value}%` }));
+  return (
+    <View style={{ height, borderRadius: height / 2, backgroundColor: track, overflow: 'hidden' }}>
+      <Animated.View style={[{ height, borderRadius: height / 2, backgroundColor: color }, style]} />
+    </View>
+  );
+}
+
+export default function SafetyMapScreen(_props: Props) {
+  const { colors, shadows } = useTheme();
+  const t = useT();
+  const { num } = useLanguage();
   const [safetyData, setSafetyData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [locationName, setLocationName] = useState('Your Area');
+  const [noLocation, setNoLocation] = useState(false);
+  const [locationName, setLocationName] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') { setLoading(false); return; }
+        if (status !== 'granted') {
+          setNoLocation(true);
+          return;
+        }
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        const [geo] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
-        if (geo) setLocationName([geo.district || geo.city, geo.region].filter(Boolean).join(', ') || 'Your Area');
-        // GET /incidents/safety-score is the real endpoint (was POST /safety/score — a route that never existed).
-        const res = await api.get('/incidents/safety-score', { params: { latitude: loc.coords.latitude, longitude: loc.coords.longitude } });
+        try {
+          const [geo] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+          if (geo) setLocationName([geo.district || geo.city, geo.region].filter(Boolean).join(', ') || null);
+        } catch {
+          /* name is cosmetic */
+        }
+        const res = await api.get('/incidents/safety-score', {
+          params: { latitude: loc.coords.latitude, longitude: loc.coords.longitude },
+        });
         setSafetyData(res.data.data);
-      } catch { /* show fallback */ }
-      finally { setLoading(false); }
+      } catch {
+        /* handled by the unavailable state below */
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
+  const header = <AppBar title={t('Safety Map')} subtitle={locationName ?? t('Your area')} />;
+
   if (loading) {
     return (
-      <LinearGradient colors={gradients.hero} style={styles.root}>
-        <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color={colors.danger} />
-          <Text style={styles.loadingText}>Scanning your area...</Text>
-        </View>
-      </LinearGradient>
+      <Screen>
+        {header}
+        <Shimmer width="100%" height={210} radius={radius.xl} />
+        <View style={{ height: spacing.lg }} />
+        <Shimmer width="100%" height={260} radius={radius.lg} />
+      </Screen>
     );
   }
 
-  const score = safetyData?.score ?? 72;
-  const factors = safetyData?.factors ?? {};
-  const { label, color, icon: Icon, gradient } = getScoreInfo(score, colors);
+  // Never invent a score for a safety decision: show that it is unavailable.
+  if (noLocation || typeof safetyData?.score !== 'number') {
+    return (
+      <Screen>
+        {header}
+        <Card>
+          <EmptyState
+            icon={<MapPinOff color={colors.textMuted} size={30} />}
+            title={noLocation ? t('Location is off') : t('Safety score unavailable')}
+            message={
+              noLocation
+                ? t('Allow location access to see how safe your area is.')
+                : t('We could not load the score right now. Check your connection and try again.')
+            }
+          />
+        </Card>
+      </Screen>
+    );
+  }
+
+  const score: number = safetyData.score;
+  const factors = safetyData.factors ?? {};
+  const info = scoreInfo(score, colors);
 
   return (
-    <LinearGradient colors={gradients.hero} style={styles.root}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Nav Header */}
-        <View style={styles.navHeader}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navBackBtn} activeOpacity={0.7}>
-            <ChevronLeft color={colors.text} size={24} />
-          </TouchableOpacity>
-          <View style={styles.navCenter}>
-            <Text style={styles.navTitle}>Safety Map</Text>
-            <Text style={styles.navSub}>{locationName}</Text>
-          </View>
-          <View style={{ width: 40 }} />
-        </View>
+    <Screen>
+      {header}
 
-        {/* Score Card */}
-        <LinearGradient colors={gradient} style={styles.scoreCard} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-          <View style={styles.scoreCardContent}>
-            <View style={styles.scoreLeft}>
-              <Text style={styles.scoreNum}>{score}</Text>
-              <Text style={styles.scoreSlash}>/100</Text>
+      <FadeIn from="zoom">
+        <LinearGradient
+          colors={info.gradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[{ borderRadius: radius.xl, padding: spacing.lg }, shadows.card]}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+              <Animated.Text entering={ZoomIn.delay(150).springify()} style={{ fontSize: 76, fontWeight: '900', color: '#fff', lineHeight: 80 }}>
+                {num(score)}
+              </Animated.Text>
+              <Text style={[type.h2, { color: 'rgba(255,255,255,0.75)', marginBottom: spacing.sm }]}>/{num(100)}</Text>
             </View>
-            <View style={styles.scoreRight}>
-              <View style={[styles.iconCircle, { backgroundColor: colors.surfaceAlt }]}>
-                <Icon color={colors.onFill} size={36} />
+            <View style={{ alignItems: 'flex-end', gap: spacing.xs }}>
+              <View style={{ width: 62, height: 62, borderRadius: 31, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.2)' }}>
+                <info.icon color="#fff" size={32} />
               </View>
-              <Text style={styles.scoreLabel}>{label}</Text>
-              <View style={styles.scorePill}>
-                <TrendingUp color="rgba(255,255,255,0.8)" size={12} />
-                <Text style={styles.scorePillText}>30-day average</Text>
+              <Text style={[type.h3, { color: '#fff', fontWeight: '800' }]}>{t(info.label)}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                <TrendingUp color="#fff" size={12} />
+                <Text style={[type.xs, { color: '#fff' }]}>{t('30-day average')}</Text>
               </View>
             </View>
           </View>
-
-          {/* Score Bar */}
-          <View style={styles.barBg}>
-            <View style={[styles.barFill, { width: `${score}%` as any, backgroundColor: colors.surface }]} />
-          </View>
+          <AnimatedBar pct={score} color="#fff" track="rgba(255,255,255,0.25)" delay={200} />
         </LinearGradient>
+      </FadeIn>
 
-        {/* Risk Breakdown */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>RISK FACTORS · LAST 30 DAYS · 2KM RADIUS</Text>
-          <View style={styles.factorsCard}>
-            {RISK_FACTORS.map((f, i) => {
-              const count = factors[f.key] ?? 0;
-              const barPct = Math.min(100, count * 10);
-              return (
-                <View key={f.key} style={[styles.factorRow, i < RISK_FACTORS.length - 1 && styles.factorBorder]}>
-                  <Text style={styles.factorEmoji}>{f.emoji}</Text>
-                  <View style={styles.factorBody}>
-                    <View style={styles.factorTopRow}>
-                      <Text style={styles.factorLabel}>{f.label}</Text>
-                      <Text style={[styles.factorCount, { color: count === 0 ? colors.success : count < 3 ? colors.warning : colors.danger }]}>
-                        {count} report{count !== 1 ? 's' : ''}
-                      </Text>
-                    </View>
-                    <View style={styles.miniBarBg}>
-                      <View style={[styles.miniBarFill, {
-                        width: `${barPct}%` as any,
-                        backgroundColor: count === 0 ? colors.success : count < 3 ? colors.warning : colors.danger,
-                      }]} />
-                    </View>
-                  </View>
+      <SectionLabel>{t('Risk factors · last 30 days · 2 km')}</SectionLabel>
+      <Card padded={false} delay={120}>
+        {RISK_FACTORS.map((f, i) => {
+          const count: number = factors[f.key] ?? 0;
+          const c = count === 0 ? colors.success : count < 3 ? colors.warning : colors.danger;
+          const cText = count === 0 ? colors.successText : count < 3 ? colors.warningText : colors.dangerText;
+          return (
+            <View
+              key={f.key}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: spacing.md,
+                gap: spacing.md,
+                borderBottomWidth: i < RISK_FACTORS.length - 1 ? 1 : 0,
+                borderBottomColor: colors.border,
+              }}
+            >
+              <View style={{ width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+                <f.icon color={cText} size={18} />
+              </View>
+              <View style={{ flex: 1, gap: spacing.sm }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Txt variant="body">{t(f.label)}</Txt>
+                  <Txt variant="smStrong" style={{ color: cText }}>
+                    {t(count === 1 ? '{n} report' : '{n} reports', { n: count })}
+                  </Txt>
                 </View>
-              );
-            })}
-          </View>
-        </View>
+                <AnimatedBar pct={Math.min(100, count * 10)} color={c} track={colors.border} height={5} delay={300 + i * 100} />
+              </View>
+            </View>
+          );
+        })}
+      </Card>
 
-        {/* Tip */}
-        <View style={styles.tipBox}>
-          <Text style={styles.tipIcon}>💡</Text>
-          <Text style={styles.tipText}>Scores are based on verified police reports and community incident submissions within your area.</Text>
-        </View>
-      </ScrollView>
-    </LinearGradient>
+      <Card delay={220} style={{ marginTop: spacing.md, flexDirection: 'row', gap: spacing.sm }}>
+        <MapPin color={colors.accentText} size={16} />
+        <Txt variant="sm" tone="muted" style={{ flex: 1 }}>
+          {t('Scores are based on verified community incident reports within your area.')}
+        </Txt>
+      </Card>
+    </Screen>
   );
 }
-
-const makeStyles = ({ colors, shadows, gradients }: Theme) => {
-  const font = {
-    hero: { ...type.hero, color: colors.text },
-    h1: { ...type.h1, color: colors.text },
-    h2: { ...type.h2, color: colors.text },
-    h3: { ...type.h3, color: colors.text },
-    body: { ...type.body, color: colors.text },
-    sm: { ...type.sm, color: colors.textSub },
-    xs: { ...type.xs, color: colors.textMuted },
-    label: { ...type.label, color: colors.textSub },
-    regular: 'System' as const, medium: 'System' as const,
-    semiBold: 'System' as const, bold: 'System' as const,
-  };
-  void gradients;
-  return StyleSheet.create({
-  root: { flex: 1 },
-  loadingBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
-  loadingText: { ...font.body, color: colors.textMuted },
-  scroll: { flexGrow: 1, padding: spacing.lg, paddingTop: spacing.xl, paddingBottom: spacing.xxl },
-  navHeader: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 52 : 40, paddingBottom: 12,
-    paddingHorizontal: spacing.md, gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  navBackBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  navCenter: { flex: 1 },
-  navTitle: { ...font.h3, color: colors.text },
-  navSub: { ...font.xs, color: colors.textMuted, marginTop: 2 },
-  scoreCard: { borderRadius: radius.xl, padding: spacing.xl, marginBottom: spacing.xl, ...shadows.card },
-  scoreCardContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
-  scoreLeft: { flexDirection: 'row', alignItems: 'flex-end' },
-  scoreNum: { fontSize: 80, fontWeight: 'bold', color: colors.onFill, lineHeight: 84 },
-  scoreSlash: { ...font.h2, color: colors.textSub, marginBottom: spacing.sm },
-  scoreRight: { alignItems: 'flex-end' },
-  iconCircle: { width: 70, height: 70, borderRadius: 35, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
-  scoreLabel: { ...font.h2, color: colors.onFill, marginBottom: spacing.xs },
-  scorePill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surfaceAlt, borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  scorePillText: { ...font.xs, color: colors.textSub },
-  barBg: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceAlt },
-  barFill: { height: 6, borderRadius: 3 },
-  section: { marginBottom: spacing.lg },
-  sectionLabel: { ...font.label, textTransform: 'uppercase', marginBottom: spacing.sm },
-  factorsCard: { backgroundColor: colors.surface, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', ...shadows.card },
-  factorRow: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, gap: spacing.md },
-  factorBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
-  factorEmoji: { fontSize: 24, width: 32, textAlign: 'center' },
-  factorBody: { flex: 1 },
-  factorTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
-  factorLabel: { ...font.body, color: colors.text },
-  factorCount: { ...font.sm, fontWeight: '700' },
-  miniBarBg: { height: 4, borderRadius: 2, backgroundColor: colors.border },
-  miniBarFill: { height: 4, borderRadius: 2 },
-  tipBox: { flexDirection: 'row', gap: spacing.sm, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md },
-  tipIcon: { fontSize: 18 },
-  tipText: { ...font.sm, color: colors.textMuted, flex: 1, lineHeight: 20 },
-});
-};

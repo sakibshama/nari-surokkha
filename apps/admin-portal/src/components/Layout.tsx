@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Users, UserCheck, Building2,
+  LayoutDashboard, Users, UserCheck,
   Activity, Settings, LogOut, Menu, X,
   Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, Languages
 } from 'lucide-react';
@@ -22,7 +22,6 @@ const NAV_MAIN: NavItemDef[] = [
   { label: 'Users',            icon: Users,        path: '/users', permission: 'manage_users' },
   { label: 'Role Management',  icon: ShieldCheck,  path: '/roles', permission: 'manage_users' },
   { label: 'Responders',       icon: UserCheck,    path: '/responders', permission: 'manage_users' },
-  { label: 'Police Stations', icon: Building2,       path: '/police-stations', permission: 'manage_stations' },
   { label: 'Incident Reports', icon: AlertTriangle,   path: '/incidents' },
   { label: 'Analytics',       icon: BarChart3,       path: '/analytics' },
 ];
@@ -155,7 +154,6 @@ export default function Layout() {
     '/users': 'User Management',
     '/roles': 'Role Management',
     '/responders': 'Responders',
-    '/police-stations': 'Police Stations',
     '/incidents': 'Incident Reports',
     '/analytics': 'City Safety Analytics',
     '/audit-logs': 'Audit Logs',

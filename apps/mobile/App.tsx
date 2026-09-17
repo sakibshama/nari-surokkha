@@ -11,6 +11,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import AnimatedSplash from './src/components/AnimatedSplash';
 import { ThemeProvider, useTheme } from './src/theme';
+import { useLanguageStore, useT } from './src/i18n';
 
 LogBox.ignoreLogs(['Attempted to import the module', 'event-target-shim']);
 
@@ -23,8 +24,14 @@ LogBox.ignoreLogs(['Attempted to import the module', 'event-target-shim']);
  */
 function AppShell() {
   const { colors, isDark } = useTheme();
+  const t = useT();
   const [isConnected, setIsConnected] = useState<boolean | null>(true);
   const [splashDone, setSplashDone] = useState(false);
+
+  useEffect(() => {
+    // Restore the saved language before the first real screen paints.
+    useLanguageStore.getState().hydrate();
+  }, []);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => setIsConnected(state.isConnected));
@@ -33,7 +40,7 @@ function AppShell() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
-      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.bg} />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <View
         style={[
           styles.container,
@@ -59,7 +66,7 @@ function AppShell() {
           >
             <WifiOff color={colors.warningText} size={14} style={{ marginRight: 8 }} />
             <Text style={[styles.offlineText, { color: colors.warningText }]}>
-              No internet — SOS will fall back to SMS
+              {t('No internet — SOS will fall back to SMS')}
             </Text>
           </View>
         )}

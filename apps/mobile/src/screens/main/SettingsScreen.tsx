@@ -3,7 +3,7 @@ import { Alert, Switch, View } from 'react-native';
 import {
   Activity,
   Bell,
-  ChevronRight,
+  Languages,
   Lock,
   LogOut,
   Mic,
@@ -12,15 +12,18 @@ import {
   Shield,
 } from 'lucide-react-native';
 
-import { Screen, Card, ListRow, RowDivider, SectionLabel, Txt, Button, AppBar } from '../../components/ui';
+import { Screen, Card, ListRow, RowDivider, SectionLabel, Txt, Button, AppBar, FadeIn } from '../../components/ui';
 import ThemeModeControl from '../../components/ThemeModeControl';
+import LanguageToggle from '../../components/LanguageToggle';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useTheme } from '../../theme';
+import { useT } from '../../i18n';
 import { spacing } from '../../theme/tokens';
 
 export default function SettingsScreen() {
   const { colors } = useTheme();
+  const t = useT();
   const { logout } = useAuthStore();
   const {
     mlVoiceEnabled,
@@ -31,9 +34,7 @@ export default function SettingsScreen() {
     setMlDataSharingEnabled,
   } = useSettingsStore();
 
-  // TODO: these two are still local-only — the switch moves but nothing
-  // downstream reads it. Wiring them to the notification registration and the
-  // background location task is tracked separately.
+  // TODO: these two are still local-only — nothing downstream reads them yet.
   const [notifications, setNotifications] = useState(true);
   const [locationSharing, setLocationSharing] = useState(true);
 
@@ -48,98 +49,105 @@ export default function SettingsScreen() {
   );
 
   const confirmLogout = () => {
-    Alert.alert('Log out?', 'You will stop receiving alerts on this device until you sign in again.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Log out', style: 'destructive', onPress: logout },
+    Alert.alert(t('Log out?'), t('You will stop receiving alerts on this device until you sign in again.'), [
+      { text: t('Cancel'), style: 'cancel' },
+      { text: t('Log out'), style: 'destructive', onPress: logout },
     ]);
   };
 
   return (
     <Screen>
-      <AppBar title="Settings" subtitle="Appearance, alerts and detection" />
+      <AppBar title={t('Settings')} subtitle={t('Appearance, language, alerts and detection')} />
 
       {/* ── Appearance ─────────────────────────────────────────────── */}
-      <SectionLabel>Appearance</SectionLabel>
-      <Card padded={false}>
+      <SectionLabel>{t('Appearance')}</SectionLabel>
+      <Card padded={false} delay={40}>
         <ListRow
-          title="Theme"
-          subtitle="Choose light, dark, or match your phone"
+          title={t('Theme')}
+          subtitle={t('Choose light, dark, or match your phone')}
           icon={<Palette size={19} color={colors.accent} />}
           chevron={false}
         />
         <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
           <ThemeModeControl />
         </View>
+        <RowDivider />
+        <ListRow
+          title={t('Language')}
+          subtitle={t('English or Bangla, for every screen')}
+          icon={<Languages size={19} color={colors.accent} />}
+          chevron={false}
+        />
+        <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
+          <LanguageToggle size="md" />
+        </View>
       </Card>
 
       {/* ── Alerts ─────────────────────────────────────────────────── */}
-      <SectionLabel>Alerts</SectionLabel>
-      <Card padded={false}>
+      <SectionLabel>{t('Alerts')}</SectionLabel>
+      <Card padded={false} delay={100}>
         <ListRow
-          title="Push notifications"
-          subtitle="Dispatch updates and responder replies"
+          title={t('Push notifications')}
+          subtitle={t('Dispatch updates and responder replies')}
           icon={<Bell size={19} color={colors.accent} />}
           right={themedSwitch(notifications, setNotifications)}
         />
         <RowDivider />
         <ListRow
-          title="Background location"
-          subtitle="Shared only while an SOS is active"
+          title={t('Background location')}
+          subtitle={t('Shared only while an SOS is active')}
           icon={<Shield size={19} color={colors.accent} />}
           right={themedSwitch(locationSharing, setLocationSharing)}
         />
       </Card>
 
       {/* ── On-device detection ────────────────────────────────────── */}
-      <SectionLabel>On-device detection</SectionLabel>
-      <Card padded={false}>
+      <SectionLabel>{t('On-device detection')}</SectionLabel>
+      <Card padded={false} delay={160}>
         <ListRow
-          title="Voice distress detection"
-          subtitle="Runs on this phone. Audio never leaves the device."
+          title={t('Voice distress detection')}
+          subtitle={t('Runs on this phone. Audio never leaves the device.')}
           icon={<Mic size={19} color={colors.accent} />}
           right={themedSwitch(mlVoiceEnabled, setMlVoiceEnabled)}
         />
         <RowDivider />
         <ListRow
-          title="Fall & struggle detection"
-          subtitle="Uses the motion sensors to spot a sudden fall"
+          title={t('Fall & struggle detection')}
+          subtitle={t('Uses the motion sensors to spot a sudden fall')}
           icon={<Activity size={19} color={colors.accent} />}
           right={themedSwitch(mlGyroEnabled, setMlGyroEnabled)}
         />
         <RowDivider />
         <ListRow
-          title="Help improve detection"
-          subtitle="Share anonymised sensor windows. Optional."
+          title={t('Help improve detection')}
+          subtitle={t('Share anonymised sensor windows. Optional.')}
           icon={<Share2 size={19} color={colors.accent} />}
           right={themedSwitch(mlDataSharingEnabled, setMlDataSharingEnabled)}
         />
       </Card>
 
       {/* ── Account ────────────────────────────────────────────────── */}
-      <SectionLabel>Account</SectionLabel>
-      <Card padded={false}>
+      <SectionLabel>{t('Account')}</SectionLabel>
+      <Card padded={false} delay={220}>
         <ListRow
-          title="Change password"
+          title={t('Change password')}
           icon={<Lock size={19} color={colors.accent} />}
-          right={<ChevronRight size={18} color={colors.textMuted} />}
-          onPress={() =>
-            Alert.alert('Change password', 'This opens the password form once it is wired up.')
-          }
+          onPress={() => Alert.alert(t('Change password'), t('This opens the password form once it is wired up.'))}
         />
       </Card>
 
-      <View style={{ marginTop: spacing.xl, gap: spacing.sm }}>
+      <FadeIn delay={280} style={{ marginTop: spacing.xl, gap: spacing.sm }}>
         <Button
-          label="Log out"
+          label={t('Log out')}
           variant="subtle"
           onPress={confirmLogout}
           icon={<LogOut size={17} color={colors.dangerText} />}
           labelColor={colors.dangerText}
         />
         <Txt variant="xs" tone="muted" center>
-          নারী সুরক্ষা · National Women Safety Service
+          নারী সুরক্ষা · {t('National Women Safety Service')}
         </Txt>
-      </View>
+      </FadeIn>
     </Screen>
   );
 }

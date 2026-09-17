@@ -1,5 +1,10 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ThemeToggle from '../components/ThemeToggle';
+import LanguageToggle from '../components/LanguageToggle';
+import { PressableScale } from '../components/ui/motion';
+import { useT, tStatic } from '../i18n';
 import { createNativeStackNavigator, NativeStackNavigationOptions } from '@react-navigation/native-stack';
 import { NativeStackHeaderProps } from '@react-navigation/native-stack';
 import HomeScreen from '../screens/main/HomeScreen';
@@ -40,41 +45,33 @@ export type MainStackParamList = {
   Settings: undefined;
 };
 
-// ─── Custom Premium Header ───────────────────────────────────────────────────
+// ─── Header ──────────────────────────────────────────────────────────────────
 function CustomHeader({ navigation, route, options, back }: NativeStackHeaderProps) {
-  // Its own hooks: this is a sibling of MainStack, not nested inside it, so it
-  // cannot see the styles or palette declared there.
+  // Its own hooks: this is a sibling of MainStack, not nested inside it.
   const styles = useThemedStyles(makeStyles);
   const { colors } = useTheme();
-  const title = options.title ?? route.name;
+  const t = useT();
+  const insets = useSafeAreaInsets();
+  const title = t(options.title ?? route.name);
   return (
-    <View style={styles.headerContainer}>
-      {/* Left: Back button or Menu */}
-      <View style={styles.headerSide}>
-        {back ? (
-          <TouchableOpacity
-            onPress={navigation.goBack}
-            style={styles.backBtn}
-            activeOpacity={0.7}
-          >
-            <ChevronLeft color={colors.text} size={24} />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
-            style={styles.backBtn}
-            activeOpacity={0.7}
-          >
-            <Menu color={colors.text} size={24} />
-          </TouchableOpacity>
-        )}
+    <View style={[styles.headerContainer, { paddingTop: insets.top + 6 }]}>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={back ? t('Go back') : t('Open menu')}
+        onPress={back ? navigation.goBack : () => navigation.dispatch(DrawerActions.openDrawer())}
+        style={styles.iconBtn}
+        hitSlop={6}
+      >
+        {back ? <ChevronLeft color={colors.text} size={22} /> : <Menu color={colors.text} size={22} />}
+      </PressableScale>
+
+      {/* Each screen shows its own large animated title, so the bar stays clean. */}
+      <View style={{ flex: 1 }} accessibilityRole="header" accessibilityLabel={title} />
+
+      <View style={styles.headerRight}>
+        <LanguageToggle />
+        <ThemeToggle size={38} />
       </View>
-
-      {/* Center: Title */}
-      <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
-
-      {/* Right: Placeholder to keep title centered */}
-      <View style={styles.headerSide} />
     </View>
   );
 }
@@ -82,6 +79,7 @@ function CustomHeader({ navigation, route, options, back }: NativeStackHeaderPro
 // ─── Global screen options ────────────────────────────────────────────────────
 const globalOptions: NativeStackNavigationOptions = {
   header: (props) => <CustomHeader {...props} />,
+  animation: 'slide_from_right',
 };
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
@@ -115,15 +113,15 @@ export default function MainStack() {
           }
         } catch (e) { console.warn('Web Audio beep failed', e); }
         
-        const go = window.confirm('🚨 EMERGENCY DISPATCH\n\nA citizen nearby has triggered an SOS! Tap OK to respond.');
+        const go = window.confirm(`🚨 ${tStatic('EMERGENCY DISPATCH')}\n\n${tStatic('A citizen nearby has triggered an SOS! Tap OK to respond.')}`);
         if (go) {
           navigation.navigate('ResponderHub');
         }
       } else {
         await Notifications.scheduleNotificationAsync({
           content: {
-            title: '🚨 EMERGENCY DISPATCH',
-            body: 'A citizen nearby has triggered an SOS! Tap to respond.',
+            title: `🚨 ${tStatic('EMERGENCY DISPATCH')}`,
+            body: tStatic('A citizen nearby has triggered an SOS! Tap to respond.'),
             sound: true,
             priority: Notifications.AndroidNotificationPriority.MAX,
             data: { screen: 'ResponderHub', dispatchId: dispatchData.id },
@@ -163,39 +161,39 @@ export default function MainStack() {
       <Stack.Screen
         name="ActiveSos"
         component={ActiveSosScreen}
-        options={{ headerShown: false, gestureEnabled: false }}
+        options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }}
       />
       {/* Soft Alert — full-screen modal */}
       <Stack.Screen
         name="SoftAlert"
         component={SoftAlertScreen}
-        options={{ headerShown: false, presentation: 'fullScreenModal' }}
+        options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade_from_bottom' }}
       />
-      {/* Secondary screens — show custom dark header */}
+      {/* Secondary screens share the themed header (back + language + theme). */}
       <Stack.Screen
         name="TrustedContacts"
         component={TrustedContactsScreen}
-        options={{ title: 'Trusted Contacts', headerShown: false }}
+        options={{ title: 'Trusted Contacts' }}
       />
       <Stack.Screen
         name="ProfileSetup"
         component={ProfileSetupScreen}
-        options={{ title: 'Profile', headerShown: false }}
+        options={{ title: 'Profile' }}
       />
       <Stack.Screen
         name="ResponderHub"
         component={ResponderHubScreen}
-        options={{ title: 'Responder Hub', headerShown: false }}
+        options={{ title: 'Responder Hub' }}
       />
       <Stack.Screen
         name="ReportIncident"
         component={ReportIncidentScreen}
-        options={{ title: 'Report Incident', headerShown: false }}
+        options={{ title: 'Report Incident' }}
       />
       <Stack.Screen
         name="SafetyMap"
         component={SafetyMapScreen}
-        options={{ title: 'Safety Map', headerShown: false }}
+        options={{ title: 'Safety Map' }}
       />
       <Stack.Screen
         name="FakeCall"
@@ -210,7 +208,7 @@ export default function MainStack() {
       <Stack.Screen
         name="SafeRoute"
         component={SafeRouteScreen}
-        options={{ title: 'Safe Route Tracking' }}
+        options={{ title: 'Safe Route' }}
       />
       <Stack.Screen
         name="SmsHistory"
@@ -225,60 +223,37 @@ export default function MainStack() {
       <Stack.Screen
         name="Settings"
         component={SettingsScreen}
-        options={{ title: 'Settings & Privacy' }}
+        options={{ title: 'Settings' }}
       />
     </Stack.Navigator>
   );
 }
 
-const makeStyles = ({ colors, shadows, gradients }: Theme) => {
-  const font = {
-    hero: { ...type.hero, color: colors.text },
-    h1: { ...type.h1, color: colors.text },
-    h2: { ...type.h2, color: colors.text },
-    h3: { ...type.h3, color: colors.text },
-    body: { ...type.body, color: colors.text },
-    sm: { ...type.sm, color: colors.textSub },
-    xs: { ...type.xs, color: colors.textMuted },
-    label: { ...type.label, color: colors.textSub },
-    regular: 'System' as const, medium: 'System' as const,
-    semiBold: 'System' as const, bold: 'System' as const,
-  };
-  void gradients;
-  return StyleSheet.create({
-  headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.bg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingTop: Platform.OS === 'ios' ? 0 : 8,
-    paddingBottom: 12,
-    paddingHorizontal: spacing.md,
-    height: Platform.OS === 'ios' ? 52 : 60,
-  },
-  headerSide: {
-    width: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    ...font.h3,
-    color: colors.text,
-    flex: 1,
-    textAlign: 'center',
-    letterSpacing: 0.3,
-  },
-});
-};
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    headerContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      backgroundColor: colors.bg,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      paddingBottom: 10,
+      paddingHorizontal: spacing.md,
+    },
+    iconBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.full,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+  });

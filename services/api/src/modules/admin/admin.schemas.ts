@@ -4,7 +4,7 @@ export const adminListUsersSchema = {
   querystring: {
     type: 'object',
     properties: {
-      role: { type: 'string', enum: ['citizen', 'police', 'admin'] },
+      role: { type: 'string', enum: ['citizen', 'responder', 'admin'] },
       limit: { type: 'number', default: 50 },
       offset: { type: 'number', default: 0 },
     }

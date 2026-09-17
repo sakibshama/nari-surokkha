@@ -65,6 +65,7 @@ export enum AlertStatus {
   CREATED = 'created',
   CONFIRMED = 'confirmed',
   NOTIFIED_CONTACTS = 'notified_contacts',
+  // Legacy values kept for DB enum parity (police module retired).
   SENT_TO_POLICE = 'sent_to_police',
   ACKNOWLEDGED_BY_POLICE = 'acknowledged_by_police',
   IN_PROGRESS = 'in_progress',
@@ -147,63 +148,11 @@ export interface Responder {
   updatedAt: string;
 }
 
-// ─── Police ───────────────────────────────────────────────────
-
-export interface PoliceStation {
-  id: string;
-  name: string;
-  thanaCode: string;
-  district: string;
-  division: string;
-  latitude: number;
-  longitude: number;
-  phone: string;
-  isActive: boolean;
-}
-
-export enum PoliceUserRole {
-  OFFICER = 'officer',
-  SUPERVISOR = 'supervisor',
-  ADMIN = 'admin',
-}
-
-export interface PoliceUser {
-  id: string;
-  stationId: string;
-  badgeNumber: string;
-  fullName: string;
-  role: PoliceUserRole;
-  isActive: boolean;
-}
-
-// ─── Cases ────────────────────────────────────────────────────
-
-export enum CaseStatus {
-  OPEN = 'open',
-  ASSIGNED = 'assigned',
-  IN_PROGRESS = 'in_progress',
-  RESOLVED = 'resolved',
-  CLOSED = 'closed',
-  FALSE_ALARM = 'false_alarm',
-}
-
-export interface Case {
-  id: string;
-  alertId: string;
-  stationId: string;
-  assignedOfficerId?: string;
-  status: CaseStatus;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 // ─── Notifications ────────────────────────────────────────────
 
 export enum NotificationType {
   SOS_ALERT = 'sos_alert',
   LOCATION_UPDATE = 'location_update',
-  CASE_UPDATE = 'case_update',
   RESPONDER_ACCEPTED = 'responder_accepted',
   SYSTEM = 'system',
 }
@@ -226,8 +175,7 @@ export enum WsEvent {
   RESPONDER_NEARBY = 'responder_nearby',
 
   // Client → Server
-  JOIN_STATION_ROOM = 'join_station_room',
-  LEAVE_STATION_ROOM = 'leave_station_room',
+  JOIN_ADMIN_ROOM = 'join:admin',
   ACKNOWLEDGE_ALERT = 'acknowledge_alert',
 }
 

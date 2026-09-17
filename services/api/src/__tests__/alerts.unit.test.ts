@@ -33,9 +33,11 @@ describe('AlertsService', () => {
         error: vi.fn(),
       },
       queues: {
-        notifications: { add: vi.fn() },
+        // The service now bounds every enqueue with a timeout, so these must
+        // resolve like the real BullMQ Queue.add() does.
+        notifications: { add: vi.fn().mockResolvedValue({ id: 'job-notify' }) },
         // The heavy fan-out now goes here instead of running on the request.
-        dispatch: { add: vi.fn() },
+        dispatch: { add: vi.fn().mockResolvedValue({ id: 'job-dispatch' }) },
       },
       prisma: {
         responderDispatch: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },

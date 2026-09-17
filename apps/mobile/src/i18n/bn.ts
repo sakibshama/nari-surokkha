@@ -453,4 +453,24 @@ export const bn: Record<string, string> = {
   'Account': 'অ্যাকাউন্ট',
   'Change password': 'পাসওয়ার্ড পরিবর্তন',
   'This opens the password form once it is wired up.': 'এই সুবিধাটি শিগগিরই চালু হবে।',
+
+  // ── Home shortcuts & connection check ──
+  'Tap to open': 'খুলতে ট্যাপ করুন',
+  'Share your walk home and get warned if you stray off it':
+    'বাড়ি ফেরার পথ শেয়ার করুন, পথ থেকে সরে গেলে সতর্কবার্তা পাবেন',
+  'Photos you captured': 'আপনার তোলা ছবি',
+  'Contacts not texted yet': 'পরিচিতজনদের এখনো এসএমএস যায়নি',
+  'Your alert is live, but the server could not text your contacts. Send the SMS from this phone?':
+    'আপনার সতর্কবার্তা চালু আছে, তবে সার্ভার পরিচিতজনদের এসএমএস পাঠাতে পারেনি। এই ফোন থেকে এসএমএস পাঠাবেন?',
+  'Not now': 'এখন নয়',
+  'Send SMS': 'এসএমএস পাঠান',
+  'Connection': 'সংযোগ',
+  'Check server connection': 'সার্ভার সংযোগ পরীক্ষা করুন',
+  'Server reachable': 'সার্ভারে সংযোগ আছে',
+  'The app can send an SOS.': 'অ্যাপটি SOS পাঠাতে পারবে।',
+  'Unexpected reply': 'অপ্রত্যাশিত উত্তর',
+  'The server answered, but not as expected. Check the API URL.':
+    'সার্ভার উত্তর দিয়েছে, তবে প্রত্যাশিতভাবে নয়। API ঠিকানা পরীক্ষা করুন।',
+  'Cannot reach the server': 'সার্ভারে পৌঁছানো যাচ্ছে না',
+  'No response.': 'কোনো উত্তর পাওয়া যায়নি।',
 };

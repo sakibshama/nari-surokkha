@@ -11,6 +11,9 @@ const alertProperties = {
   longitude: { type: 'number' },
   accuracy: { type: 'number', nullable: true },
   assignedStationId: { type: 'string', format: 'uuid', nullable: true },
+  // True when the server could not queue the trusted-contact SMS (Redis down).
+  // The app uses it to offer sending the emergency SMS from the phone instead.
+  degradedNotifications: { type: 'boolean', nullable: true },
   createdAt: { type: 'string', format: 'date-time' },
   updatedAt: { type: 'string', format: 'date-time' },
 };

@@ -27,6 +27,7 @@ import Animated, {
 import {
   Activity,
   AlertTriangle,
+  Archive,
   ChevronRight,
   Map as MapIcon,
   Menu,
@@ -44,7 +45,7 @@ import { MainStackParamList } from '../../navigation/MainStack';
 import { useAuthStore } from '../../store/authStore';
 import { useLocationStore } from '../../store/locationStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import api from '../../services/api';
+import api, { describeApiTarget, previewBody } from '../../services/api';
 import { sensorProcessor } from '../../services/ml/SensorProcessor';
 import { audioProcessor } from '../../services/ml/AudioProcessor';
 import { motionModelLoader } from '../../services/ml/ModelLoader';
@@ -62,24 +63,36 @@ import { Breathing, FadeIn, PressableScale, PulseRings, Txt } from '../../compon
 
 type Props = NativeStackScreenProps<MainStackParamList, 'Home'>;
 
+type Tint = 'accent' | 'info' | 'success' | 'warning' | 'gov';
+
 type Action = {
   id: string;
   label: string;
   hint: string;
   icon: React.ComponentType<{ color: string; size: number }>;
+  tint: Tint;
 };
 
 /**
- * One accent for every tile: the SOS stays the only saturated object on the
- * screen, which is the whole point of the layout.
+ * Shortcuts carry their own colour so the grid reads as six distinct tools
+ * rather than six identical cards — but they stay inside the palette, and none
+ * of them is red. Red is the SOS button's alone.
  */
+const FEATURED: Action = {
+  id: 'route',
+  label: 'Safe Route',
+  hint: 'Share your walk home and get warned if you stray off it',
+  icon: Navigation,
+  tint: 'info',
+};
+
 const ACTIONS: Action[] = [
-  { id: 'contacts', label: 'Contacts', hint: 'Who gets your SOS', icon: Users },
-  { id: 'route', label: 'Safe Route', hint: 'Walk with a guardian', icon: Navigation },
-  { id: 'fakecall', label: 'Fake Call', hint: 'Excuse yourself safely', icon: PhoneCall },
-  { id: 'silent', label: 'Silent Alert', hint: 'Countdown, no sound', icon: Timer },
-  { id: 'map', label: 'Safety Map', hint: 'Know the area', icon: MapIcon },
-  { id: 'report', label: 'Report', hint: 'Flag an unsafe place', icon: AlertTriangle },
+  { id: 'contacts', label: 'Contacts', hint: 'Who gets your SOS', icon: Users, tint: 'accent' },
+  { id: 'fakecall', label: 'Fake Call', hint: 'Excuse yourself safely', icon: PhoneCall, tint: 'warning' },
+  { id: 'silent', label: 'Silent Alert', hint: 'Countdown, no sound', icon: Timer, tint: 'gov' },
+  { id: 'map', label: 'Safety Map', hint: 'Know the area', icon: MapIcon, tint: 'success' },
+  { id: 'report', label: 'Report', hint: 'Flag an unsafe place', icon: AlertTriangle, tint: 'warning' },
+  { id: 'evidence', label: 'Evidence', hint: 'Photos you captured', icon: Archive, tint: 'accent' },
 ];
 
 const SOS_SIZE = 212;
@@ -171,6 +184,7 @@ export default function HomeScreen({ navigation }: Props) {
     else if (id === 'map') navigation.navigate('SafetyMap');
     else if (id === 'route') navigation.navigate('SafeRoute');
     else if (id === 'silent') navigation.navigate('SoftAlert', { manual: true });
+    else if (id === 'evidence') navigation.navigate('EvidenceLibrary');
   };
 
   const handleSos = async () => {
@@ -247,8 +261,14 @@ export default function HomeScreen({ navigation }: Props) {
       step('server responded', alertData?.id);
 
       if (!alertData?.id) {
-        // 2xx with an unusable body — do not pretend the SOS is live.
-        throw new Error('The server did not return an alert id.');
+        // 2xx with an unusable body — do not pretend the SOS is live. Say what
+        // actually came back and from where; that is the whole diagnosis.
+        if (__DEV__) console.error('[SOS] unexpected response body', res.status, res.data);
+        const err: any = new Error(
+          `${describeApiTarget()} replied ${res.status} without an alert id: ${previewBody(res.data)}`,
+        );
+        err.badBody = true;
+        throw err;
       }
 
       try {
@@ -267,6 +287,20 @@ export default function HomeScreen({ navigation }: Props) {
       setSosActive(true, alertData.id);
       toast(t('SOS sent'), t('Your contacts and nearby responders are being alerted.'), 'success');
       navigation.navigate('ActiveSos', { alertId: alertData.id });
+
+      // The alert is live, but the server told us it could not queue the SMS
+      // to the trusted contacts. Offer to send it from this phone instead —
+      // silence here is the difference between help arriving and not.
+      if (alertData.degradedNotifications) {
+        showAlert(
+          t('Contacts not texted yet'),
+          t('Your alert is live, but the server could not text your contacts. Send the SMS from this phone?'),
+          [
+            { text: t('Not now'), style: 'cancel' },
+            { text: t('Send SMS'), onPress: () => void triggerOfflineSms(coords, userName) },
+          ],
+        );
+      }
     } catch (err: any) {
       const serverMsg = err?.response?.data?.error?.message || err?.response?.data?.message;
       const status = err?.response?.status;
@@ -278,6 +312,14 @@ export default function HomeScreen({ navigation }: Props) {
           { text: t('Cancel'), style: 'cancel' },
           { text: t('Add contact'), onPress: () => navigation.navigate('TrustedContacts') },
         ]);
+        return;
+      }
+
+      // A reachable server that answered with something unusable is a
+      // configuration problem, not an offline phone — say so instead of
+      // quietly dropping into the SMS fallback.
+      if (err?.badBody || err?.nonApiResponse) {
+        showAlert(t('SOS failed'), err.message);
         return;
       }
 
@@ -342,6 +384,18 @@ export default function HomeScreen({ navigation }: Props) {
     if (h >= 17 && h < 21) return t('Good evening');
     return t('Good night');
   })();
+
+  /** Soft background / strong foreground pair for a shortcut's colour. */
+  const tintOf = (tint: Tint) =>
+    tint === 'info'
+      ? { fg: colors.infoText, bg: colors.infoSoft, solid: colors.info }
+      : tint === 'success'
+        ? { fg: colors.successText, bg: colors.successSoft, solid: colors.success }
+        : tint === 'warning'
+          ? { fg: colors.warningText, bg: colors.warningSoft, solid: colors.warning }
+          : tint === 'gov'
+            ? { fg: colors.govGreen, bg: colors.govGreenSoft, solid: colors.govGreen }
+            : { fg: colors.accentText, bg: colors.accentSoft, solid: colors.accent };
 
   const statusTone = isSosActive
     ? { bg: colors.dangerSoft, border: colors.danger, dot: colors.danger, fg: colors.dangerText }
@@ -459,42 +513,105 @@ export default function HomeScreen({ navigation }: Props) {
         <FadeIn delay={280} style={{ paddingHorizontal: spacing.lg }}>
           <PressableScale
             accessibilityRole="button"
+            accessibilityLabel={t('Call 999')}
             onPress={callEmergency}
             style={[styles.callRow, { backgroundColor: colors.surface, borderColor: colors.border }, shadows.soft]}
           >
             <View style={[styles.callIcon, { backgroundColor: colors.dangerSoft }]}>
-              <Phone size={18} color={colors.dangerText} />
+              <Phone size={19} color={colors.dangerText} />
             </View>
             <View style={{ flex: 1 }}>
               <Txt variant="bodyStrong">{t('Call 999')}</Txt>
               <Txt variant="xs" tone="muted">{t('National emergency service')}</Txt>
             </View>
-            <ChevronRight size={18} color={colors.textMuted} />
+            <View style={[styles.goPill, { backgroundColor: colors.dangerSoft }]}>
+              <ChevronRight size={16} color={colors.dangerText} />
+            </View>
+          </PressableScale>
+        </FadeIn>
+
+        {/* ── Featured shortcut ────────────────────────────────── */}
+        <FadeIn delay={320} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={t(FEATURED.label)}
+            onPress={() => handleAction(FEATURED.id)}
+            style={[{ borderRadius: radius.xl }, shadows.accent]}
+          >
+            <LinearGradient
+              colors={gradients.accent}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.featured}
+            >
+              <View style={styles.featuredIcon}>
+                <FEATURED.icon color={colors.onAccent} size={24} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[typeScale.h3, { color: colors.onAccent, fontWeight: '800' }]}>
+                  {t(FEATURED.label)}
+                </Text>
+                <Text style={[typeScale.xs, { color: colors.onAccent, opacity: 0.9, marginTop: 2 }]}>
+                  {t(FEATURED.hint)}
+                </Text>
+              </View>
+              <View style={styles.featuredGo}>
+                <ChevronRight size={18} color={colors.onAccent} />
+              </View>
+            </LinearGradient>
           </PressableScale>
         </FadeIn>
 
         {/* ── Quick actions ─────────────────────────────────────── */}
-        <FadeIn delay={320} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.lg, marginBottom: spacing.sm }}>
+        <FadeIn
+          delay={360}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: spacing.lg,
+            marginTop: spacing.lg,
+            marginBottom: spacing.xs,
+          }}
+        >
           <Txt variant="h3">{t('Quick actions')}</Txt>
+          <Txt variant="xs" tone="muted">{t('Tap to open')}</Txt>
         </FadeIn>
+
         <View style={styles.grid}>
-          {ACTIONS.map((item, i) => (
-            <FadeIn key={item.id} delay={360 + i * 55} style={styles.tileWrap}>
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel={t(item.label)}
-                onPress={() => handleAction(item.id)}
-                style={[styles.tile, { backgroundColor: colors.surface, borderColor: colors.border }, shadows.soft]}
-              >
-                <View style={[styles.tileIcon, { backgroundColor: colors.accentSoft }]}>
-                  <item.icon color={colors.accent} size={22} />
-                </View>
-                <Txt variant="smStrong" numberOfLines={1}>{t(item.label)}</Txt>
-                <Txt variant="xs" tone="muted" numberOfLines={2}>{t(item.hint)}</Txt>
-              </PressableScale>
-            </FadeIn>
-          ))}
+          {ACTIONS.map((item, i) => {
+            const tone = tintOf(item.tint);
+            return (
+              <FadeIn key={item.id} delay={400 + i * 50} style={styles.tileWrap}>
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={t(item.label)}
+                  accessibilityHint={t(item.hint)}
+                  onPress={() => handleAction(item.id)}
+                  style={[
+                    styles.tile,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                    shadows.soft,
+                  ]}
+                >
+                  {/* Colour wash so each shortcut is recognisable at a glance. */}
+                  <View style={[styles.tileWash, { backgroundColor: tone.bg }]} />
+                  <View style={[styles.tileIcon, { backgroundColor: tone.bg, borderColor: tone.solid + '55' }]}>
+                    <item.icon color={tone.fg} size={22} />
+                  </View>
+                  <Txt variant="smStrong" numberOfLines={1}>{t(item.label)}</Txt>
+                  <Txt variant="xs" tone="muted" numberOfLines={2}>{t(item.hint)}</Txt>
+                </PressableScale>
+              </FadeIn>
+            );
+          })}
         </View>
+
+        <FadeIn delay={720} style={{ alignItems: 'center', marginTop: spacing.md }}>
+          <Txt variant="xs" tone="muted" center>
+            নারী সুরক্ষা · {t('National Women Safety Service')}
+          </Txt>
+        </FadeIn>
       </ScrollView>
     </View>
   );
@@ -594,7 +711,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.md,
   },
-  callIcon: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  callIcon: { width: 42, height: 42, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  goPill: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  featured: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+  },
+  featuredIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  featuredGo: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -602,16 +743,28 @@ const styles = StyleSheet.create({
   },
   tileWrap: { width: '50%', padding: 6 },
   tile: {
-    borderRadius: radius.lg,
+    borderRadius: radius.xl - 6,
     borderWidth: 1,
     padding: spacing.md,
-    gap: 4,
-    minHeight: 124,
+    gap: 3,
+    minHeight: 132,
+    overflow: 'hidden',
+  },
+  /** A soft colour halo bleeding in from the top-right corner of a tile. */
+  tileWash: {
+    position: 'absolute',
+    top: -34,
+    right: -34,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    opacity: 0.75,
   },
   tileIcon: {
-    width: 44,
-    height: 44,
+    width: 46,
+    height: 46,
     borderRadius: radius.md,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,

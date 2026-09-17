@@ -69,10 +69,36 @@ export async function fetchIceServers(): Promise<any[]> {
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 20000,
   headers: {
     'Content-Type': 'application/json',
+    // Dev tunnels (ngrok / localtunnel) answer the FIRST request with an HTML
+    // interstitial and HTTP 200. Without these headers the app receives that
+    // page instead of JSON, and every call silently returns a body with no
+    // data in it — which looked like "the server did not return an alert id".
+    'ngrok-skip-browser-warning': 'true',
+    'Bypass-Tunnel-Reminder': 'true',
   },
 });
+
+/** Where this build talks to — shown in error messages and the connection check. */
+export const describeApiTarget = (): string => API_BASE_URL;
+
+/** True when a 2xx body is clearly not our JSON API (tunnel page, proxy error). */
+export function looksLikeNonApiResponse(data: unknown): boolean {
+  if (typeof data !== 'string') return false;
+  return /^\s*<(!doctype|html)/i.test(data);
+}
+
+/** A short, safe preview of an unexpected response body, for error messages. */
+export function previewBody(data: unknown): string {
+  try {
+    const text = typeof data === 'string' ? data : JSON.stringify(data);
+    return (text ?? '').slice(0, 160);
+  } catch {
+    return String(data).slice(0, 160);
+  }
+}
 
 const getItem = async (key: string) => {
   if (Platform.OS === 'web') {
@@ -128,7 +154,20 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // A 200 that is not our JSON is worse than an error: callers read fields
+    // off it and get `undefined`. Turn it into a real failure with a message
+    // that names the URL actually being called.
+    if (looksLikeNonApiResponse(response.data)) {
+      const err = new Error(
+        `Expected JSON from ${API_BASE_URL} but received a web page. ` +
+          'Check the API URL (EXPO_PUBLIC_API_URL / expo.extra.apiUrl) or your tunnel.',
+      );
+      (err as any).nonApiResponse = true;
+      return Promise.reject(err);
+    }
+    return response;
+  },
   async (error) => {
     // Network/offline error — never log the user out (offline SOS depends on
     // staying logged in). Just surface a toast.

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Switch, View } from 'react-native';
+import { ActivityIndicator, Switch, View } from 'react-native';
 import { showAlert } from '../../utils/notify';
 import {
   Activity,
@@ -9,6 +9,7 @@ import {
   LogOut,
   Mic,
   Palette,
+  Server,
   Share2,
   Shield,
 } from 'lucide-react-native';
@@ -16,6 +17,7 @@ import {
 import { Screen, Card, ListRow, RowDivider, SectionLabel, Txt, Button, AppBar, FadeIn } from '../../components/ui';
 import ThemeModeControl from '../../components/ThemeModeControl';
 import LanguageToggle from '../../components/LanguageToggle';
+import api, { describeApiTarget } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useTheme } from '../../theme';
@@ -38,6 +40,32 @@ export default function SettingsScreen() {
   // TODO: these two are still local-only — nothing downstream reads them yet.
   const [notifications, setNotifications] = useState(true);
   const [locationSharing, setLocationSharing] = useState(true);
+  const [checking, setChecking] = useState(false);
+
+  /**
+   * One-tap connection check. An SOS that cannot reach the server is the
+   * failure that matters most, so make it testable before an emergency.
+   */
+  const checkConnection = async () => {
+    setChecking(true);
+    const target = describeApiTarget();
+    try {
+      const res = await api.get('/ping', { timeout: 8000 });
+      if (res.data?.message === 'pong') {
+        showAlert(t('Server reachable'), `${target}\n${t('The app can send an SOS.')}`);
+      } else {
+        showAlert(t('Unexpected reply'), `${target}\n${t('The server answered, but not as expected. Check the API URL.')}`);
+      }
+    } catch (e: any) {
+      const status = e?.response?.status;
+      showAlert(
+        t('Cannot reach the server'),
+        `${target}\n${status ? `HTTP ${status}` : e?.message || t('No response.')}`,
+      );
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const themedSwitch = (value: boolean, onChange: (v: boolean) => void) => (
     <Switch
@@ -124,6 +152,18 @@ export default function SettingsScreen() {
           subtitle={t('Share anonymised sensor windows. Optional.')}
           icon={<Share2 size={19} color={colors.accent} />}
           right={themedSwitch(mlDataSharingEnabled, setMlDataSharingEnabled)}
+        />
+      </Card>
+
+      {/* ── Connection ─────────────────────────────────────────────── */}
+      <SectionLabel>{t('Connection')}</SectionLabel>
+      <Card padded={false} delay={200}>
+        <ListRow
+          title={t('Check server connection')}
+          subtitle={describeApiTarget()}
+          icon={<Server size={19} color={colors.accent} />}
+          onPress={checking ? undefined : checkConnection}
+          right={checking ? <ActivityIndicator color={colors.accent} /> : undefined}
         />
       </Card>
 

@@ -21,6 +21,32 @@ import {
 
 import { ADMIN_ROOM } from '@/utils/alert-rooms';
 
+/**
+ * How long the SOS request will wait for a queue write before giving up on it.
+ *
+ * The BullMQ Redis client is configured with `maxRetriesPerRequest: null`
+ * (BullMQ requires that), which means a command issued while Redis is down
+ * queues FOREVER instead of failing. Awaiting one of those on the request path
+ * makes the panic button hang with a spinner and never return — the worst
+ * possible failure mode for this system. Bound it.
+ */
+const QUEUE_ENQUEUE_TIMEOUT_MS = 2000;
+
+/** Resolve with the promise, or with `null` if it takes too long. */
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  try {
+    // A late rejection must not become an unhandled rejection, and a queue stub
+    // that returns a non-promise must not throw here.
+    return await Promise.race([Promise.resolve(promise).catch(() => null), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Responders are dispatched within this radius of the alert. */
 const RESPONDER_DISPATCH_RADIUS_M = 5000;
 /**
@@ -138,7 +164,14 @@ export class AlertsService {
     userId: string,
     data: { latitude: number; longitude: number; accuracy?: number },
     ipAddress?: string,
-  ): Promise<EmergencyAlert & { trackingToken?: string; contactPhones?: string[] }> {
+  ): Promise<
+    EmergencyAlert & {
+      trackingToken?: string;
+      contactPhones?: string[];
+      /** The server could not queue the contact SMS — the app should send it. */
+      degradedNotifications?: boolean;
+    }
+  > {
     // 1. Verify user has at least one trusted contact
     const contacts = await this.contactsRepo.getContactsByUserId(userId);
     if (contacts.length === 0) {
@@ -156,12 +189,12 @@ export class AlertsService {
 
     alertsTotal.inc({ type: 'manual' });
 
-    await this.dispatchConfirmedAlert(alert, data, ipAddress);
+    const { degradedNotifications } = await this.dispatchConfirmedAlert(alert, data, ipAddress);
 
     const trackingToken = generateTrackingToken(alert.id);
     const contactPhones = contacts.map(c => c.phone);
 
-    return { ...alert, trackingToken, contactPhones };
+    return { ...alert, trackingToken, contactPhones, degradedNotifications };
   }
 
   /**
@@ -184,16 +217,31 @@ export class AlertsService {
     alert: EmergencyAlert,
     data: { latitude: number; longitude: number; accuracy?: number },
     ipAddress?: string,
-  ): Promise<void> {
+  ): Promise<{ degradedNotifications: boolean }> {
     // ── 1. Trusted contacts (SMS + push) ────────────────────────────────
+    // Bounded: a queue write that cannot complete must not hold the response.
+    // If it fails the caller is told, so the app can fall back to sending the
+    // emergency SMS from the phone itself.
+    let degradedNotifications = false;
     if (this.fastify.queues?.notifications) {
-      await this.fastify.queues.notifications.add(
-        'notify_trusted_contacts',
-        { alertId: alert.id, userId: alert.userId },
-        // Idempotent: re-triggering the same alert cannot double-notify.
-        { jobId: `fanout:${alert.id}` },
+      const queued = await withTimeout(
+        this.fastify.queues.notifications.add(
+          'notify_trusted_contacts',
+          { alertId: alert.id, userId: alert.userId },
+          // Idempotent: re-triggering the same alert cannot double-notify.
+          { jobId: `fanout:${alert.id}` },
+        ),
+        QUEUE_ENQUEUE_TIMEOUT_MS,
       );
+      if (!queued) {
+        degradedNotifications = true;
+        this.fastify.log.error(
+          { alertId: alert.id },
+          'Could not queue trusted-contact notifications (Redis unavailable?) — the client must send SMS itself',
+        );
+      }
     } else {
+      degradedNotifications = true;
       this.fastify.log.warn('Notifications queue is not initialized. Skipping trusted contact notifications.');
     }
 
@@ -222,17 +270,26 @@ export class AlertsService {
       ipAddress,
     };
 
-    if (this.fastify.queues?.dispatch) {
-      await this.fastify.queues.dispatch.add('fan_out_alert', fanOut, {
-        // Idempotent: a retried SOS request cannot double-dispatch responders.
-        jobId: `dispatch:${alert.id}`,
-      });
-    } else {
-      // No queue available (unit tests, or a degraded boot). Run inline rather
-      // than silently dropping the dispatch — correctness beats latency here.
-      this.fastify.log.warn('Dispatch queue is not initialized. Running fan-out inline.');
-      await this.fanOutAlert(fanOut);
+    const dispatchQueued = this.fastify.queues?.dispatch
+      ? await withTimeout(
+          this.fastify.queues.dispatch.add('fan_out_alert', fanOut, {
+            // Idempotent: a retried SOS request cannot double-dispatch responders.
+            jobId: `dispatch:${alert.id}`,
+          }),
+          QUEUE_ENQUEUE_TIMEOUT_MS,
+        )
+      : null;
+
+    if (!dispatchQueued) {
+      // No queue, or Redis is not answering. Run the fan-out in the background
+      // rather than dropping it — but never make the caller wait for it.
+      this.fastify.log.warn({ alertId: alert.id }, 'Dispatch not queued — running fan-out in the background');
+      void this.fanOutAlert(fanOut).catch((err) =>
+        this.fastify.log.error(err instanceof Error ? err : { err }, 'Background fan-out failed'),
+      );
     }
+
+    return { degradedNotifications };
   }
 
   /**
@@ -374,12 +431,16 @@ export class AlertsService {
 
     // Enqueue an escalation job that will automatically confirm the alert in 30 seconds
     if (this.fastify.queues?.escalations) {
-      await this.fastify.queues.escalations.add(
-        'auto_escalate_soft_alert',
-        { alertId: alert.id, userId },
-        { delay: 30000 } // 30 seconds delay
+      const queued = await withTimeout(
+        this.fastify.queues.escalations.add(
+          'auto_escalate_soft_alert',
+          { alertId: alert.id, userId },
+          { delay: 30000 }, // 30 seconds delay
+        ),
+        QUEUE_ENQUEUE_TIMEOUT_MS,
       );
-      this.fastify.log.info({ alertId: alert.id }, 'Scheduled auto-escalation for soft alert');
+      if (queued) this.fastify.log.info({ alertId: alert.id }, 'Scheduled auto-escalation for soft alert');
+      else this.fastify.log.error({ alertId: alert.id }, 'Could not schedule soft-alert escalation');
     }
 
     alertsTotal.inc({ type: 'sensor_triggered' });

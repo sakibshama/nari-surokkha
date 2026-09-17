@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainStack';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -103,7 +104,7 @@ export default function SafeRouteScreen(_props: Props) {
   async function resolveDestination(): Promise<{ lat: number; lng: number } | null> {
     const q = query.trim();
     if (!q) {
-      Alert.alert(t('Destination needed'), t('Enter a place name or "latitude, longitude".'));
+      showAlert(t('Destination needed'), t('Enter a place name or "latitude, longitude".'));
       return null;
     }
     const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
@@ -111,9 +112,9 @@ export default function SafeRouteScreen(_props: Props) {
     try {
       const results = await Location.geocodeAsync(q);
       if (results?.length) return { lat: results[0].latitude, lng: results[0].longitude };
-      Alert.alert(t('Not found'), t('Could not locate "{q}". Try a more specific place or coordinates.', { q }));
+      showAlert(t('Not found'), t('Could not locate "{q}". Try a more specific place or coordinates.', { q }));
     } catch {
-      Alert.alert(t('Search failed'), t('Could not search that place. Try coordinates like "23.81, 90.41".'));
+      showAlert(t('Search failed'), t('Could not search that place. Try coordinates like "23.81, 90.41".'));
     }
     return null;
   }
@@ -124,7 +125,7 @@ export default function SafeRouteScreen(_props: Props) {
       const { status } = await Location.getForegroundPermissionsAsync();
       const perm = status === 'granted' ? status : (await Location.requestForegroundPermissionsAsync()).status;
       if (perm !== 'granted') {
-        Alert.alert(t('Permission needed'), t('Location permission is required.'));
+        showAlert(t('Permission needed'), t('Location permission is required.'));
         return;
       }
       const dest = await resolveDestination();
@@ -138,7 +139,7 @@ export default function SafeRouteScreen(_props: Props) {
       setRouteData(res.data.data as RouteData);
     } catch (err) {
       if (__DEV__) console.error(err);
-      Alert.alert(t('Error'), t('Failed to calculate the safe route. Please try again.'));
+      showAlert(t('Error'), t('Failed to calculate the safe route. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -152,7 +153,7 @@ export default function SafeRouteScreen(_props: Props) {
       await startBackgroundLocationUpdates();
     } catch (e) {
       if (__DEV__) console.error(e);
-      Alert.alert(t('Error'), t('Failed to start tracking'));
+      showAlert(t('Error'), t('Failed to start tracking'));
       setTracking(false);
       setActiveRoute(null);
     }

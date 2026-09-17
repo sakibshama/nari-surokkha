@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, Switch, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, Switch, Text, View } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeIn as RFadeIn, SlideInDown } from 'react-native-reanimated';
@@ -83,16 +84,16 @@ export default function ProfileSetupScreen() {
 
   const handleSave = async () => {
     if (!fullName.trim()) {
-      Alert.alert(t('Validation'), t('Full name is required.'));
+      showAlert(t('Validation'), t('Full name is required.'));
       return;
     }
     setLoading(true);
     try {
       await api.put('/profile', { fullName: fullName.trim(), bloodGroup: bloodGroup.trim() });
       await updateUser({ profile: { fullName: fullName.trim(), bloodGroup: bloodGroup.trim() } });
-      Alert.alert(t('Saved'), t('Profile updated successfully!'));
+      showAlert(t('Saved'), t('Profile updated successfully!'));
     } catch (e: any) {
-      Alert.alert(t('Error'), e.response?.data?.error?.message || t('Update failed'));
+      showAlert(t('Error'), e.response?.data?.error?.message || t('Update failed'));
     } finally {
       setLoading(false);
     }
@@ -108,10 +109,10 @@ export default function ProfileSetupScreen() {
       });
       setResponderData({ status: 'pending', availability: 'offline' });
       setShowApplyModal(false);
-      Alert.alert(t('Application submitted'), t("Your application is under review. We'll notify you once approved."));
+      showAlert(t('Application submitted'), t("Your application is under review. We'll notify you once approved."));
     } catch (e: any) {
       const msg = e.response?.data?.error?.message || e.response?.data?.message || t('Application failed. Try again.');
-      Alert.alert(t('Error'), msg);
+      showAlert(t('Error'), msg);
     } finally {
       setApplying(false);
     }
@@ -126,7 +127,7 @@ export default function ProfileSetupScreen() {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert(
+          showAlert(
             t('Location required'),
             t('Responders must share their location so nearby emergencies can be routed to them.'),
           );
@@ -136,7 +137,7 @@ export default function ProfileSetupScreen() {
         latitude = loc.coords.latitude;
         longitude = loc.coords.longitude;
       } catch {
-        Alert.alert(t('Location error'), t('Could not get your location. Please try again.'));
+        showAlert(t('Location error'), t('Could not get your location. Please try again.'));
         return;
       }
     }
@@ -145,7 +146,7 @@ export default function ProfileSetupScreen() {
       await api.patch('/responders/location', { latitude, longitude, availability: newAvail });
     } catch {
       setResponderData({ ...responderData, availability: v ? 'offline' : 'available' });
-      Alert.alert(t('Error'), t('Could not update availability'));
+      showAlert(t('Error'), t('Could not update availability'));
     }
   };
 

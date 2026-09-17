@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { showAlert } from '../utils/notify';
 import {
   createDrawerNavigator,
   DrawerContentComponentProps,
@@ -110,7 +111,7 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
   };
 
   const confirmLogout = () => {
-    Alert.alert(t('Log out?'), t('You will stop receiving alerts on this device until you sign in again.'), [
+    showAlert(t('Log out?'), t('You will stop receiving alerts on this device until you sign in again.'), [
       { text: t('Cancel'), style: 'cancel' },
       { text: t('Log out'), style: 'destructive', onPress: logout },
     ]);

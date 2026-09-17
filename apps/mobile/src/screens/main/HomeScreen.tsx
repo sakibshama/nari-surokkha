@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Linking,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { showAlert, toast } from '../../utils/notify';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DrawerActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,7 +17,13 @@ import * as Location from 'expo-location';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn as RFadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, {
+  FadeIn as RFadeIn,
+  FadeOut,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import {
   Activity,
   AlertTriangle,
@@ -86,6 +93,12 @@ export default function HomeScreen({ navigation }: Props) {
   const { mlVoiceEnabled, mlGyroEnabled } = useSettingsStore();
   const [loading, setLoading] = useState(false);
 
+  // The SOS button drives its own press animation through a plain Pressable.
+  // Everything else uses PressableScale; this is the one control that must
+  // never depend on a wrapper component to deliver a tap.
+  const sosScale = useSharedValue(1);
+  const sosAnim = useAnimatedStyle(() => ({ transform: [{ scale: sosScale.value }] }));
+
   // Fresh profile so the name is current. The API nests it under data.profile.
   useEffect(() => {
     api
@@ -96,6 +109,16 @@ export default function HomeScreen({ navigation }: Props) {
           updateUser({ profile: { fullName: profile.fullName, bloodGroup: profile.bloodGroup } });
         }
       })
+      .catch(() => {});
+  }, []);
+
+  // Keep the trusted-contact cache warm. The offline SOS reads phone numbers
+  // from this cache, and it used to be written only by the Contacts screen —
+  // so a user who never opened that screen had no offline fallback at all.
+  useEffect(() => {
+    api
+      .get('/contacts')
+      .then((res) => AsyncStorage.setItem('@trusted_contacts', JSON.stringify(res.data?.data ?? [])))
       .catch(() => {});
   }, []);
 
@@ -116,7 +139,7 @@ export default function HomeScreen({ navigation }: Props) {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(t('Permission denied'), t('SOS needs location permission.'));
+        showAlert(t('Permission denied'), t('SOS needs location permission.'));
       }
     })();
 
@@ -151,45 +174,63 @@ export default function HomeScreen({ navigation }: Props) {
   };
 
   const handleSos = async () => {
+    // Breadcrumbs: an SOS that does nothing is the worst possible failure, so
+    // every stage is logged. `npx expo start` shows these in the terminal.
+    const step = (msg: string, extra?: unknown) => {
+      if (__DEV__) console.log(`[SOS] ${msg}`, extra ?? '');
+    };
+    step('pressed', { isSosActive, activeAlertId, loading });
+
+    if (loading) return;
+
     if (isSosActive) {
-      if (activeAlertId) navigation.navigate('ActiveSos', { alertId: activeAlertId });
-      return;
+      if (activeAlertId) {
+        navigation.navigate('ActiveSos', { alertId: activeAlertId });
+        return;
+      }
+      // Marked active with no alert id — a stale flag from a previous run.
+      // Clear it rather than silently swallowing the press.
+      step('stale active flag cleared');
+      setSosActive(false, null);
     }
+
     setLoading(true);
     const userName = user?.profile?.fullName || 'A user';
     try {
       // A real GPS fix every time — an SOS must never go out with a fallback
       // location, or responders are sent to the wrong place.
       const { status } = await Location.requestForegroundPermissionsAsync();
+      step('location permission', status);
       if (status !== 'granted') {
-        setLoading(false);
-        Alert.alert(
+        showAlert(
           t('Location required'),
           t('Location permission is needed so responders can find you. Please enable it and try again.'),
         );
         return;
       }
-      let loc = null;
+
+      let loc: Location.LocationObject | null = null;
       try {
         loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
-      } catch {
+      } catch (e) {
+        step('high-accuracy fix failed, falling back to last known', e);
         loc = await Location.getLastKnownPositionAsync();
       }
       if (!loc) {
-        setLoading(false);
-        Alert.alert(
+        showAlert(
           t('No GPS signal'),
           t('Could not determine your location. Move near a window or open area and try again.'),
         );
         return;
       }
       const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+      step('fix', coords);
 
       // ─── Offline path ────────────────────────────────────────
       if (Platform.OS !== 'web') {
         const netInfo = await NetInfo.fetch();
+        step('connectivity', netInfo.isConnected);
         if (!netInfo.isConnected) {
-          setLoading(false);
           await triggerOfflineSms(coords, userName);
           navigation.navigate('OfflineSos');
           return;
@@ -197,11 +238,18 @@ export default function HomeScreen({ navigation }: Props) {
       }
 
       // ─── Online path ─────────────────────────────────────────
+      step('posting /alerts/sos');
       const res = await api.post('/alerts/sos', {
         latitude: coords.latitude,
         longitude: coords.longitude,
       });
-      const alertData = res.data.data;
+      const alertData = res.data?.data;
+      step('server responded', alertData?.id);
+
+      if (!alertData?.id) {
+        // 2xx with an unusable body — do not pretend the SOS is live.
+        throw new Error('The server did not return an alert id.');
+      }
 
       try {
         const phones = await getCachedContactPhones();
@@ -217,28 +265,43 @@ export default function HomeScreen({ navigation }: Props) {
       }
 
       setSosActive(true, alertData.id);
+      toast(t('SOS sent'), t('Your contacts and nearby responders are being alerted.'), 'success');
       navigation.navigate('ActiveSos', { alertId: alertData.id });
     } catch (err: any) {
-      const msg = err.response?.data?.error?.message;
-      if (msg && msg.includes('trusted contact')) {
-        Alert.alert(t('Missing setup'), msg, [
-          { text: t('Add contact'), onPress: () => navigation.navigate('TrustedContacts') },
+      const serverMsg = err?.response?.data?.error?.message || err?.response?.data?.message;
+      const status = err?.response?.status;
+      step('failed', { status, serverMsg, message: err?.message });
+      if (__DEV__) console.error('[SOS] error', err);
+
+      if (serverMsg && serverMsg.includes('trusted contact')) {
+        showAlert(t('Missing setup'), serverMsg, [
           { text: t('Cancel'), style: 'cancel' },
+          { text: t('Add contact'), onPress: () => navigation.navigate('TrustedContacts') },
         ]);
-      } else if (!err.response) {
+        return;
+      }
+
+      // No response at all → the server is unreachable (offline, wrong API
+      // URL, or CORS on web). Fall back to SMS, and say so.
+      if (!err?.response) {
         let coords: { latitude: number; longitude: number } | undefined;
         try {
-          if (Platform.OS !== 'web') {
-            const last = await Location.getLastKnownPositionAsync();
-            if (last) coords = { latitude: last.coords.latitude, longitude: last.coords.longitude };
-          }
+          const last = await Location.getLastKnownPositionAsync();
+          if (last) coords = { latitude: last.coords.latitude, longitude: last.coords.longitude };
         } catch {
           /* ignore */
         }
         await triggerOfflineSms(coords, userName);
-      } else {
-        Alert.alert(t('SOS failed'), t('Could not trigger SOS. Call 999 directly.'));
+        navigation.navigate('OfflineSos');
+        return;
       }
+
+      showAlert(
+        t('SOS failed'),
+        serverMsg
+          ? `${serverMsg} (${status})`
+          : t('Could not trigger SOS. Call 999 directly.'),
+      );
     } finally {
       setLoading(false);
     }
@@ -250,13 +313,16 @@ export default function HomeScreen({ navigation }: Props) {
     userName: string,
   ) => {
     const result = await sendOfflineSosSms({ coords, userName });
+    if (__DEV__) console.log('[SOS] offline sms', result);
     if (result.opened && result.auto) {
-      Alert.alert(t('Emergency SMS sent'), t('You are offline — your SOS text went to your trusted contacts over SMS.'), [
-        { text: t('View history'), onPress: () => navigation.navigate('SmsHistory') },
+      showAlert(t('Emergency SMS sent'), t('You are offline — your SOS text went to your trusted contacts over SMS.'), [
         { text: t('OK'), style: 'cancel' },
+        { text: t('View history'), onPress: () => navigation.navigate('SmsHistory') },
       ]);
-    } else if (!result.opened) {
-      Alert.alert(
+    } else if (result.opened) {
+      showAlert(t('Review & send'), t('Your Messages app opened with the SOS text ready — tap Send to dispatch it.'));
+    } else {
+      showAlert(
         t('Offline SOS'),
         `${result.reason || t('Could not open Messages.')} ${t('Please call 999 directly.')}`,
       );
@@ -264,7 +330,7 @@ export default function HomeScreen({ navigation }: Props) {
   };
 
   const callEmergency = () => {
-    Linking.openURL('tel:999').catch(() => Alert.alert(t('Call failed'), t('Please dial 999 manually.')));
+    Linking.openURL('tel:999').catch(() => showAlert(t('Call failed'), t('Please dial 999 manually.')));
   };
 
   const displayName = user?.profile?.fullName?.trim() || t('there');
@@ -340,44 +406,53 @@ export default function HomeScreen({ navigation }: Props) {
         {/* ── The one loud thing on this screen ─────────────────── */}
         <FadeIn from="zoom" delay={220} style={styles.sosArea}>
           <PulseRings color={colors.danger} size={SOS_SIZE + 40} count={3} duration={isSosActive ? 1500 : 2600} />
-          <PressableScale
+          <Pressable
             accessibilityRole="button"
             accessibilityLabel={isSosActive ? t('SOS is active. Open the active alert.') : t('Send SOS')}
             accessibilityHint={t('Alerts your trusted contacts and nearby volunteer responders')}
+            accessibilityState={{ disabled: loading, busy: loading }}
             onPress={handleSos}
+            onPressIn={() => {
+              sosScale.value = withSpring(0.93, { damping: 18, stiffness: 320 });
+            }}
+            onPressOut={() => {
+              sosScale.value = withSpring(1, { damping: 14, stiffness: 260 });
+            }}
             disabled={loading}
-            scaleTo={0.93}
-            style={[styles.sosOuter, shadows.danger]}
+            hitSlop={12}
+            style={styles.sosOuter}
           >
-            <LinearGradient
-              colors={isSosActive ? ([colors.dangerPressed, colors.danger] as const) : gradients.danger}
-              style={[
-                styles.sosInner,
-                { borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.4)' },
-              ]}
-              start={{ x: 0.15, y: 0 }}
-              end={{ x: 0.85, y: 1 }}
-            >
-              {loading ? (
-                <ActivityIndicator size="large" color={colors.onDanger} />
-              ) : (
-                <Animated.View
-                  key={isSosActive ? 'active' : 'idle'}
-                  entering={RFadeIn.duration(250)}
-                  exiting={FadeOut.duration(150)}
-                  style={{ alignItems: 'center' }}
-                >
-                  <ShieldAlert color={colors.onDanger} size={44} />
-                  <Text style={[styles.sosLabel, { color: colors.onDanger }]}>
-                    {isSosActive ? t('ACTIVE') : 'SOS'}
-                  </Text>
-                  <Text style={[styles.sosSublabel, { color: colors.onDanger }]}>
-                    {isSosActive ? t('Help is on the way') : t('Tap in an emergency')}
-                  </Text>
-                </Animated.View>
-              )}
-            </LinearGradient>
-          </PressableScale>
+            <Animated.View style={[styles.sosFill, shadows.danger, sosAnim]}>
+              <LinearGradient
+                colors={isSosActive ? ([colors.dangerPressed, colors.danger] as const) : gradients.danger}
+                style={[
+                  styles.sosInner,
+                  { borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.4)' },
+                ]}
+                start={{ x: 0.15, y: 0 }}
+                end={{ x: 0.85, y: 1 }}
+              >
+                {loading ? (
+                  <ActivityIndicator size="large" color={colors.onDanger} />
+                ) : (
+                  <Animated.View
+                    key={isSosActive ? 'active' : 'idle'}
+                    entering={RFadeIn.duration(250)}
+                    exiting={FadeOut.duration(150)}
+                    style={{ alignItems: 'center' }}
+                  >
+                    <ShieldAlert color={colors.onDanger} size={44} />
+                    <Text style={[styles.sosLabel, { color: colors.onDanger }]}>
+                      {isSosActive ? t('ACTIVE') : 'SOS'}
+                    </Text>
+                    <Text style={[styles.sosSublabel, { color: colors.onDanger }]}>
+                      {isSosActive ? t('Help is on the way') : t('Tap in an emergency')}
+                    </Text>
+                  </Animated.View>
+                )}
+              </LinearGradient>
+            </Animated.View>
+          </Pressable>
         </FadeIn>
 
         {/* ── Emergency call ───────────────────────────────────── */}
@@ -486,6 +561,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sosOuter: { width: SOS_SIZE, height: SOS_SIZE, borderRadius: SOS_SIZE / 2 },
+  sosFill: { width: '100%', height: '100%', borderRadius: SOS_SIZE / 2 },
   sosInner: {
     width: '100%',
     height: '100%',

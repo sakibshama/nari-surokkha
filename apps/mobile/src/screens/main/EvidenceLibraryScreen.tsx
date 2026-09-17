@@ -1,8 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import {
-  View, Text, StyleSheet, ScrollView, Image,
-  Linking, RefreshControl, Alert as RNAlert, Modal, Dimensions,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, Linking, RefreshControl, Modal, Dimensions } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
@@ -116,9 +114,9 @@ export default function EvidenceLibraryScreen() {
     try {
       const ok = await Linking.canOpenURL(target);
       if (ok) await Linking.openURL(target);
-      else RNAlert.alert(t('Unavailable'), t('This file link could not be opened.'));
+      else showAlert(t('Unavailable'), t('This file link could not be opened.'));
     } catch {
-      RNAlert.alert(t('Download failed'), t('Please try again in a moment.'));
+      showAlert(t('Download failed'), t('Please try again in a moment.'));
     }
   };
 

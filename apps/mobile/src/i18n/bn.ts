@@ -156,6 +156,8 @@ export const bn: Record<string, string> = {
   'Add contact': 'পরিচিতজন যোগ করুন',
   'SOS failed': 'SOS পাঠানো যায়নি',
   'Could not trigger SOS. Call 999 directly.': 'SOS পাঠানো যায়নি। সরাসরি ৯৯৯-এ কল করুন।',
+  'SOS sent': 'SOS পাঠানো হয়েছে',
+  'Your contacts and nearby responders are being alerted.': 'আপনার পরিচিতজন ও কাছের সাহায্যকারীদের জানানো হচ্ছে।',
   'Emergency SMS sent': 'জরুরি এসএমএস পাঠানো হয়েছে',
   'You are offline — your SOS text went to your trusted contacts over SMS.':
     'আপনি অফলাইনে আছেন — আপনার SOS বার্তা এসএমএসের মাধ্যমে বিশ্বস্ত পরিচিতজনদের কাছে গেছে।',

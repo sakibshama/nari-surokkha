@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Text, View } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import Animated, { FadeInDown, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Heart, Phone, User, UserMinus, UserPlus, Users } from 'lucide-react-native';
@@ -71,7 +72,7 @@ export default function TrustedContactsScreen() {
 
   const addContact = async () => {
     if (!name.trim() || !phone.trim()) {
-      Alert.alert(t('Required'), t('Name and phone are required.'));
+      showAlert(t('Required'), t('Name and phone are required.'));
       return;
     }
     // Bangladeshi numbers need the +88 prefix.
@@ -87,14 +88,14 @@ export default function TrustedContactsScreen() {
       setRelation('');
       load();
     } catch (e: any) {
-      Alert.alert(t('Error'), e.response?.data?.error?.message || t('Failed to add contact'));
+      showAlert(t('Error'), e.response?.data?.error?.message || t('Failed to add contact'));
     } finally {
       setAdding(false);
     }
   };
 
   const removeContact = (id: string) => {
-    Alert.alert(t('Remove contact'), t('Are you sure?'), [
+    showAlert(t('Remove contact'), t('Are you sure?'), [
       { text: t('Cancel'), style: 'cancel' },
       {
         text: t('Remove'),
@@ -104,7 +105,7 @@ export default function TrustedContactsScreen() {
             await api.delete(`/contacts/${id}`);
             load();
           } catch {
-            Alert.alert(t('Error'), t('Failed.'));
+            showAlert(t('Error'), t('Failed.'));
           }
         },
       },

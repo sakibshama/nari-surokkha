@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, Switch, View } from 'react-native';
+import { Switch, View } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import {
   Activity,
   Bell,
@@ -49,7 +50,7 @@ export default function SettingsScreen() {
   );
 
   const confirmLogout = () => {
-    Alert.alert(t('Log out?'), t('You will stop receiving alerts on this device until you sign in again.'), [
+    showAlert(t('Log out?'), t('You will stop receiving alerts on this device until you sign in again.'), [
       { text: t('Cancel'), style: 'cancel' },
       { text: t('Log out'), style: 'destructive', onPress: logout },
     ]);
@@ -132,7 +133,7 @@ export default function SettingsScreen() {
         <ListRow
           title={t('Change password')}
           icon={<Lock size={19} color={colors.accent} />}
-          onPress={() => Alert.alert(t('Change password'), t('This opens the password form once it is wired up.'))}
+          onPress={() => showAlert(t('Change password'), t('This opens the password form once it is wired up.'))}
         />
       </Card>
 

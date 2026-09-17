@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import { useFocusEffect } from '@react-navigation/native';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
 import { CheckCircle2, Clock, MessageSquare, Send, Trash2, Users, Wifi, WifiOff, XCircle } from 'lucide-react-native';
@@ -40,7 +41,7 @@ export default function SmsHistoryScreen() {
   );
 
   const confirmClear = () => {
-    Alert.alert(t('Clear history'), t('Remove all SMS history from this device?'), [
+    showAlert(t('Clear history'), t('Remove all SMS history from this device?'), [
       { text: t('Cancel'), style: 'cancel' },
       {
         text: t('Clear'),

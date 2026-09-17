@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Alert as RNAlert, Platform, Vibration } from 'react-native';
+import { View, Text, StyleSheet, Platform, Vibration } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -106,7 +107,7 @@ export default function SoftAlertScreen() {
         }
       }
     } catch {
-      RNAlert.alert(t('Error'), t('Connection failed. Check your network.'));
+      showAlert(t('Error'), t('Connection failed. Check your network.'));
       navigation.goBack();
     }
   };

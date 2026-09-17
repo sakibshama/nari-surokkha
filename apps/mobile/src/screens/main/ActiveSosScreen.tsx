@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Alert, Linking, ActivityIndicator, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Linking, ActivityIndicator, ScrollView, Platform } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainStack';
 import { useLocationStore } from '../../store/locationStore';
@@ -192,7 +193,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
       if (Platform.OS === 'web') {
         // Real browser geolocation — stream actual coordinates, never simulated ones.
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') { Alert.alert(tStatic('Permission needed'), tStatic('Location permission required.')); return; }
+        if (status !== 'granted') { showAlert(tStatic('Permission needed'), tStatic('Location permission required.')); return; }
         const watcher = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.Highest, timeInterval: 5000, distanceInterval: 5 },
           (pos) => {
@@ -206,7 +207,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
         (window as any).webSosWatcher = watcher;
       } else {
         const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== 'granted') { Alert.alert(tStatic('Permission needed'), tStatic('Location permission required.')); return; }
+        if (status !== 'granted') { showAlert(tStatic('Permission needed'), tStatic('Location permission required.')); return; }
         try {
           await startBackgroundLocationUpdates();
         } catch (e) { console.error(e); }
@@ -224,7 +225,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
 
   const captureEvidence = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert(t('Permission needed'), t('Camera permission required.')); return; }
+    if (status !== 'granted') { showAlert(t('Permission needed'), t('Camera permission required.')); return; }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
     if (!result.canceled && result.assets?.[0]) {
       setUploading(true);
@@ -254,10 +255,10 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
             return data;
           },
         });
-        Alert.alert(t('Uploaded'), t('Evidence secured.'));
+        showAlert(t('Uploaded'), t('Evidence secured.'));
       } catch (e) {
         if (__DEV__) console.warn('[Evidence] upload failed', e);
-        Alert.alert(t('Failed'), t('Upload error. Try again.'));
+        showAlert(t('Failed'), t('Upload error. Try again.'));
       }
       finally { setUploading(false); }
     }
@@ -284,7 +285,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
         await proceedWithCancel();
       }
     } else {
-      Alert.alert(t('Cancel SOS?'), t('Are you sure you are safe?'), [
+      showAlert(t('Cancel SOS?'), t('Are you sure you are safe?'), [
         { text: t('Keep active'), style: 'cancel' },
         { text: t("Yes, I'm safe"), style: 'destructive', onPress: proceedWithCancel }
       ]);

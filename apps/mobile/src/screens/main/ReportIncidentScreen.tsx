@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Location from 'expo-location';
 import Animated, { ZoomIn } from 'react-native-reanimated';
@@ -47,7 +48,7 @@ export default function ReportIncidentScreen({ navigation }: Props) {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(t('Permission denied'), t('Location required.'));
+        showAlert(t('Permission denied'), t('Location required.'));
         setLoading(false);
         return;
       }
@@ -58,11 +59,11 @@ export default function ReportIncidentScreen({ navigation }: Props) {
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
       });
-      Alert.alert(t('Report submitted'), t('Your anonymous report has been sent for verification.'), [
+      showAlert(t('Report submitted'), t('Your anonymous report has been sent for verification.'), [
         { text: t('OK'), onPress: () => navigation.goBack() },
       ]);
     } catch (e: any) {
-      Alert.alert(t('Failed'), e.response?.data?.message || t('Please try again.'));
+      showAlert(t('Failed'), e.response?.data?.message || t('Please try again.'));
     } finally {
       setLoading(false);
     }

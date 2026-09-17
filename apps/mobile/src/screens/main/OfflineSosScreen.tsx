@@ -9,7 +9,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, StyleSheet, View } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -58,9 +59,9 @@ export default function OfflineSosScreen({ navigation }: Props) {
       const result = await sendOfflineSosSms();
       await refreshHistory();
       if (result.opened && !result.auto) {
-        Alert.alert(t('Review & send'), t('Your Messages app opened with the SOS text ready — tap Send to dispatch it.'));
+        showAlert(t('Review & send'), t('Your Messages app opened with the SOS text ready — tap Send to dispatch it.'));
       } else if (!result.opened) {
-        Alert.alert(t('Offline'), `${result.reason || t('SMS is not available on this device.')} ${t('Please call 999 directly.')}`);
+        showAlert(t('Offline'), `${result.reason || t('SMS is not available on this device.')} ${t('Please call 999 directly.')}`);
       }
     } finally {
       setSending(false);

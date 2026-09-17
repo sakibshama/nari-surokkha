@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, RefreshControl, Text, View } from 'react-native';
+import { showAlert } from '../../utils/notify';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
 import { formatDistanceToNow } from 'date-fns';
 import { bn as bnLocale } from 'date-fns/locale';
@@ -49,9 +50,9 @@ export default function ResponderHubScreen() {
     try {
       await api.patch(`/responders/dispatches/${id}/response`, { action });
       fetchDispatches();
-      if (action === 'accept') Alert.alert(t('Accepted'), t('Details unlocked below.'));
+      if (action === 'accept') showAlert(t('Accepted'), t('Details unlocked below.'));
     } catch (e: any) {
-      Alert.alert(t('Error'), e.response?.data?.error?.message || t('Failed.'));
+      showAlert(t('Error'), e.response?.data?.error?.message || t('Failed.'));
     }
   };
 

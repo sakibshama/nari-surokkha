@@ -20,12 +20,55 @@ import Constants from 'expo-constants';
 
 const extra = (Constants.expoConfig?.extra ?? {}) as { apiUrl?: string; wsUrl?: string };
 
-// Dev = LOCAL node server. iOS simulator + Expo web reach it on localhost;
-// Android emulator uses the 10.0.2.2 alias for the host machine.
-const DEV_API_URL = Platform.OS === 'android'
-  ? 'http://10.0.2.2:3001/api/v1'      // Android emulator → host machine
-  : 'http://localhost:3001/api/v1';    // iOS simulator / Expo web
+/**
+ * Dev = the LOCAL node server on the developer's machine.
+ *
+ * The old fallback hard-coded `10.0.2.2` (the Android EMULATOR's alias for the
+ * host) and `localhost` everywhere else, so the app could never reach the API
+ * from a real phone — it just showed "Connection Error".
+ *
+ * Expo already knows the right address: Metro is being served from the dev
+ * machine, and its host is handed to the app as `hostUri`. Reusing it means a
+ * phone on the same Wi-Fi hits e.g. http://192.168.0.12:3001 with no config,
+ * while the emulator and simulator keep working.
+ */
+const DEV_API_PORT = process.env['EXPO_PUBLIC_API_PORT'] ?? '3001';
 
+function devHost(): string {
+  // Web: the page's own host — works for localhost and for a LAN address.
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+    return window.location.hostname;
+  }
+
+  const c = Constants as unknown as {
+    expoConfig?: { hostUri?: string };
+    expoGoConfig?: { debuggerHost?: string };
+    manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } };
+    manifest?: { debuggerHost?: string; hostUri?: string };
+  };
+  const hostUri =
+    c.expoConfig?.hostUri ??
+    c.expoGoConfig?.debuggerHost ??
+    c.manifest2?.extra?.expoGo?.debuggerHost ??
+    c.manifest?.hostUri ??
+    c.manifest?.debuggerHost;
+
+  const host = hostUri?.split('://').pop()?.split('/')[0]?.split(':')[0];
+
+  if (host && host !== 'localhost' && host !== '127.0.0.1') return host;
+
+  // Metro is on localhost → we are the emulator/simulator on the same machine.
+  return Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+}
+
+const DEV_API_URL = `http://${devHost()}:${DEV_API_PORT}/api/v1`;
+
+/**
+ * Resolution order:
+ *   1. EXPO_PUBLIC_API_URL          — set per EAS build profile / .env
+ *   2. expo.extra.apiUrl (app.json) — the committed default, release builds
+ *   3. the dev URL derived above    — only when __DEV__
+ */
 function resolveApiUrl(): string {
   const fromEnv = process.env['EXPO_PUBLIC_API_URL'];
   if (fromEnv) return fromEnv;
@@ -39,6 +82,11 @@ function resolveApiUrl(): string {
 }
 
 export const API_BASE_URL = resolveApiUrl();
+
+if (__DEV__) {
+  // One line in the Metro log that answers "what is it actually calling?".
+  console.log(`[api] base URL: ${API_BASE_URL}`);
+}
 export const WS_BASE_URL =
   process.env['EXPO_PUBLIC_WS_URL'] ?? extra.wsUrl ?? API_BASE_URL.replace(/\/api\/v1$/, '');
 
@@ -175,9 +223,13 @@ api.interceptors.response.use(
       const Toast = require('react-native-toast-message').default;
       Toast.show({
         type: 'error',
-        text1: 'Connection Error',
-        text2: 'Could not connect to backend server',
+        text1: 'Cannot reach the server',
+        // Name the address that failed: "connection error" with no URL is
+        // impossible to act on, and this is usually a wrong host or a
+        // firewall on the dev machine.
+        text2: API_BASE_URL,
         position: 'top',
+        visibilityTime: 5000,
       });
       return Promise.reject(error);
     }

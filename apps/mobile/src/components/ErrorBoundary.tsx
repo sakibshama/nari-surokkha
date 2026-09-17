@@ -1,7 +1,7 @@
 import React, { Component, ReactNode } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { ThemeContext } from '../theme/ThemeProvider';
-import { lightPalette, radius, spacing, type as typeScale } from '../theme/tokens';
+import { lightPalette, radius, spacing, type as typeScale, type Palette } from '../theme/tokens';
 import { tStatic } from '../i18n';
 
 interface Props {
@@ -19,7 +19,6 @@ export class ErrorBoundary extends Component<Props, State> {
    * state that lands us here — the light palette is a readable fallback.
    */
   static contextType = ThemeContext;
-  declare context: React.ContextType<typeof ThemeContext>;
 
   constructor(props: Props) {
     super(props);
@@ -36,7 +35,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
-      const colors = this.context?.colors ?? lightPalette;
+      // `this.context` is untyped without a `declare` field, and Babel's
+      // TypeScript transform rejects `declare` here — so narrow it by hand.
+      const ctx = this.context as { colors?: Palette } | null;
+      const colors = ctx?.colors ?? lightPalette;
       return (
         <View style={[styles.container, { backgroundColor: colors.bg }]}>
           <Text style={styles.icon}>⚠️</Text>

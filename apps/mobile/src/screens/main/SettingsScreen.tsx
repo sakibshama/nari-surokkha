@@ -215,11 +215,11 @@ export default function SettingsScreen() {
             <Field
               value={draft}
               onChangeText={setDraft}
-              placeholder="http://192.168.0.10:3001"
+              placeholder="http://192.168.0.10:3000"
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
-              hint={t('The app adds /api/v1 for you.')}
+              hint={t('Include the port, e.g. 3000. The app adds /api/v1 for you.')}
             />
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <Button

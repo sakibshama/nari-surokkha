@@ -474,7 +474,7 @@ export const bn: Record<string, string> = {
   'This file has no shareable link right now. Try again once storage is back.':
     'এই ফাইলের শেয়ারযোগ্য লিংক এখন নেই। স্টোরেজ ফিরে এলে আবার চেষ্টা করুন।',
   'Server address': 'সার্ভারের ঠিকানা',
-  'The app adds /api/v1 for you.': 'অ্যাপ নিজেই /api/v1 যোগ করে নেবে।',
+  'Include the port, e.g. 3000. The app adds /api/v1 for you.': 'পোর্টসহ লিখুন, যেমন ৩০০০। /api/v1 অ্যাপ নিজেই যোগ করে নেবে।',
   'Save': 'সংরক্ষণ',
   'Reset': 'রিসেট',
   'Confirm an SOS can reach the server': 'SOS সার্ভারে পৌঁছাতে পারবে কিনা যাচাই করুন',

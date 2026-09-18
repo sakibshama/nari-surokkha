@@ -32,7 +32,14 @@ const extra = (Constants.expoConfig?.extra ?? {}) as { apiUrl?: string; wsUrl?: 
  * phone on the same Wi-Fi hits e.g. http://192.168.0.12:3001 with no config,
  * while the emulator and simulator keep working.
  */
-const DEV_API_PORT = process.env['EXPO_PUBLIC_API_PORT'] ?? '3001';
+/**
+ * Ports the API might be on in development. EXPO_PUBLIC_API_PORT pins one;
+ * otherwise both common ones are tried, because a dev server moves between
+ * them more often than anyone remembers to update a config file.
+ */
+const CONFIGURED_PORT = process.env['EXPO_PUBLIC_API_PORT'];
+const DEV_API_PORTS = CONFIGURED_PORT ? [CONFIGURED_PORT] : ['3000', '3001'];
+const DEV_API_PORT = DEV_API_PORTS[0];
 
 function devHost(): string {
   // Web: the page's own host — works for localhost and for a LAN address.
@@ -64,15 +71,46 @@ function devHost(): string {
 const DEV_API_URL = `http://${devHost()}:${DEV_API_PORT}/api/v1`;
 
 /** Candidate dev servers, best guess first. Used by discoverApiUrl(). */
+/**
+ * Candidates to try, in order of preference, grouped so a whole group is
+ * probed at once:
+ *   1. the LAN address this app was served from (phone on the same Wi-Fi)
+ *   2. this machine (simulator, USB/adb reverse, or a browser on the host)
+ *   3. the Android emulator's alias for the host
+ *   4. whatever the build was configured with (staging / production)
+ */
+function devCandidateGroups(): string[][] {
+  const host = devHost();
+  const onHostMachine = host === 'localhost' || host === '127.0.0.1' || host === '10.0.2.2';
+
+  const groups: string[][] = [];
+  if (!onHostMachine) groups.push(DEV_API_PORTS.map((port) => `http://${host}:${port}/api/v1`));
+  groups.push(DEV_API_PORTS.map((port) => `http://localhost:${port}/api/v1`));
+  if (Platform.OS === 'android') {
+    groups.push(DEV_API_PORTS.map((port) => `http://10.0.2.2:${port}/api/v1`));
+  }
+  if (extra.apiUrl) groups.push([extra.apiUrl]);
+  return groups;
+}
+
+/** Flat list, for error messages. */
 function devCandidates(): string[] {
-  const list = [DEV_API_URL];
-  // USB / adb reverse, and the simulator.
-  list.push(`http://localhost:${DEV_API_PORT}/api/v1`);
-  // Android emulator's alias for the host machine.
-  if (Platform.OS === 'android') list.push(`http://10.0.2.2:${DEV_API_PORT}/api/v1`);
-  // Whatever the build was configured with (a staging/production server).
-  if (extra.apiUrl) list.push(extra.apiUrl);
-  return [...new Set(list)];
+  return [...new Set(devCandidateGroups().flat())];
+}
+
+/**
+ * Accept anything a person would reasonably type — "192.168.0.10:3000",
+ * "http://192.168.0.10:3000/api", a trailing slash — and return the base URL
+ * the client actually needs.
+ */
+export function normalizeBaseUrl(input: string): string {
+  let url = input.trim();
+  if (!url) return url;
+  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
+  url = url.replace(/\/+$/, '');
+  // Strip a path the user may have included, so we never build /api/api/v1.
+  url = url.replace(/\/api(\/v\d+)?$/i, '');
+  return `${url}/api/v1`;
 }
 
 /**
@@ -141,8 +179,7 @@ function setActive(url: string) {
 /** Save (or clear, with null) a server address chosen by the user. */
 export async function setApiBaseUrl(url: string | null): Promise<string> {
   if (url) {
-    const clean = url.trim().replace(/\/+$/, '');
-    const withPath = /\/api\/v1$/.test(clean) ? clean : `${clean}/api/v1`;
+    const withPath = normalizeBaseUrl(url);
     await AsyncStorage.setItem(OVERRIDE_KEY, withPath);
     setActive(withPath);
     return withPath;
@@ -163,6 +200,14 @@ export async function probe(baseUrl: string, timeoutMs = 2500): Promise<boolean>
   } catch {
     return false;
   }
+}
+
+/** The first URL in the list that answers, or null. Probes run concurrently. */
+async function firstReachable(candidates: string[], timeoutMs = 2000): Promise<string | null> {
+  const results = await Promise.all(
+    candidates.map(async (c) => ((await probe(c, timeoutMs)) ? c : null)),
+  );
+  return results.find((r): r is string => r !== null) ?? null;
 }
 
 /**
@@ -186,10 +231,13 @@ export async function initApiTarget(): Promise<string> {
     return activeBaseUrl;
   }
 
-  for (const candidate of devCandidates()) {
+  // Probe a whole group at once (fast), but keep the groups in preference
+  // order so a phone prefers the LAN address over the host's own localhost.
+  for (const group of devCandidateGroups()) {
     // eslint-disable-next-line no-await-in-loop
-    if (await probe(candidate)) {
-      setActive(candidate);
+    const found = await firstReachable(group);
+    if (found) {
+      setActive(found);
       return activeBaseUrl;
     }
   }

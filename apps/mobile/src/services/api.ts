@@ -216,6 +216,22 @@ async function firstReachable(candidates: string[], timeoutMs = 2000): Promise<s
  * Wi-Fi, USB and the emulator without anyone editing a file.
  */
 export async function initApiTarget(): Promise<string> {
+  // An address pinned in .env is the developer's deliberate choice for this
+  // build, so it wins — and clears a stale one saved from earlier testing,
+  // which would otherwise silently shadow it.
+  const fromEnv = process.env['EXPO_PUBLIC_API_URL'];
+  if (fromEnv) {
+    const pinned = normalizeBaseUrl(fromEnv);
+    try {
+      const saved = await AsyncStorage.getItem(OVERRIDE_KEY);
+      if (saved && saved !== pinned) await AsyncStorage.removeItem(OVERRIDE_KEY);
+    } catch {
+      /* nothing saved */
+    }
+    setActive(pinned);
+    return activeBaseUrl;
+  }
+
   try {
     const saved = await AsyncStorage.getItem(OVERRIDE_KEY);
     if (saved) {

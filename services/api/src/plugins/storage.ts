@@ -97,6 +97,16 @@ async function storagePluginInit(fastify: FastifyInstance) {
 
   let s3Client: S3Client | null = null;
 
+  // Resolve the server-side-encryption mode once, at boot.
+  const sseMode: 'AES256' | 'aws:kms' | 'none' =
+    env.S3_SSE !== 'auto'
+      ? env.S3_SSE
+      : env.S3_KMS_KEY_ID
+        ? 'aws:kms'
+        : env.STORAGE_PROVIDER === 'minio'
+          ? 'none' // MinIO 501s on any SSE header unless a KMS is attached
+          : 'AES256';
+
   if (useObjectStorage) {
     s3Client = new S3Client({
       region: env.AWS_REGION || env.S3_REGION,
@@ -109,9 +119,15 @@ async function storagePluginInit(fastify: FastifyInstance) {
       ...(env.S3_ENDPOINT ? { endpoint: env.S3_ENDPOINT, forcePathStyle: true } : {}),
     });
     fastify.log.info(
-      { bucket, endpoint: env.S3_ENDPOINT ?? 'aws', encryption: env.S3_KMS_KEY_ID ? 'aws:kms' : 'AES256' },
+      { bucket, endpoint: env.S3_ENDPOINT ?? 'aws', encryption: sseMode },
       '✅ Evidence storage: object storage (multi-host capable)',
     );
+    if (sseMode === 'none' && env.NODE_ENV === 'production') {
+      fastify.log.warn(
+        'Evidence uploads send NO server-side-encryption header. Attach a KMS to MinIO ' +
+          '(or enable bucket-default encryption) and set S3_SSE=AES256 / S3_KMS_KEY_ID.',
+      );
+    }
   } else {
     const check = ensureUploadDirWritable();
     if (!check.ok) {
@@ -133,9 +149,12 @@ async function storagePluginInit(fastify: FastifyInstance) {
   }
 
   /** Encryption headers applied to every stored object. */
-  const encryption = env.S3_KMS_KEY_ID
-    ? { ServerSideEncryption: 'aws:kms' as const, SSEKMSKeyId: env.S3_KMS_KEY_ID }
-    : { ServerSideEncryption: 'AES256' as const };
+  const encryption =
+    sseMode === 'aws:kms'
+      ? { ServerSideEncryption: 'aws:kms' as const, ...(env.S3_KMS_KEY_ID ? { SSEKMSKeyId: env.S3_KMS_KEY_ID } : {}) }
+      : sseMode === 'AES256'
+        ? { ServerSideEncryption: 'AES256' as const }
+        : {};
 
   const storage: StoragePlugin = {
     isObjectStorage: useObjectStorage,

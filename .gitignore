@@ -81,3 +81,9 @@ secrets/
 
 # Scratch
 _to_delete/
+
+# keyword-pipeline scratch (TTS clips, features, downloaded models)
+services/ml-training/keywords/work/
+
+# Assistant preview screenshots
+Claude outputs/

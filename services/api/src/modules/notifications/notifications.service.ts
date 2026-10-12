@@ -17,6 +17,48 @@ import crypto from 'crypto';
 
 const TRACKING_TTL_SECONDS = 24 * 60 * 60; // 24h
 
+/**
+ * Create a SHORT, opaque tracking token stored in Redis (24h TTL) that maps to
+ * the alert and is resolvable by the public tracking page (/t/:token).
+ *
+ * Deterministic, not random: the same (alert, key) pair always yields the same
+ * token, so retries refresh one consistent link instead of minting new ones.
+ * 12 base64url chars ≈ 72 bits — this link reveals the live location of
+ * someone in danger, so it must not be cheap to guess.
+ *
+ * `key` is a contact id for server SMS, or 'device' for the link the phone
+ * puts in the SMS it sends from its own SIM.
+ */
+export async function createTrackingLinkToken(
+  fastify: FastifyInstance,
+  alertId: string,
+  key: string,
+): Promise<string> {
+  const token = crypto
+    .createHmac('sha256', env.JWT_SECRET)
+    .update(`track:${alertId}:${key}`)
+    .digest('base64url')
+    .slice(0, 12);
+  await fastify.redis.set(`track:${token}`, JSON.stringify({ alertId, contactId: key }), 'EX', TRACKING_TTL_SECONDS);
+  return token;
+}
+
+export function publicTrackingUrl(token: string): string {
+  return `${(env.PUBLIC_TRACKING_URL || env.API_BASE_URL).replace(/\/$/, '')}/t/${token}`;
+}
+
+/**
+ * How trusted contacts are reached for one alert:
+ *  - 'all'       : server SMS + push (the user has SMS quota)
+ *  - 'push_only' : the user's SMS quota is used up, so the PHONE sends the SMS
+ *                  from its own SIM; the server only pushes to contacts who
+ *                  have the app
+ *  - 'sms_retry' : the phone could not send it after all — the server sends
+ *                  the SMS anyway (an SOS must reach someone)
+ */
+export type ContactNotifyMode = 'all' | 'push_only' | 'sms_retry';
+const JOB_PREFIX: Record<ContactNotifyMode, string> = { all: 'notify', push_only: 'notify-push', sms_retry: 'notify-sms' };
+
 export class NotificationsService {
   private pushProvider: PushProvider;
 
@@ -31,33 +73,9 @@ export class NotificationsService {
     }
   }
 
-  /**
-   * Create a SHORT, opaque tracking token stored in Redis (24h TTL) that maps to
-   * the alert. Keeps the SMS link short (~8 chars vs a full JWT) and — unlike the
-   * old JWT — is actually resolvable by the public tracking page (/t/:token).
-   */
-  private async createTrackingToken(alertId: string, contactId: string): Promise<string> {
-    // Deterministic, not random: the same (alert, contact) pair always yields
-    // the same token. That makes the whole notification job safe to retry —
-    // a second attempt refreshes the existing link instead of minting another
-    // one — and means a contact who receives two SMS sees one consistent URL.
-    //
-    // 12 base64url chars ≈ 72 bits of entropy, up from the previous 8 chars
-    // (48 bits). This token grants a stranger the live location of someone in
-    // danger, so it should not be cheap to guess.
-    const token = crypto
-      .createHmac('sha256', env.JWT_SECRET)
-      .update(`track:${alertId}:${contactId}`)
-      .digest('base64url')
-      .slice(0, 12);
-
-    await this.fastify.redis.set(
-      `track:${token}`,
-      JSON.stringify({ alertId, contactId }),
-      'EX',
-      TRACKING_TTL_SECONDS,
-    );
-    return token;
+  /** Short, opaque tracking token for one contact (see createTrackingLinkToken). */
+  private createTrackingToken(alertId: string, contactId: string): Promise<string> {
+    return createTrackingLinkToken(this.fastify, alertId, contactId);
   }
 
   /**
@@ -90,7 +108,11 @@ export class NotificationsService {
    * Now each contact is its own job with a deterministic jobId, so a retry
    * retries precisely the delivery that failed.
    */
-  async processTrustedContactsNotification(alertId: string, userId: string): Promise<void> {
+  async processTrustedContactsNotification(
+    alertId: string,
+    userId: string,
+    mode: ContactNotifyMode = 'all',
+  ): Promise<void> {
     const contacts = await this.db.trustedContact.findMany({
       where: { userId },
       select: { id: true },
@@ -106,7 +128,7 @@ export class NotificationsService {
       // No queue (tests, or a degraded boot) — deliver inline rather than drop.
       this.fastify.log.warn('Notifications queue unavailable; delivering inline.');
       const results = await Promise.allSettled(
-        contacts.map((c) => this.notifyTrustedContact(alertId, c.id)),
+        contacts.map((c) => this.notifyTrustedContact(alertId, c.id, mode)),
       );
       const failed = results.filter((r) => r.status === 'rejected').length;
       if (failed > 0) throw new Error(`Notification processing had ${failed} failures.`);
@@ -116,8 +138,10 @@ export class NotificationsService {
     await queue.addBulk(
       contacts.map((c) => ({
         name: 'notify_trusted_contact',
-        data: { alertId, contactId: c.id },
-        opts: { jobId: `notify:${alertId}:${c.id}` },
+        data: { alertId, contactId: c.id, mode },
+        // Distinct ids per mode: a later 'sms_retry' must not be swallowed as a
+        // duplicate of the earlier 'push_only' job for the same contact.
+        opts: { jobId: `${JOB_PREFIX[mode]}:${alertId}:${c.id}` },
       })),
     );
 
@@ -135,7 +159,11 @@ export class NotificationsService {
    * (alert, channel, recipient). A retry therefore re-attempts only what
    * genuinely failed, and a contact is never messaged twice for one alert.
    */
-  async notifyTrustedContact(alertId: string, contactId: string): Promise<void> {
+  async notifyTrustedContact(
+    alertId: string,
+    contactId: string,
+    mode: ContactNotifyMode = 'all',
+  ): Promise<void> {
     const [alert, contact] = await Promise.all([
       this.db.emergencyAlert.findUnique({
         where: { id: alertId },
@@ -174,8 +202,11 @@ export class NotificationsService {
 
     // SMS and push are independent channels — run them concurrently. Neither
     // should be delayed by the other's provider.
+    // 'push_only': the phone is texting this contact from its own SIM.
     const outcomes = await Promise.allSettled([
-      this.deliverSms(alert.id, contact.phone, message, alert.createdAt),
+      mode === 'push_only'
+        ? Promise.resolve()
+        : this.deliverSms(alert.id, contact.phone, message, alert.userId, alert.createdAt),
       this.deliverPush(alert.id, contact.phone, userName, message, alert.createdAt),
     ]);
 
@@ -215,6 +246,7 @@ export class NotificationsService {
     alertId: string,
     phone: string,
     message: string,
+    userId: string,
     alertCreatedAt?: Date,
   ): Promise<void> {
     const smsProvider = await this.resolveSmsProvider();
@@ -241,6 +273,34 @@ export class NotificationsService {
     } catch (err: any) {
       await this.updateNotificationLog(log.id, 'failed', err?.message, 'sms');
       throw err;
+    }
+
+    // The quota decision (server SMS vs the phone's own SIM) is made when the
+    // alert is dispatched — see AlertsService.smsQuotaAvailable. Reaching here
+    // means the server should send, so it is only counted, after the SMS has
+    // gone out and outside the try above: a failed bookkeeping write must not
+    // mark a delivered SMS as failed (BullMQ would retry and text twice).
+    await this.recordSmsUsage(userId, alertId);
+  }
+
+  /**
+   * Best-effort SMS quota accounting for paid plans. Decrements only while
+   * quota remains; logs usage beyond the plan for billing / abuse review.
+   */
+  private async recordSmsUsage(userId: string, alertId: string): Promise<void> {
+    try {
+      const { count } = await this.db.subscription.updateMany({
+        where: { userId, status: 'active', smsRemaining: { gt: 0 }, endDate: { gt: new Date() } },
+        data: { smsRemaining: { decrement: 1 } },
+      });
+      if (count === 0) {
+        this.fastify.log.info(
+          { alertId, userId },
+          'Emergency SMS sent outside the paid SMS quota (no active subscription or quota used up)',
+        );
+      }
+    } catch (err) {
+      this.fastify.log.warn({ err, alertId, userId }, 'Could not record SMS quota usage (SMS was still sent)');
     }
   }
 

@@ -183,6 +183,27 @@ async function main(): Promise<void> {
 
   console.log('✅ Test incidents seeded');
 
+  // ─── Payment Gateway (SSLCommerz SANDBOX) ────────────────────
+  // Public SSLCommerz sandbox test store — no real money moves. `update: {}`
+  // means a config an admin already saved is never overwritten by re-seeding.
+  const apiBaseUrl = process.env.API_BASE_URL ?? 'http://localhost:3001';
+  await prisma.systemSetting.upsert({
+    where: { key: 'sslcommerz_config' },
+    update: {},
+    create: {
+      key: 'sslcommerz_config',
+      value: {
+        store_id: 'testbox',
+        store_passwd: 'qwerty',
+        is_sandbox: true,
+        backend_url: apiBaseUrl,
+        frontend_url: 'http://localhost:8081',
+      },
+    },
+  });
+
+  console.log('✅ SSLCommerz sandbox config seeded');
+
   console.log('\n🎉 Dev seed complete!');
   console.log('');
   console.log('Test credentials (DEV ONLY):');

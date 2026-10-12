@@ -27,19 +27,16 @@ import { useSettingsStore } from '../../store/settingsStore';
 import { useTheme } from '../../theme';
 import { useT } from '../../i18n';
 import { spacing } from '../../theme/tokens';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MainStackParamList } from '../../navigation/MainStack';
 
 export default function SettingsScreen() {
   const { colors } = useTheme();
   const t = useT();
   const { logout } = useAuthStore();
-  const {
-    mlVoiceEnabled,
-    mlGyroEnabled,
-    mlDataSharingEnabled,
-    setMlVoiceEnabled,
-    setMlGyroEnabled,
-    setMlDataSharingEnabled,
-  } = useSettingsStore();
+  const navigation = useNavigation<NativeStackNavigationProp<MainStackParamList>>();
+  const { mlGyroEnabled, mlDataSharingEnabled, setMlGyroEnabled, setMlDataSharingEnabled } = useSettingsStore();
 
   // TODO: these two are still local-only — nothing downstream reads them yet.
   const [notifications, setNotifications] = useState(true);
@@ -176,10 +173,10 @@ export default function SettingsScreen() {
       <SectionLabel>{t('On-device detection')}</SectionLabel>
       <Card padded={false} delay={160}>
         <ListRow
-          title={t('Voice distress detection')}
-          subtitle={t('Runs on this phone. Audio never leaves the device.')}
+          title={t('Emergency sound detection')}
+          subtitle={t('Shout, cry, "Help", "Bachao" — switches, sensitivity, history')}
           icon={<Mic size={19} color={colors.accent} />}
-          right={themedSwitch(mlVoiceEnabled, setMlVoiceEnabled)}
+          onPress={() => navigation.navigate('EmergencyDetection')}
         />
         <RowDivider />
         <ListRow

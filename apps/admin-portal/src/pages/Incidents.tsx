@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle, CheckCircle, XCircle, MapPin, Clock,
   RefreshCw, Filter, Search, Flame, Eye, TrendingUp,
-  Shield, AlertCircle, Info, X, ExternalLink
+  Shield, AlertCircle, Info, X, ExternalLink, Paperclip
 } from 'lucide-react';
+import IncidentMediaGallery from '../components/IncidentMediaGallery';
 import api from '../services/api';
 import { socketService } from '../services/socket';
 import toast from 'react-hot-toast';
@@ -17,6 +19,7 @@ interface Incident {
   longitude: number | string;
   status: string;
   createdAt: string;
+  mediaCount?: number;
 }
 
 const TYPE_META: Record<string, { label: string; color: string; bg: string; Icon: any }> = {
@@ -71,8 +74,16 @@ export default function Incidents() {
       setIncidents(p => [inc, ...p]);
       toast.success(`New ${inc.type.replace(/_/g,' ')} report!`, { icon: '📍', duration: 5000 });
     };
+    // A reporter's photos/videos arrive just after the report itself.
+    const handleMedia = (e: { incidentId: string }) => {
+      setIncidents(p => p.map(i => i.id === e.incidentId ? { ...i, mediaCount: (i.mediaCount ?? 0) + 1 } : i));
+    };
     socketService.socket?.on('incident:created', handleNew);
-    return () => { socketService.socket?.off('incident:created', handleNew); };
+    socketService.socket?.on('incident:media', handleMedia);
+    return () => {
+      socketService.socket?.off('incident:created', handleNew);
+      socketService.socket?.off('incident:media', handleMedia);
+    };
   }, []);
 
   const updateStatus = async (id: string, status: string) => {
@@ -262,6 +273,12 @@ export default function Incidents() {
                       style={{ display:'flex', alignItems:'center', gap:3, fontSize:11, color:'var(--blue)', textDecoration:'none', padding:'4px 8px', borderRadius:8, border:'1px solid var(--border)' }}>
                       <ExternalLink size={10} /> Map
                     </a>
+                    {(incident.mediaCount ?? 0) > 0 && (
+                      <span title={`${incident.mediaCount} photo/video attachment(s)`}
+                        style={{ display:'flex', alignItems:'center', gap:4, marginLeft:'auto', fontSize:11, fontWeight:700, color:'var(--blue)', padding:'4px 9px', borderRadius:8, background:'rgba(37,99,235,0.08)', border:'1px solid rgba(37,99,235,0.25)' }}>
+                        <Paperclip size={11} /> {incident.mediaCount}
+                      </span>
+                    )}
                   </div>
 
                   {/* Action area */}
@@ -308,11 +325,11 @@ export default function Incidents() {
         const tm = getMeta(inc.type);
         const sm = STATUS_META[inc.status as keyof typeof STATUS_META] || STATUS_META.pending;
         const isUpd = updatingId === inc.id;
-        return (
+        return createPortal(
           <div onClick={() => setSelected(null)}
             style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:24, backdropFilter:'blur(4px)' }}>
             <div className="card animate-in" onClick={e => e.stopPropagation()}
-              style={{ width:'100%', maxWidth:540, padding:0, overflow:'hidden', maxHeight:'90vh', overflowY:'auto' }}>
+              style={{ width:'100%', maxWidth:620, padding:0, overflow:'hidden', maxHeight:'90vh', overflowY:'auto' }}>
 
               <div style={{ height:5, background:`linear-gradient(90deg,${tm.color},${tm.color}60)` }} />
 
@@ -343,6 +360,12 @@ export default function Incidents() {
                       {inc.description || <em style={{ color:'var(--text-muted)' }}>No description provided</em>}
                     </p>
                   </div>
+
+                  {/* Photos & videos */}
+                  <IncidentMediaGallery
+                    incidentId={inc.id}
+                    onCountChange={(n) => setIncidents(p => p.map(i => i.id === inc.id ? { ...i, mediaCount: n } : i))}
+                  />
 
                   {/* Coordinates */}
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
@@ -383,7 +406,8 @@ export default function Incidents() {
                 </div>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body,
         );
       })()}
     </div>

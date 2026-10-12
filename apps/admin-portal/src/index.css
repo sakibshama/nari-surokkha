@@ -529,3 +529,7 @@ select.field-input optgroup {
 @media (max-width: 640px) {
   .page-body { padding: 20px 16px; }
 }
+
+/* Spinner used by Loader2 icons on busy buttons. */
+.spin { animation: ns-spin 0.9s linear infinite; }
+@keyframes ns-spin { to { transform: rotate(360deg); } }

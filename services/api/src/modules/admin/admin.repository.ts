@@ -247,11 +247,19 @@ export class AdminRepository {
   async listIncidents(status?: any, limit: number = 50): Promise<any[]> {
     const where: any = {};
     if (status) where.status = status;
-    return this.prisma.incidentReport.findMany({
-      where,
-      take: limit,
-      orderBy: { createdAt: 'desc' }
-    });
+    try {
+      const rows = await this.prisma.incidentReport.findMany({
+        where,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { _count: { select: { media: true } } },
+      });
+      return rows.map(({ _count, ...r }) => ({ ...r, mediaCount: _count.media }));
+    } catch {
+      // Media migration not applied yet (or an old Prisma client): still list the reports.
+      const rows = await this.prisma.incidentReport.findMany({ where, take: limit, orderBy: { createdAt: 'desc' } });
+      return rows.map((r) => ({ ...r, mediaCount: 0 }));
+    }
   }
 
   async updateIncidentStatus(id: string, status: any): Promise<any> {

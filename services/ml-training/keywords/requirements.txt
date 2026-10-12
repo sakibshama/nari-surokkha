@@ -1,0 +1,10 @@
+sherpa-onnx==1.13.8      # TTS voices (synthetic training speech)
+numpy
+scipy
+soundfile
+onnx
+onnxruntime
+tensorflow-cpu==2.21.0   # head training + TFLite export
+ai-edge-litert           # TFLite inference for checks
+tf2onnx                  # test fixtures (TFLite → ONNX)
+english-words            # random-word negatives

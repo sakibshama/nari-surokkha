@@ -11,6 +11,13 @@ import { EmergencyAlert } from '@prisma/client';
 import { env } from '@/config/env';
 import { generateTrackingToken } from './alerts.tokens';
 import { sendExpoPushBatch } from '../notifications/providers/expo-push.provider';
+import {
+  ContactNotifyMode,
+  createTrackingLinkToken,
+  NotificationsService,
+  publicTrackingUrl,
+} from '../notifications/notifications.service';
+import { renderSmsTemplate } from '../settings/settings.types';
 import { alertsTotal, respondersDispatched, sosDispatchDuration } from '@/plugins/metrics';
 import {
   CLOSED_STATUSES,
@@ -152,6 +159,12 @@ function pointToPathMeters(
   return min;
 }
 
+/** Tells the app to text the trusted contacts from the phone's own SIM. */
+export interface DeviceSmsInstruction {
+  smsViaDevice: boolean;
+  deviceSmsMessage?: string;
+}
+
 export class AlertsService {
   constructor(
     private readonly repo: AlertsRepository,
@@ -170,7 +183,7 @@ export class AlertsService {
       contactPhones?: string[];
       /** The server could not queue the contact SMS — the app should send it. */
       degradedNotifications?: boolean;
-    }
+    } & DeviceSmsInstruction
   > {
     // 1. Verify user has at least one trusted contact
     const contacts = await this.contactsRepo.getContactsByUserId(userId);
@@ -189,12 +202,91 @@ export class AlertsService {
 
     alertsTotal.inc({ type: 'manual' });
 
-    const { degradedNotifications } = await this.dispatchConfirmedAlert(alert, data, ipAddress);
+    const { degradedNotifications, smsViaDevice } = await this.dispatchConfirmedAlert(alert, data, ipAddress);
 
     const trackingToken = generateTrackingToken(alert.id);
     const contactPhones = contacts.map(c => c.phone);
+    const device = await this.deviceSmsInstruction(alert, smsViaDevice || degradedNotifications);
 
-    return { ...alert, trackingToken, contactPhones, degradedNotifications };
+    return { ...alert, trackingToken, contactPhones, degradedNotifications, ...device };
+  }
+
+  /**
+   * Does the user's plan still cover server-sent SMS? Fails OPEN: if the
+   * subscription cannot be read, the server sends (an SOS must reach someone).
+   */
+  private async smsQuotaAvailable(userId: string): Promise<boolean> {
+    try {
+      const sub = await this.fastify.prisma.subscription.findUnique({ where: { userId } });
+      return !!sub && sub.status === 'active' && sub.smsRemaining > 0 && (!sub.endDate || new Date(sub.endDate) > new Date());
+    } catch (err) {
+      this.fastify.log.warn({ err, userId }, 'Could not read SMS quota; server will send the SMS');
+      return true;
+    }
+  }
+
+  /**
+   * When the phone must send the SMS itself (quota used up, or the server could
+   * not queue it), give it the exact text the server would have sent — the
+   * admin-configured template with a live tracking link.
+   */
+  private async deviceSmsInstruction(alert: EmergencyAlert, needed: boolean): Promise<DeviceSmsInstruction> {
+    if (!needed) return { smsViaDevice: false };
+    const mapLink = `https://maps.google.com/?q=${alert.latitude},${alert.longitude}`;
+    let trackLink = mapLink;
+    try {
+      trackLink = publicTrackingUrl(await createTrackingLinkToken(this.fastify, alert.id, 'device'));
+    } catch (err) {
+      // Redis down: the map link still tells contacts where she is.
+      this.fastify.log.warn({ err, alertId: alert.id }, 'Could not mint a tracking link for the device SMS');
+    }
+    let name = 'A user';
+    let template = '{name} has triggered an SOS alert. Location: {mapLink} Live: {trackLink}';
+    try {
+      const profile = await this.fastify.prisma.userProfile.findUnique({ where: { userId: alert.userId } });
+      if (profile?.fullName) name = profile.fullName;
+      template = await this.fastify.settings.getSmsTemplate();
+    } catch {
+      /* defaults above */
+    }
+    const deviceSmsMessage = renderSmsTemplate(template, {
+      name,
+      mapLink,
+      trackLink,
+      lat: String(alert.latitude),
+      lng: String(alert.longitude),
+    });
+    return { smsViaDevice: true, deviceSmsMessage };
+  }
+
+  /**
+   * The phone was told to send the SMS from its SIM but could not (no SMS
+   * permission, iOS in the background, no signal…). Send it from the server
+   * after all — over quota if need be.
+   */
+  async requestServerSms(userId: string, alertId: string): Promise<{ queued: boolean }> {
+    const alert = await this.repo.getAlertById(alertId);
+    if (!alert || alert.userId !== userId) throw new ForbiddenError('Alert not found');
+    if (['closed', 'cancelled', 'false_alarm', 'resolved', 'created'].includes(alert.status as string)) {
+      throw new ForbiddenError('Alert is not active');
+    }
+    const mode: ContactNotifyMode = 'sms_retry';
+    if (this.fastify.queues?.notifications) {
+      const queued = await withTimeout(
+        this.fastify.queues.notifications.add(
+          'notify_trusted_contacts',
+          { alertId, userId, mode },
+          { jobId: `fanout-sms:${alertId}` },
+        ),
+        QUEUE_ENQUEUE_TIMEOUT_MS,
+      );
+      if (queued) return { queued: true };
+    }
+    this.fastify.log.warn({ alertId }, 'Server SMS fallback not queued — delivering in the background');
+    void new NotificationsService(this.fastify.prisma, this.fastify)
+      .processTrustedContactsNotification(alertId, userId, mode)
+      .catch((err) => this.fastify.log.error({ err, alertId }, 'Background server SMS fallback failed'));
+    return { queued: false };
   }
 
   /**
@@ -217,7 +309,17 @@ export class AlertsService {
     alert: EmergencyAlert,
     data: { latitude: number; longitude: number; accuracy?: number },
     ipAddress?: string,
-  ): Promise<{ degradedNotifications: boolean }> {
+    opts: { forceServerSms?: boolean } = {},
+  ): Promise<{ degradedNotifications: boolean; smsViaDevice: boolean }> {
+    // ── 0. Who sends the contact SMS? ───────────────────────────────────
+    // Within the plan's SMS quota the server sends it. Once the quota is used
+    // up (or there is no active plan) the phone sends it from its own SIM,
+    // like the offline fallback; the server still pushes to contacts who have
+    // the app. Server-side escalations force server SMS: nobody is answering
+    // on the phone.
+    const smsViaDevice = !opts.forceServerSms && !(await this.smsQuotaAvailable(alert.userId));
+    const mode: ContactNotifyMode = smsViaDevice ? 'push_only' : 'all';
+
     // ── 1. Trusted contacts (SMS + push) ────────────────────────────────
     // Bounded: a queue write that cannot complete must not hold the response.
     // If it fails the caller is told, so the app can fall back to sending the
@@ -227,7 +329,7 @@ export class AlertsService {
       const queued = await withTimeout(
         this.fastify.queues.notifications.add(
           'notify_trusted_contacts',
-          { alertId: alert.id, userId: alert.userId },
+          { alertId: alert.id, userId: alert.userId, mode },
           // Idempotent: re-triggering the same alert cannot double-notify.
           { jobId: `fanout:${alert.id}` },
         ),
@@ -289,7 +391,7 @@ export class AlertsService {
       );
     }
 
-    return { degradedNotifications };
+    return { degradedNotifications, smsViaDevice };
   }
 
   /**
@@ -417,12 +519,17 @@ export class AlertsService {
     // We do NOT verify trusted contacts here because it's a passive sensor event.
     // If they have no contacts, it just won't notify anyone later, but we still record the event.
 
+    // Alerts raised by the on-device audio models (shout, cry, "help",
+    // "bachao") are recorded as ml_triggered so the admin portal can tell them
+    // apart from motion-sensor and route-deviation alerts.
+    const AUDIO_TRIGGERS = ['shout', 'cry', 'help', 'bachao'];
+    const trigger = typeof data.mlMetadata?.trigger === 'string' ? data.mlMetadata.trigger : undefined;
     const alert = await this.repo.createAlert({
       userId,
       latitude: data.latitude,
       longitude: data.longitude,
       accuracy: data.accuracy,
-      type: 'sensor_triggered',
+      type: trigger && AUDIO_TRIGGERS.includes(trigger) ? 'ml_triggered' : 'sensor_triggered',
       status: 'created',
       isSoftAlert: true,
       softAlertAt: new Date(),
@@ -467,7 +574,13 @@ export class AlertsService {
     await invalidateAlertMeta(this.fastify, alertId);
   }
 
-  async confirmSoftAlert(userId: string, alertId: string): Promise<EmergencyAlert & { trackingToken?: string; contactPhones?: string[] }> {
+  async confirmSoftAlert(
+    userId: string,
+    alertId: string,
+    opts: { forceServerSms?: boolean } = {},
+  ): Promise<
+    EmergencyAlert & { trackingToken?: string; contactPhones?: string[]; degradedNotifications?: boolean } & DeviceSmsInstruction
+  > {
     const alert = await this.repo.getAlertById(alertId);
     if (!alert || alert.userId !== userId) {
       throw new ForbiddenError('Alert not found');
@@ -489,16 +602,22 @@ export class AlertsService {
     });
     await invalidateAlertMeta(this.fastify, alertId);
 
-    await this.dispatchConfirmedAlert(updatedAlert, {
-      latitude: Number(updatedAlert.latitude),
-      longitude: Number(updatedAlert.longitude),
-      accuracy: updatedAlert.accuracy ? Number(updatedAlert.accuracy) : undefined
-    });
+    const { degradedNotifications, smsViaDevice } = await this.dispatchConfirmedAlert(
+      updatedAlert,
+      {
+        latitude: Number(updatedAlert.latitude),
+        longitude: Number(updatedAlert.longitude),
+        accuracy: updatedAlert.accuracy ? Number(updatedAlert.accuracy) : undefined,
+      },
+      undefined,
+      opts,
+    );
 
     const trackingToken = generateTrackingToken(updatedAlert.id);
     const contactPhones = contacts.map(c => c.phone);
+    const device = await this.deviceSmsInstruction(updatedAlert, smsViaDevice || degradedNotifications);
 
-    return { ...updatedAlert, trackingToken, contactPhones };
+    return { ...updatedAlert, trackingToken, contactPhones, degradedNotifications, ...device };
   }
 
   async cancelSosAlert(userId: string, alertId: string): Promise<void> {

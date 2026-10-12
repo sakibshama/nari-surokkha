@@ -43,11 +43,13 @@ import { useAuthStore } from '../../store/authStore';
 import { useLocationStore } from '../../store/locationStore';
 import api, { describeApiTarget, previewBody } from '../../services/api';
 import { sensorProcessor } from '../../services/ml/SensorProcessor';
-import { audioProcessor } from '../../services/ml/AudioProcessor';
+import { softAlerts } from '../../services/emergency/runtime';
+import DetectionStatusChip from '../../components/DetectionStatusChip';
 import { motionModelLoader } from '../../services/ml/ModelLoader';
 import { sendOfflineSosSms, getCachedContactPhones } from '../../services/offlineSos';
 import { hasSmsPermission, requestSmsPermission } from '../../services/directSms';
 import { logSms } from '../../services/smsHistory';
+import { sendSosSmsFromDevice } from '../../services/deviceSms';
 import { useTheme } from '../../theme';
 import { useT } from '../../i18n';
 import { radius, spacing, type as typeScale } from '../../theme/tokens';
@@ -151,21 +153,18 @@ export default function HomeScreen({ navigation }: Props) {
     // Pull a newer on-device model over the air if the server has one.
     motionModelLoader.checkForUpdate();
 
+    // Motion (fall / struggle) detections go through the same soft-alert
+    // manager as the sound detections, so they share its duplicate
+    // suppression, cooldown and history. Sound detection itself runs app-wide
+    // in <EmergencyRuntime/>, not only while this screen is mounted.
     sensorProcessor.startListening();
-    audioProcessor.startListening();
     const onSensor = (c: number) => {
-      if (c > 0.85) navigation.navigate('SoftAlert' as any);
-    };
-    const onAudio = (c: number, cls: string) => {
-      if (c > 0.85 && (cls === 'scream' || cls === 'trigger_word')) navigation.navigate('SoftAlert' as any);
+      if (c > 0.85) softAlerts.trigger('motion', { confidence: c });
     };
     sensorProcessor.addListener(onSensor);
-    audioProcessor.addListener(onAudio);
     return () => {
       sensorProcessor.removeListener(onSensor);
-      audioProcessor.removeListener(onAudio);
       sensorProcessor.stopListening();
-      audioProcessor.stopListening();
     };
   }, []);
 
@@ -175,7 +174,12 @@ export default function HomeScreen({ navigation }: Props) {
     else if (id === 'report') navigation.navigate('ReportIncident');
     else if (id === 'map') navigation.navigate('SafetyMap');
     else if (id === 'route') navigation.navigate('SafeRoute');
-    else if (id === 'silent') navigation.navigate('SoftAlert', { manual: true });
+    else if (id === 'silent') {
+      const r = softAlerts.trigger('manual', { manual: true });
+      // Already counting down (or an SOS is live): just show it.
+      if (!r.accepted && r.reason === 'active') navigation.navigate('SoftAlert');
+      else if (!r.accepted && activeAlertId) navigation.navigate('ActiveSos', { alertId: activeAlertId });
+    }
     else if (id === 'evidence') navigation.navigate('EvidenceLibrary');
     else if (id === 'profile') navigation.navigate('ProfileSetup');
     else if (id === 'call999') callEmergency();
@@ -265,35 +269,47 @@ export default function HomeScreen({ navigation }: Props) {
         throw err;
       }
 
-      try {
-        const phones = await getCachedContactPhones();
-        await logSms({
-          channel: 'online-server',
-          status: 'sent',
-          recipients: phones,
-          message:
-            'SOS alert dispatched online. Your trusted contacts are being notified by SMS via the server, with a live tracking link.',
-        });
-      } catch {
-        /* history is best-effort */
-      }
-
       setSosActive(true, alertData.id);
-      toast(t('SOS sent'), t('Your contacts and nearby responders are being alerted.'), 'success');
       navigation.navigate('ActiveSos', { alertId: alertData.id });
 
-      // The alert is live, but the server told us it could not queue the SMS
-      // to the trusted contacts. Offer to send it from this phone instead —
-      // silence here is the difference between help arriving and not.
-      if (alertData.degradedNotifications) {
-        showAlert(
-          t('Contacts not texted yet'),
-          t('Your alert is live, but the server could not text your contacts. Send the SMS from this phone?'),
-          [
-            { text: t('Not now'), style: 'cancel' },
-            { text: t('Send SMS'), onPress: () => void triggerOfflineSms(coords, userName) },
-          ],
-        );
+      if (alertData.smsViaDevice) {
+        // The plan's SMS quota is used up (or the server could not queue the
+        // SMS): text the contacts from this phone's SIM, like the offline
+        // fallback. If the phone cannot, the server sends it after all.
+        const outcome = await sendSosSmsFromDevice({
+          alertId: alertData.id,
+          contactPhones: alertData.contactPhones,
+          message:
+            alertData.deviceSmsMessage ||
+            t('EMERGENCY: {name} needs help! Location: {link}', {
+              name: userName,
+              link: `https://maps.google.com/?q=${coords.latitude},${coords.longitude}`,
+            }),
+        });
+        step('device sms', outcome);
+        if (outcome === 'sim') {
+          toast(t('SOS sent'), t('SMS limit reached — your contacts were texted from your SIM.'), 'success');
+        } else if (outcome === 'composer') {
+          toast(t('SOS sent'), t('Tap Send in Messages to text your contacts.'), 'info');
+        } else if (outcome === 'server') {
+          toast(t('SOS sent'), t('Your contacts and nearby responders are being alerted.'), 'success');
+        } else {
+          showAlert(t('Contacts not texted'), t('Your alert is live, but the SMS could not be sent. Please call 999.'));
+        }
+      } else {
+        try {
+          const phones = await getCachedContactPhones();
+          await logSms({
+            channel: 'online-server',
+            status: 'sent',
+            recipients: phones,
+            message:
+              'SOS alert dispatched online. Your trusted contacts are being notified by SMS via the server, with a live tracking link.',
+          });
+        } catch {
+          /* history is best-effort */
+        }
+        toast(t('SOS sent'), t('Your contacts and nearby responders are being alerted.'), 'success');
       }
     } catch (err: any) {
       const serverMsg = err?.response?.data?.error?.message || err?.response?.data?.message;
@@ -426,6 +442,10 @@ export default function HomeScreen({ navigation }: Props) {
 
         <FadeIn delay={110} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
           <GovStrip />
+        </FadeIn>
+
+        <FadeIn delay={160} style={{ paddingHorizontal: spacing.lg, marginTop: spacing.sm }}>
+          <DetectionStatusChip onPress={() => navigation.navigate('EmergencyDetection')} />
         </FadeIn>
 
         {/* ── The one loud thing on this screen ─────────────────── */}

@@ -69,7 +69,13 @@ function page(token: string): string {
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    var TOKEN = ${JSON.stringify(token)};
+    function escapeHTML(str) {
+      return String(str).replace(/[&<>'"]/g, function(tag) {
+        var charsToReplace = { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' };
+        return charsToReplace[tag] || tag;
+      });
+    }
+    var TOKEN = ${JSON.stringify(token).replace(/</g, '\\u003c')};
     var map = L.map('map', { zoomControl: true }).setView([23.8103, 90.4125], 15);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '© OpenStreetMap'
@@ -91,7 +97,7 @@ function page(token: string): string {
         var when = d.updatedAt ? new Date(d.updatedAt).toLocaleTimeString() : 'now';
         setStatus(!!d.active, d.name || 'Someone', when);
         if (!marker) { marker = L.marker(ll).addTo(map); } else { marker.setLatLng(ll); }
-        marker.bindPopup((d.name || 'SOS') + '<br>' + d.latitude.toFixed(5) + ', ' + d.longitude.toFixed(5));
+        marker.bindPopup(escapeHTML(d.name || 'SOS') + '<br>' + d.latitude.toFixed(5) + ', ' + d.longitude.toFixed(5));
         if (first) { map.setView(ll, 16); first = false; }
       } catch (e) { /* keep last known position */ }
     }

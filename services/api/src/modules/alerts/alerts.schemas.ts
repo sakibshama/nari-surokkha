@@ -14,6 +14,12 @@ const alertProperties = {
   // True when the server could not queue the trusted-contact SMS (Redis down).
   // The app uses it to offer sending the emergency SMS from the phone instead.
   degradedNotifications: { type: 'boolean', nullable: true },
+  // The user's SMS quota is used up (or the server could not queue the SMS):
+  // the app must text the trusted contacts from the phone's own SIM, using
+  // deviceSmsMessage. If it cannot, it calls POST /alerts/:id/sms-fallback.
+  smsViaDevice: { type: 'boolean', nullable: true },
+  deviceSmsMessage: { type: 'string', nullable: true },
+  contactPhones: { type: 'array', items: { type: 'string' }, nullable: true },
   createdAt: { type: 'string', format: 'date-time' },
   updatedAt: { type: 'string', format: 'date-time' },
 };
@@ -206,7 +212,13 @@ export const confirmSoftAlertSchema = {
         message: { type: 'string' },
         data: {
           type: 'object',
-          properties: alertProperties,
+          // The response serializer drops anything not listed here. Without
+          // these two the app never received the tracking link or the contact
+          // numbers it needs for the phone-side SMS fallback.
+          properties: {
+            ...alertProperties,
+            trackingToken: { type: 'string', nullable: true },
+          },
         },
       },
     },
@@ -276,6 +288,26 @@ export const safeRouteSchema = {
             routingEngine: { type: 'string' },
           },
         },
+      },
+    },
+  },
+};
+
+export const smsFallbackSchema = {
+  tags: ['alerts'],
+  summary: 'The phone could not send the SOS SMS from its SIM — send it from the server',
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: { id: { type: 'string', format: 'uuid' } },
+  },
+  response: {
+    200: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        message: { type: 'string' },
+        data: { type: 'object', properties: { queued: { type: 'boolean' } } },
       },
     },
   },

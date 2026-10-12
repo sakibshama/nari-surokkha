@@ -11,7 +11,21 @@ import cors from '@fastify/cors';
 import { env } from '@/config/env';
 import { ForbiddenError } from '@/utils/errors';
 
+/**
+ * Payment gateway callbacks are top-level browser navigations (SSLCommerz POSTs
+ * a form from its own domain) or server-to-server calls. They are not CORS
+ * requests, but the browser still sends an Origin header on the form POST,
+ * which the origin check below would reject with 403 — losing the payment
+ * result. They carry no cookies or tokens and every one is verified with the
+ * gateway server-to-server, so the Origin header is simply ignored for them.
+ */
+const PAYMENT_CALLBACK = /^\/api\/v1\/subscriptions\/(sslcommerz|stripe)\//;
+
 async function corsPlugin(fastify: FastifyInstance): Promise<void> {
+  fastify.addHook('onRequest', (request, _reply, done) => {
+    if (PAYMENT_CALLBACK.test(request.url)) delete request.headers.origin;
+    done();
+  });
   await fastify.register(cors, {
     // Allow configured origins + null origin (React Native mobile apps don't
     // send an Origin header, so the browser/native runtime sends origin=null)
@@ -40,9 +54,16 @@ async function corsPlugin(fastify: FastifyInstance): Promise<void> {
       'Content-Type',
       'Authorization',
       'X-Request-ID',
+      // Authorises photo/video uploads to an anonymous incident report.
+      'X-Upload-Token',
       'Cache-Control',
       'Pragma',
       'Expires',
+      // The mobile client sends these on every request so it works through an
+      // ngrok / localtunnel tunnel. On Expo web they trigger a preflight, so
+      // they must be allowed here or every API call is blocked by CORS.
+      'ngrok-skip-browser-warning',
+      'Bypass-Tunnel-Reminder',
     ],
     exposedHeaders: ['X-Request-ID'],
     credentials: true,

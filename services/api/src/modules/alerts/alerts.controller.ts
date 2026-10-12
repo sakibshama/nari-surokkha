@@ -117,6 +117,18 @@ export class AlertsController {
     });
   };
 
+  requestServerSms = async (
+    req: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const result = await this.service.requestServerSms(req.user!.id, req.params.id);
+    return reply.status(200).send({
+      success: true,
+      message: 'Trusted contacts will be texted by the server',
+      data: result,
+    });
+  };
+
   receiveSmsWebhook = async (
     req: FastifyRequest<{ Body: { From: string; Body: string } }>,
     reply: FastifyReply,

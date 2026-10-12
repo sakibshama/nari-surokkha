@@ -13,6 +13,7 @@ vi.mock('@/modules/notifications/providers/push.provider');
 
 const ALERT = {
   id: 'alert-1',
+  userId: 'user-1',
   latitude: 23.81,
   longitude: 90.41,
   user: { profile: { fullName: 'John Doe' } },
@@ -79,7 +80,7 @@ describe('NotificationsService', () => {
       expect(jobs).toHaveLength(3);
       expect(jobs[0]).toEqual({
         name: 'notify_trusted_contact',
-        data: { alertId: 'alert-1', contactId: 'c1' },
+        data: { alertId: 'alert-1', contactId: 'c1', mode: 'all' },
         opts: { jobId: 'notify:alert-1:c1' },
       });
       // Deterministic ids are what make a retry idempotent.
@@ -141,6 +142,56 @@ describe('NotificationsService', () => {
         where: { id: 'log-1' },
         data: expect.objectContaining({ status: 'sent' }),
       });
+    });
+
+    it("push_only (quota used up — the phone texts from its SIM): no server SMS, push still goes", async () => {
+      const push = vi.spyOn(service as any, 'deliverPush').mockResolvedValue(undefined);
+      await service.notifyTrustedContact('alert-1', 'c1', 'push_only');
+      expect(sms.sendSms).not.toHaveBeenCalled();
+      expect(push).toHaveBeenCalledOnce();
+    });
+
+    it('sms_retry (the phone could not send): server sends the SMS', async () => {
+      await service.notifyTrustedContact('alert-1', 'c1', 'sms_retry');
+      expect(sms.sendSms).toHaveBeenCalledOnce();
+    });
+
+    // ── Emergency SMS must never depend on a paid plan ──────────────────
+    it('texts contacts of a user with NO subscription', async () => {
+      db.subscription = { updateMany: vi.fn().mockResolvedValue({ count: 0 }) };
+      await service.notifyTrustedContact('alert-1', 'c1');
+      expect(sms.sendSms).toHaveBeenCalledOnce();
+      expect(db.notificationLog.update).toHaveBeenCalledWith({
+        where: { id: 'log-1' },
+        data: expect.objectContaining({ status: 'sent' }),
+      });
+    });
+
+    it('counts SMS against an active plan only after it was sent, and only while quota remains', async () => {
+      db.subscription = { updateMany: vi.fn().mockResolvedValue({ count: 1 }) };
+      await service.notifyTrustedContact('alert-1', 'c1');
+      expect(sms.sendSms).toHaveBeenCalledOnce();
+      expect(db.subscription.updateMany).toHaveBeenCalledWith({
+        where: { userId: ALERT.userId, status: 'active', smsRemaining: { gt: 0 }, endDate: { gt: expect.any(Date) } },
+        data: { smsRemaining: { decrement: 1 } },
+      });
+    });
+
+    it('a failing quota write neither blocks nor fails a delivered SMS (no duplicate retry)', async () => {
+      db.subscription = { updateMany: vi.fn().mockRejectedValue(new Error('db down')) };
+      await expect(service.notifyTrustedContact('alert-1', 'c1')).resolves.toBeUndefined();
+      expect(sms.sendSms).toHaveBeenCalledOnce();
+      expect(db.notificationLog.update).not.toHaveBeenCalledWith({
+        where: { id: 'log-1' },
+        data: expect.objectContaining({ status: 'failed' }),
+      });
+    });
+
+    it('does not count usage when the SMS failed', async () => {
+      db.subscription = { updateMany: vi.fn() };
+      sms.sendSms = vi.fn().mockResolvedValue({ success: false, error: 'Network Error' });
+      await expect(service.notifyTrustedContact('alert-1', 'c1')).rejects.toThrow();
+      expect(db.subscription.updateMany).not.toHaveBeenCalled();
     });
 
     it('throws so BullMQ retries THIS contact when SMS fails', async () => {

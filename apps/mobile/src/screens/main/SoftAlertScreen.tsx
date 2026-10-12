@@ -1,116 +1,98 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Platform, Vibration } from 'react-native';
-import { showAlert } from '../../utils/notify';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainStack';
-import api from '../../services/api';
-import * as Location from 'expo-location';
-import * as SMS from 'expo-sms';
-import { useAuthStore } from '../../store/authStore';
-import { uploadMotionSample, uploadConfirmedEmergencySample } from '../../services/ml/motionSampleUploader';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Theme, useTheme, useThemedStyles } from '../../theme';
 import { radius, spacing, type } from '../../theme/tokens';
-import Animated, { ZoomIn, useAnimatedStyle, useSharedValue, withTiming, Easing } from 'react-native-reanimated';
+import Animated, { ZoomIn, useAnimatedStyle, useSharedValue, withTiming, Easing, cancelAnimation } from 'react-native-reanimated';
 import { Breathing, FadeIn, PressableScale, PulseRings } from '../../components/ui';
 import { useT } from '../../i18n';
-import { AlertTriangle, CheckCircle } from 'lucide-react-native';
+import { AlertTriangle, CheckCircle, Loader } from 'lucide-react-native';
+import { softAlerts, triggerLabel } from '../../services/emergency/runtime';
+import { useSoftAlert } from '../../services/emergency/hooks';
+import { SOFT_ALERT_SECONDS } from '../../services/emergency/constants';
 
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>;
 
+/**
+ * The 15-second soft alert. The countdown itself lives in SoftAlertManager
+ * (so it keeps running with the screen closed or the app in the background);
+ * this screen only shows it and offers the two answers.
+ */
 export default function SoftAlertScreen() {
-    // Pinned dark: same alarm register as the active-SOS screen.
+  // Pinned dark: same alarm register as the active-SOS screen.
   const styles = useThemedStyles(makeStyles, 'dark');
   const { colors, gradients, shadows } = useTheme('dark');
-  void shadows;
   const t = useT();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProp<MainStackParamList, 'SoftAlert'>>();
-  const manual = route.params?.manual ?? false;
-  const { user } = useAuthStore();
-  const [countdown, setCountdown] = useState(15);
-  const [alertId, setAlertId] = useState<string | null>(null);
+  const alert = useSoftAlert();
 
-  const TOTAL = 15;
-  const progress = useSharedValue(1);
-
+  // Opened as "Silent alert" (drawer / shortcuts): start the countdown here.
   useEffect(() => {
-    progress.value = withTiming(0, { duration: TOTAL * 1000, easing: Easing.linear });
+    if (route.params?.manual && !softAlerts.active) softAlerts.trigger('manual', { manual: true });
+  }, []);
+  const manual = alert?.source === 'manual';
+  const [remaining, setRemaining] = useState(() => Math.ceil(softAlerts.remainingMs() / 1000));
+  const seenAlert = useRef(false);
 
-    // Vibrate urgently to alert the user (pattern: vibrate 500ms, pause 300ms, repeat)
-    if (Platform.OS !== 'web') {
-      Vibration.vibrate([0, 500, 300, 500, 300, 500], true);
-    }
+  const TOTAL = SOFT_ALERT_SECONDS;
+  const progress = useSharedValue(Math.max(0, softAlerts.remainingMs()) / (TOTAL * 1000));
 
-    createBackendAlert();
-
-    return () => {
-      Vibration.cancel();
-    };
+  // Tick from the manager's deadline (not a local counter), so the screen and
+  // the notification can never disagree about how long is left.
+  useEffect(() => {
+    const id = setInterval(() => setRemaining(Math.ceil(softAlerts.remainingMs() / 1000)), 250);
+    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
-    if (countdown > 0) {
-      const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
-      return () => clearTimeout(timer);
-    } else confirmEmergency();
-  }, [countdown]);
+    if (alert?.phase === 'counting') {
+      seenAlert.current = true;
+      const ms = softAlerts.remainingMs();
+      progress.value = ms / (TOTAL * 1000);
+      progress.value = withTiming(0, { duration: ms, easing: Easing.linear });
+    } else {
+      cancelAnimation(progress);
+    }
+  }, [alert?.id, alert?.phase]);
+
+  // Nothing to show (cancelled from the notification, or opened stale): leave.
+  // Sent alerts navigate to the SOS screen from the runtime (replace).
+  useEffect(() => {
+    if (!alert && navigation.canGoBack()) {
+      const id = setTimeout(() => {
+        if (!softAlerts.active && navigation.canGoBack()) navigation.goBack();
+      }, seenAlert.current ? 0 : 300);
+      return () => clearTimeout(id);
+    }
+  }, [alert]);
+
+  const countdown = Math.max(0, remaining);
+  const sending = alert?.phase === 'sending';
+  const failed = alert?.phase === 'failed';
 
   const barStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
 
-  const createBackendAlert = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-      const loc = await Location.getCurrentPositionAsync({});
-      const res = await api.post('/alerts/soft', { latitude: loc.coords.latitude, longitude: loc.coords.longitude, accuracy: loc.coords.accuracy });
-      setAlertId(res.data.data.id);
-    } catch (e) { console.error(e); }
+  const cancelAlert = () => {
+    void softAlerts.cancel();
+  };
+  const confirmEmergency = () => {
+    void softAlerts.confirmNow();
+  };
+  const dismissFailure = () => {
+    softAlerts.dismissFailure();
   };
 
-  const cancelAlert = async () => {
-    Vibration.cancel();
-    // False alarm → capture this window as a "normal" negative training sample.
-    void uploadMotionSample('normal', 'false_alarm');
-    if (alertId) { try { await api.patch(`/alerts/${alertId}/soft/cancel`); } catch { /* ignore */ } }
-    navigation.goBack();
-  };
-
-  const confirmEmergency = async () => {
-    Vibration.cancel();
-    // Confirmed emergency → capture this window as a positive training sample.
-    void uploadConfirmedEmergencySample();
-    if (!alertId) return;
-    try {
-      const res = await api.patch(`/alerts/${alertId}/soft/confirm`);
-      const alertData = res.data.data;
-      
-      navigation.replace('ActiveSos', { alertId });
-
-      if (alertData?.contactPhones && alertData.contactPhones.length > 0) {
-        const isAvailable = await SMS.isAvailableAsync();
-        if (isAvailable) {
-          const name = user?.profile?.fullName || t('A user');
-          const link = alertData.trackingToken ? `https://narisurokkha.app/track?token=${alertData.trackingToken}` : '';
-          const message = t('EMERGENCY: {name} has triggered an SOS! Track live location here: {link}', { name, link });
-          
-          setTimeout(async () => {
-             try {
-               await SMS.sendSMSAsync(alertData.contactPhones, message);
-             } catch (smsErr) {
-               if (__DEV__) console.error('Failed to open SMS composer', smsErr);
-             }
-          }, 500);
-        }
-      }
-    } catch {
-      showAlert(t('Error'), t('Connection failed. Check your network.'));
-      navigation.goBack();
-    }
-  };
+  const badgeLabel = manual
+    ? t('Silent alert armed')
+    : alert
+    ? t('{trigger} detected', { trigger: triggerLabel(alert.source) })
+    : t('Fall / danger detected');
 
   // Urgency colors
   const urgencyColor = countdown > 10 ? colors.warning : countdown > 5 ? '#f97316' : colors.danger;
@@ -127,14 +109,18 @@ export default function SoftAlertScreen() {
         <FadeIn from="up" style={[styles.badge, { borderColor: `${urgencyColor}66`, backgroundColor: `${urgencyColor}1A` }]}>
           <AlertTriangle color={urgencyColor} size={18} />
           <Text style={[styles.badgeText, { color: urgencyColor }]}>
-            {manual ? t('Silent alert armed') : t('Fall / danger detected')}
+            {badgeLabel}
           </Text>
         </FadeIn>
 
         <FadeIn delay={80} style={{ alignItems: 'center' }}>
-          <Text style={styles.title}>{manual ? t('Stay safe') : t('Are you okay?')}</Text>
+          <Text style={styles.title}>
+            {failed ? t('Could not send the alert') : sending ? t('Sending SOS…') : manual ? t('Stay safe') : t('Are you okay?')}
+          </Text>
           <Text style={styles.sub}>
-            {manual
+            {failed
+              ? `${alert?.error ?? ''}\n${t('Call 999 or try the SOS button again.')}`
+              : manual
               ? t("A silent countdown is running. If you don't cancel, we'll alert your contacts and nearby responders.")
               : t('We detected an unusual event. Tap to confirm if you need help.')}
           </Text>
@@ -156,13 +142,20 @@ export default function SoftAlertScreen() {
         </View>
 
         <Text style={styles.warningLine}>
-          {t('Alerting your contacts in {n}s unless cancelled', { n: countdown })}
+          {sending
+            ? t('Contacting the server and your trusted contacts…')
+            : t('Alerting your contacts in {n}s unless cancelled', { n: countdown })}
         </Text>
 
         {/* Need help */}
         <FadeIn delay={220} style={{ width: '100%' }}>
           <Breathing min={0.98} max={1.02} duration={600}>
-            <PressableScale onPress={confirmEmergency} style={[styles.helpWrapper, shadows.danger]} accessibilityRole="button">
+            <PressableScale
+              onPress={confirmEmergency}
+              disabled={sending || failed}
+              style={[styles.helpWrapper, shadows.danger, (sending || failed) && { opacity: 0.6 }]}
+              accessibilityRole="button"
+            >
               <LinearGradient colors={urgencyGrad} style={styles.helpBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
                 <AlertTriangle color={colors.onFill} size={22} />
                 <Text style={styles.helpText}>{t('I need help now')}</Text>
@@ -173,9 +166,14 @@ export default function SoftAlertScreen() {
 
         {/* I'm okay */}
         <FadeIn delay={280} style={{ width: '100%' }}>
-          <PressableScale onPress={cancelAlert} style={styles.okBtn} accessibilityRole="button">
-            <CheckCircle color={colors.success} size={22} />
-            <Text style={styles.okText}>{t("I'm okay — cancel alert")}</Text>
+          <PressableScale
+            onPress={failed ? dismissFailure : cancelAlert}
+            disabled={sending}
+            style={[styles.okBtn, sending && { opacity: 0.5 }]}
+            accessibilityRole="button"
+          >
+            {sending ? <Loader color={colors.success} size={22} /> : <CheckCircle color={colors.success} size={22} />}
+            <Text style={styles.okText}>{failed ? t('Close') : t("I'm okay — cancel alert")}</Text>
           </PressableScale>
         </FadeIn>
       </View>

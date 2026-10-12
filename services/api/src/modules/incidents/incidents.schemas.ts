@@ -25,6 +25,11 @@ export const submitIncidentSchema = {
             type: { type: 'string' },
             status: { type: 'string' },
             createdAt: { type: 'string' },
+            uploadToken: { type: 'string' },
+            uploadTokenExpiresAt: { type: 'string' },
+            maxMedia: { type: 'integer' },
+            maxImageBytes: { type: 'integer' },
+            maxVideoBytes: { type: 'integer' },
           },
         },
       },
@@ -59,6 +64,7 @@ export const adminListIncidentsSchema = {
               longitude: { type: 'number' },
               status: { type: 'string' },
               createdAt: { type: 'string' },
+              mediaCount: { type: 'integer' },
             }
           }
         }

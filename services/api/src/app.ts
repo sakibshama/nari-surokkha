@@ -46,6 +46,8 @@ import { rolesRoutes } from '@/modules/roles/roles.routes';
 import { configRoutes } from '@/modules/config/config.routes';
 import { settingsRoutes } from '@/modules/settings/settings.routes';
 import { mlRoutes } from '@/modules/ml/ml.routes';
+import { subscriptionRoutes } from '@/modules/subscriptions/subscription.routes';
+import { paymentsAdminRoutes } from '@/modules/payments/payments.admin.routes';
 import settingsPlugin from '@/plugins/settings';
 import storagePlugin from '@/plugins/storage';
 import fastifyMultipart from '@fastify/multipart';
@@ -207,6 +209,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       void apiRouter.register(configRoutes, { prefix: '/config' });
       void apiRouter.register(settingsRoutes, { prefix: '/settings' });
       void apiRouter.register(mlRoutes, { prefix: '/ml' });
+      void apiRouter.register(subscriptionRoutes, { prefix: '/subscriptions' });
+      void apiRouter.register(paymentsAdminRoutes, { prefix: '/payments' });
 
       // Placeholder for Phase 2 — confirms API router is working
       apiRouter.get('/ping', {

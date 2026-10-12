@@ -35,8 +35,6 @@ datasource db {
 // ENUM DEFINITIONS
 // ============================================================
 
-
-
 enum UserStatus {
   active
   inactive
@@ -165,16 +163,18 @@ model User {
   updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  role             Role?      @relation(fields: [roleId], references: [id])
-  profile          UserProfile?
-  sessions         UserSession[]
-  deviceTokens     DeviceToken[]
-  trustedContacts  TrustedContact[]
-  alerts           EmergencyAlert[]
-  responder        Responder?
-  auditLogs        AuditLog[]
-  mlDetections     MlDetectionEvent[]
-  activeRoutes     ActiveRoute[]
+  role            Role?              @relation(fields: [roleId], references: [id])
+  profile         UserProfile?
+  sessions        UserSession[]
+  deviceTokens    DeviceToken[]
+  trustedContacts TrustedContact[]
+  alerts          EmergencyAlert[]
+  responder       Responder?
+  auditLogs       AuditLog[]
+  mlDetections    MlDetectionEvent[]
+  activeRoutes    ActiveRoute[]
+  subscription    Subscription?
+  payments        Payment[]
 
   @@index([phone])
   @@index([email])
@@ -194,7 +194,7 @@ model Role {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  users       User[]
+  users User[]
 
   @@index([key])
   @@map("roles")
@@ -202,18 +202,18 @@ model Role {
 
 /// Extended profile — emergency information about the user
 model UserProfile {
-  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId              String   @unique @map("user_id") @db.Uuid
-  fullName            String   @map("full_name") @db.VarChar(100)
-  bloodGroup          String?  @map("blood_group") @db.VarChar(5)
-  preferredLanguage   String   @default("bn") @map("preferred_language") @db.VarChar(5)
-  emergencyNote       String?  @map("emergency_note") @db.VarChar(500)
-  nationalId          String?  @map("national_id") @db.VarChar(20)
-  profilePhotoKey     String?  @map("profile_photo_key") @db.VarChar(500)
-  isVerified          Boolean  @default(false) @map("is_verified")
-  verifiedAt          DateTime? @map("verified_at") @db.Timestamptz
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String    @unique @map("user_id") @db.Uuid
+  fullName          String    @map("full_name") @db.VarChar(100)
+  bloodGroup        String?   @map("blood_group") @db.VarChar(5)
+  preferredLanguage String    @default("bn") @map("preferred_language") @db.VarChar(5)
+  emergencyNote     String?   @map("emergency_note") @db.VarChar(500)
+  nationalId        String?   @map("national_id") @db.VarChar(20)
+  profilePhotoKey   String?   @map("profile_photo_key") @db.VarChar(500)
+  isVerified        Boolean   @default(false) @map("is_verified")
+  verifiedAt        DateTime? @map("verified_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -223,14 +223,14 @@ model UserProfile {
 
 /// Active user sessions (refresh token store)
 model UserSession {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId       String   @map("user_id") @db.Uuid
-  refreshToken String   @unique @map("refresh_token") @db.VarChar(512)
-  deviceInfo   String?  @map("device_info") @db.VarChar(500)
-  ipAddress    String?  @map("ip_address") @db.VarChar(50)
-  expiresAt    DateTime @map("expires_at") @db.Timestamptz
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  refreshToken String    @unique @map("refresh_token") @db.VarChar(512)
+  deviceInfo   String?   @map("device_info") @db.VarChar(500)
+  ipAddress    String?   @map("ip_address") @db.VarChar(50)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz
   revokedAt    DateTime? @map("revoked_at") @db.Timestamptz
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -245,7 +245,7 @@ model DeviceToken {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
   token     String   @db.VarChar(512)
-  platform  String   @db.VarChar(10)    // android | ios
+  platform  String   @db.VarChar(10) // android | ios
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -274,8 +274,8 @@ model TrustedContact {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  alertRecipients   AlertRecipient[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertRecipients AlertRecipient[]
 
   @@index([userId])
   @@index([phone])
@@ -288,24 +288,24 @@ model TrustedContact {
 
 /// Police station — has a geographic location for nearest-match lookup
 model PoliceStation {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @db.VarChar(200)
-  thanaCode   String   @unique @map("thana_code") @db.VarChar(20)
-  district    String   @db.VarChar(100)
-  division    String   @db.VarChar(100)
-  address     String?  @db.VarChar(500)
-  phone       String   @db.VarChar(20)
-  isActive    Boolean  @default(true) @map("is_active")
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(200)
+  thanaCode String   @unique @map("thana_code") @db.VarChar(20)
+  district  String   @db.VarChar(100)
+  division  String   @db.VarChar(100)
+  address   String?  @db.VarChar(500)
+  phone     String   @db.VarChar(20)
+  isActive  Boolean  @default(true) @map("is_active")
   // PostGIS point — stored as latitude/longitude numerics for Prisma compatibility
   // Raw PostGIS GEOMETRY column added via migration SQL
-  latitude    Decimal  @db.Decimal(10, 8)
-  longitude   Decimal  @db.Decimal(11, 8)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  latitude  Decimal  @db.Decimal(10, 8)
+  longitude Decimal  @db.Decimal(11, 8)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  policeUsers      PoliceUser[]
-  cases            Case[]
-  alertRecipients  AlertRecipient[]
+  policeUsers     PoliceUser[]
+  cases           Case[]
+  alertRecipients AlertRecipient[]
 
   @@index([thanaCode])
   @@index([district])
@@ -328,10 +328,10 @@ model PoliceUser {
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz
 
-  station         PoliceStation @relation(fields: [stationId], references: [id])
-  assignedCases   Case[]        @relation("AssignedOfficer")
-  caseUpdates     CaseUpdate[]
-  auditLogs       AuditLog[]    @relation("PoliceUserAudit")
+  station       PoliceStation @relation(fields: [stationId], references: [id])
+  assignedCases Case[]        @relation("AssignedOfficer")
+  caseUpdates   CaseUpdate[]
+  auditLogs     AuditLog[]    @relation("PoliceUserAudit")
 
   @@index([stationId])
   @@index([badgeNumber])
@@ -345,35 +345,35 @@ model PoliceUser {
 
 /// The core SOS alert — created when user presses SOS or sensor triggers
 model EmergencyAlert {
-  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId           String      @map("user_id") @db.Uuid
-  type             AlertType   @default(manual)
-  status           AlertStatus @default(created)
+  id                   String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String      @map("user_id") @db.Uuid
+  type                 AlertType   @default(manual)
+  status               AlertStatus @default(created)
   // Initial GPS coordinates at time of SOS
-  latitude         Decimal     @db.Decimal(10, 8)
-  longitude        Decimal     @db.Decimal(11, 8)
-  accuracy         Decimal?    @db.Decimal(8, 2)
+  latitude             Decimal     @db.Decimal(10, 8)
+  longitude            Decimal     @db.Decimal(11, 8)
+  accuracy             Decimal?    @db.Decimal(8, 2)
   // Nearest station assigned at creation
-  assignedStationId String?    @map("assigned_station_id") @db.Uuid
+  assignedStationId    String?     @map("assigned_station_id") @db.Uuid
   // ML metadata if triggered by sensor
-  mlMetadata       Json?       @map("ml_metadata")
+  mlMetadata           Json?       @map("ml_metadata")
   // Soft alert fields
-  isSoftAlert      Boolean     @default(false) @map("is_soft_alert")
-  softAlertAt      DateTime?   @map("soft_alert_at") @db.Timestamptz
-  softAlertCancelledAt DateTime? @map("soft_alert_cancelled_at") @db.Timestamptz
-  confirmedAt      DateTime?   @map("confirmed_at") @db.Timestamptz
-  resolvedAt       DateTime?   @map("resolved_at") @db.Timestamptz
-  closedAt         DateTime?   @map("closed_at") @db.Timestamptz
-  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  isSoftAlert          Boolean     @default(false) @map("is_soft_alert")
+  softAlertAt          DateTime?   @map("soft_alert_at") @db.Timestamptz
+  softAlertCancelledAt DateTime?   @map("soft_alert_cancelled_at") @db.Timestamptz
+  confirmedAt          DateTime?   @map("confirmed_at") @db.Timestamptz
+  resolvedAt           DateTime?   @map("resolved_at") @db.Timestamptz
+  closedAt             DateTime?   @map("closed_at") @db.Timestamptz
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
-  user             User              @relation(fields: [userId], references: [id])
-  locationUpdates  AlertLocation[]
-  evidence         AlertEvidence[]
-  recipients       AlertRecipient[]
-  cases            Case[]
-  mlDetections     MlDetectionEvent[]
-  notificationLogs NotificationLog[]
+  user                User                @relation(fields: [userId], references: [id])
+  locationUpdates     AlertLocation[]
+  evidence            AlertEvidence[]
+  recipients          AlertRecipient[]
+  cases               Case[]
+  mlDetections        MlDetectionEvent[]
+  notificationLogs    NotificationLog[]
   responderDispatches ResponderDispatch[]
 
   @@index([userId])
@@ -417,8 +417,8 @@ model AlertEvidence {
   checksum     String       @db.VarChar(64)
   uploadedAt   DateTime     @default(now()) @map("uploaded_at") @db.Timestamptz
 
-  alert       EmergencyAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
-  accessLogs  EvidenceAccessLog[]
+  alert      EmergencyAlert      @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  accessLogs EvidenceAccessLog[]
 
   @@index([alertId])
   @@index([uploadedAt])
@@ -427,11 +427,11 @@ model AlertEvidence {
 
 /// Audit log for every evidence access (signed URL generation)
 model EvidenceAccessLog {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  evidenceId  String   @map("evidence_id") @db.Uuid
-  accessedBy  String   @map("accessed_by") @db.VarChar(100)  // police user id or admin id
-  accessedAt  DateTime @default(now()) @map("accessed_at") @db.Timestamptz
-  ipAddress   String?  @map("ip_address") @db.VarChar(50)
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  evidenceId String   @map("evidence_id") @db.Uuid
+  accessedBy String   @map("accessed_by") @db.VarChar(100) // police user id or admin id
+  accessedAt DateTime @default(now()) @map("accessed_at") @db.Timestamptz
+  ipAddress  String?  @map("ip_address") @db.VarChar(50)
 
   evidence AlertEvidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
 
@@ -442,12 +442,12 @@ model EvidenceAccessLog {
 
 /// Recipients notified for an alert (trusted contacts + police station)
 model AlertRecipient {
-  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  alertId          String   @map("alert_id") @db.Uuid
-  trustedContactId String?  @map("trusted_contact_id") @db.Uuid
-  policeStationId  String?  @map("police_station_id") @db.Uuid
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertId          String    @map("alert_id") @db.Uuid
+  trustedContactId String?   @map("trusted_contact_id") @db.Uuid
+  policeStationId  String?   @map("police_station_id") @db.Uuid
   notifiedAt       DateTime? @map("notified_at") @db.Timestamptz
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   alert          EmergencyAlert  @relation(fields: [alertId], references: [id], onDelete: Cascade)
   trustedContact TrustedContact? @relation(fields: [trustedContactId], references: [id])
@@ -477,15 +477,15 @@ model Responder {
   longitude        Decimal?              @db.Decimal(11, 8)
   lastLocationAt   DateTime?             @map("last_location_at") @db.Timestamptz
   approvedAt       DateTime?             @map("approved_at") @db.Timestamptz
-  approvedBy       String?               @map("approved_by") @db.Uuid  // admin user id
+  approvedBy       String?               @map("approved_by") @db.Uuid // admin user id
   reputationScore  Int                   @default(0) @map("reputation_score")
   badges           String[]
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz
 
-  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  verifications     ResponderVerification[]
-  dispatchedAlerts  ResponderDispatch[]
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifications    ResponderVerification[]
+  dispatchedAlerts ResponderDispatch[]
 
   @@index([userId])
   @@index([status])
@@ -496,11 +496,11 @@ model Responder {
 
 /// Verification documents submitted by responder applicants
 model ResponderVerification {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  responderId String   @map("responder_id") @db.Uuid
-  documentKey String   @map("document_key") @db.VarChar(1000)
-  documentType String  @map("document_type") @db.VarChar(50)
-  uploadedAt  DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  responderId  String   @map("responder_id") @db.Uuid
+  documentKey  String   @map("document_key") @db.VarChar(1000)
+  documentType String   @map("document_type") @db.VarChar(50)
+  uploadedAt   DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
 
   responder Responder @relation(fields: [responderId], references: [id], onDelete: Cascade)
 
@@ -510,24 +510,24 @@ model ResponderVerification {
 
 /// Dispatch record — responder was sent to an alert
 model ResponderDispatch {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  responderId String    @map("responder_id") @db.Uuid
-  alertId     String    @map("alert_id") @db.Uuid
-  dispatchedAt DateTime @default(now()) @map("dispatched_at") @db.Timestamptz
-  acceptedAt  DateTime? @map("accepted_at") @db.Timestamptz
-  rejectedAt  DateTime? @map("rejected_at") @db.Timestamptz
-  rejectReason String?  @map("reject_reason") @db.VarChar(255)
-  verifiedAt  DateTime? @map("verified_at") @db.Timestamptz
-  verifiedBy  String?   @map("verified_by") @db.Uuid // police user id
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  responderId  String    @map("responder_id") @db.Uuid
+  alertId      String    @map("alert_id") @db.Uuid
+  dispatchedAt DateTime  @default(now()) @map("dispatched_at") @db.Timestamptz
+  acceptedAt   DateTime? @map("accepted_at") @db.Timestamptz
+  rejectedAt   DateTime? @map("rejected_at") @db.Timestamptz
+  rejectReason String?   @map("reject_reason") @db.VarChar(255)
+  verifiedAt   DateTime? @map("verified_at") @db.Timestamptz
+  verifiedBy   String?   @map("verified_by") @db.Uuid // police user id
 
-  responder Responder @relation(fields: [responderId], references: [id])
+  responder Responder      @relation(fields: [responderId], references: [id])
   alert     EmergencyAlert @relation(fields: [alertId], references: [id])
 
-  @@index([responderId])
-  @@index([alertId])
   // One dispatch per responder per alert — lets the alert fan-out use
   // createMany({ skipDuplicates: true }) and makes retries idempotent.
   @@unique([alertId, responderId], map: "idx_responder_dispatches_unique")
+  @@index([responderId])
+  @@index([alertId])
   @@map("responder_dispatches")
 }
 
@@ -537,17 +537,17 @@ model ResponderDispatch {
 
 /// Police case — automatically created from a confirmed SOS alert
 model Case {
-  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  alertId          String     @map("alert_id") @db.Uuid
-  stationId        String     @map("station_id") @db.Uuid
-  caseNumber       String     @unique @map("case_number") @db.VarChar(50)
-  status           CaseStatus @default(open)
-  assignedOfficerId String?   @map("assigned_officer_id") @db.Uuid
-  summary          String?    @db.VarChar(2000)
-  closedAt         DateTime?  @map("closed_at") @db.Timestamptz
-  closedReason     String?    @map("closed_reason") @db.VarChar(500)
-  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertId           String     @map("alert_id") @db.Uuid
+  stationId         String     @map("station_id") @db.Uuid
+  caseNumber        String     @unique @map("case_number") @db.VarChar(50)
+  status            CaseStatus @default(open)
+  assignedOfficerId String?    @map("assigned_officer_id") @db.Uuid
+  summary           String?    @db.VarChar(2000)
+  closedAt          DateTime?  @map("closed_at") @db.Timestamptz
+  closedReason      String?    @map("closed_reason") @db.VarChar(500)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
   alert           EmergencyAlert @relation(fields: [alertId], references: [id])
   station         PoliceStation  @relation(fields: [stationId], references: [id])
@@ -565,13 +565,13 @@ model Case {
 
 /// Timeline of case status changes and officer notes
 model CaseUpdate {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  caseId       String   @map("case_id") @db.Uuid
-  officerId    String   @map("officer_id") @db.Uuid
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId         String      @map("case_id") @db.Uuid
+  officerId      String      @map("officer_id") @db.Uuid
   previousStatus CaseStatus? @map("previous_status")
-  newStatus    CaseStatus? @map("new_status")
-  note         String?  @db.VarChar(2000)
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  newStatus      CaseStatus? @map("new_status")
+  note           String?     @db.VarChar(2000)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
 
   case    Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
   officer PoliceUser @relation(fields: [officerId], references: [id])
@@ -588,18 +588,18 @@ model CaseUpdate {
 
 /// Log of all notifications (SMS, push) sent for alerts
 model NotificationLog {
-  id         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  alertId    String?             @map("alert_id") @db.Uuid
-  channel    NotificationChannel
-  recipient  String              @db.VarChar(255)  // phone number or FCM token
-  message    String              @db.VarChar(1000)
-  status     NotificationStatus  @default(queued)
-  attempts   Int                 @default(0)
-  lastError  String?             @map("last_error") @db.VarChar(500)
-  sentAt     DateTime?           @map("sent_at") @db.Timestamptz
-  deliveredAt DateTime?          @map("delivered_at") @db.Timestamptz
-  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertId     String?             @map("alert_id") @db.Uuid
+  channel     NotificationChannel
+  recipient   String              @db.VarChar(255) // phone number or FCM token
+  message     String              @db.VarChar(1000)
+  status      NotificationStatus  @default(queued)
+  attempts    Int                 @default(0)
+  lastError   String?             @map("last_error") @db.VarChar(500)
+  sentAt      DateTime?           @map("sent_at") @db.Timestamptz
+  deliveredAt DateTime?           @map("delivered_at") @db.Timestamptz
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
   alert EmergencyAlert? @relation(fields: [alertId], references: [id])
 
@@ -617,15 +617,15 @@ model NotificationLog {
 
 /// Events from on-device ML model (fall, audio distress, etc.)
 model MlDetectionEvent {
-  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId               String          @map("user_id") @db.Uuid
-  alertId              String?         @map("alert_id") @db.Uuid
-  detectionType        MlDetectionType @map("detection_type")
-  confidence           Decimal         @db.Decimal(5, 4)
-  rawMetadata          Json?           @map("raw_metadata")
-  triggeredSoftAlert   Boolean         @default(false) @map("triggered_soft_alert")
-  softAlertCancelled   Boolean         @default(false) @map("soft_alert_cancelled")
-  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  id                 String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String          @map("user_id") @db.Uuid
+  alertId            String?         @map("alert_id") @db.Uuid
+  detectionType      MlDetectionType @map("detection_type")
+  confidence         Decimal         @db.Decimal(5, 4)
+  rawMetadata        Json?           @map("raw_metadata")
+  triggeredSoftAlert Boolean         @default(false) @map("triggered_soft_alert")
+  softAlertCancelled Boolean         @default(false) @map("soft_alert_cancelled")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz
 
   user  User            @relation(fields: [userId], references: [id])
   alert EmergencyAlert? @relation(fields: [alertId], references: [id])
@@ -652,10 +652,33 @@ model IncidentReport {
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz
 
+  media IncidentMedia[]
+
   @@index([status])
   @@index([type])
   @@index([createdAt])
   @@map("incident_reports")
+}
+
+/// Photos / videos attached to an incident report. Stored privately (same
+/// storage backend as SOS evidence); only admins can view them.
+model IncidentMedia {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  incidentId   String       @map("incident_id") @db.Uuid
+  type         EvidenceType
+  fileKey      String       @map("file_key") @db.VarChar(1000)
+  originalName String       @map("original_name") @db.VarChar(255)
+  mimeType     String       @map("mime_type") @db.VarChar(100)
+  sizeBytes    BigInt       @map("size_bytes")
+  checksum     String       @db.VarChar(64)
+  /// 'reporter' (from the app) or 'admin' (added in the portal)
+  source       String       @default("reporter") @db.VarChar(20)
+  uploadedAt   DateTime     @default(now()) @map("uploaded_at") @db.Timestamptz
+
+  incident IncidentReport @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId])
+  @@map("incident_media")
 }
 
 /// Pre-computed area Safety Scores (refreshed periodically)
@@ -666,7 +689,7 @@ model SafetyScore {
   centerLat     Decimal  @map("center_lat") @db.Decimal(10, 8)
   centerLng     Decimal  @map("center_lng") @db.Decimal(11, 8)
   radiusMeters  Int      @map("radius_meters")
-  score         Int      // 0–100 (100 = safest)
+  score         Int // 0–100 (100 = safest)
   incidentCount Int      @map("incident_count")
   alertCount    Int      @map("alert_count")
   calculatedAt  DateTime @map("calculated_at") @db.Timestamptz
@@ -691,16 +714,16 @@ model AuditLog {
   policeUserId String?     @map("police_user_id") @db.Uuid
   // Subject — what was acted on
   action       AuditAction
-  entityType   String      @map("entity_type") @db.VarChar(50)  // e.g., "alert", "case", "user"
+  entityType   String      @map("entity_type") @db.VarChar(50) // e.g., "alert", "case", "user"
   entityId     String?     @map("entity_id") @db.Uuid
   // Context
   ipAddress    String?     @map("ip_address") @db.VarChar(50)
   userAgent    String?     @map("user_agent") @db.VarChar(500)
-  metadata     Json?       // Additional context (old/new values, etc.)
+  metadata     Json? // Additional context (old/new values, etc.)
   createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
 
-  user        User?       @relation(fields: [userId], references: [id])
-  policeUser  PoliceUser? @relation("PoliceUserAudit", fields: [policeUserId], references: [id])
+  user       User?       @relation(fields: [userId], references: [id])
+  policeUser PoliceUser? @relation("PoliceUserAudit", fields: [policeUserId], references: [id])
 
   @@index([userId])
   @@index([policeUserId])
@@ -711,16 +734,16 @@ model AuditLog {
 }
 
 model ActiveRoute {
-  id          String   @id @default(uuid()) @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  originLat   Decimal  @map("origin_lat") @db.Decimal(10, 8)
-  originLng   Decimal  @map("origin_lng") @db.Decimal(10, 8)
-  destLat     Decimal  @map("dest_lat") @db.Decimal(10, 8)
-  destLng     Decimal  @map("dest_lng") @db.Decimal(10, 8)
-  waypoints   Json     @db.JsonB // Array of { lat, lng }
-  status      String   @default("active") @db.VarChar(50) // active, completed, deviated
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  originLat Decimal  @map("origin_lat") @db.Decimal(10, 8)
+  originLng Decimal  @map("origin_lng") @db.Decimal(10, 8)
+  destLat   Decimal  @map("dest_lat") @db.Decimal(10, 8)
+  destLng   Decimal  @map("dest_lng") @db.Decimal(10, 8)
+  waypoints Json     @db.JsonB // Array of { lat, lng }
+  status    String   @default("active") @db.VarChar(50) // active, completed, deviated
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id])
 }
@@ -786,4 +809,55 @@ model MlTrainingSample {
   @@index([kind, label])
   @@index([createdAt])
   @@map("ml_training_samples")
+}
+
+// ============================================================
+// SUBSCRIPTIONS & PAYMENTS
+// ============================================================
+
+model Subscription {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  status       String   @default("inactive") // active, expired, cancelled
+  planId       String   @default("monthly_50") @map("plan_id")
+  startDate    DateTime @default(now()) @map("start_date") @db.Timestamptz
+  endDate      DateTime @map("end_date") @db.Timestamptz
+  smsRemaining Int      @default(0) @map("sms_remaining")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@map("subscriptions")
+}
+
+model Payment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  subscriptionId String?  @map("subscription_id") @db.Uuid
+  amount         Decimal  @db.Decimal(10, 2)
+  currency       String   @default("BDT") @db.VarChar(10)
+  status         String   @default("pending") // pending, success, failed, cancelled
+  transactionId  String   @unique @map("transaction_id") @db.VarChar(100) // internal reference
+  gatewayTrxId   String?  @map("gateway_trx_id") @db.VarChar(100) // gateway reference
+  paymentMethod  String?  @map("payment_method") @db.VarChar(50)
+  // Which admin-configured gateway / plan this payment used (see the
+  // `payment_gateways` system setting). Kept on the row so a callback is always
+  // verified with the credentials that created it.
+  planId           String?  @map("plan_id") @db.VarChar(40)
+  gatewayId        String?  @map("gateway_id") @db.VarChar(60)
+  gatewayType      String?  @map("gateway_type") @db.VarChar(20) // sslcommerz | stripe
+  gatewaySessionId String?  @map("gateway_session_id") @db.VarChar(255)
+  failureReason    String?  @map("failure_reason") @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user         User          @relation(fields: [userId], references: [id])
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  @@index([userId])
+  @@index([transactionId])
+  @@index([status, createdAt])
+  @@map("payments")
 }

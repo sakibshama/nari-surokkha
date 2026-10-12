@@ -46,14 +46,14 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
     async (job: Job) => {
       // Fan-out: one alert -> one job per trusted contact.
       if (job.name === 'notify_trusted_contacts') {
-        const { alertId, userId } = job.data;
-        await notificationsService.processTrustedContactsNotification(alertId, userId);
+        const { alertId, userId, mode } = job.data;
+        await notificationsService.processTrustedContactsNotification(alertId, userId, mode ?? 'all');
         return;
       }
       // Delivery: one contact, both channels, idempotent and retried alone.
       if (job.name === 'notify_trusted_contact') {
-        const { alertId, contactId } = job.data;
-        await notificationsService.notifyTrustedContact(alertId, contactId);
+        const { alertId, contactId, mode } = job.data;
+        await notificationsService.notifyTrustedContact(alertId, contactId, mode ?? 'all');
       }
     },
     {
@@ -81,7 +81,10 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
         const { alertId, userId } = job.data;
         try {
           // If the alert is still 'created', this will escalate it to 'confirmed' and trigger dispatch
-          await alertsService.confirmSoftAlert(userId, alertId);
+          // Nobody answered on the phone (it may be dead or out of reach), so
+          // the server must text the contacts itself — never hand the SMS to a
+          // phone that is not responding, whatever the user's SMS quota.
+          await alertsService.confirmSoftAlert(userId, alertId, { forceServerSms: true });
           fastify.log.info({ alertId }, 'Soft alert automatically escalated to SOS');
         } catch (error: any) {
           if (error.message && error.message.includes('Cannot confirm an alert that is not in soft-alert state')) {

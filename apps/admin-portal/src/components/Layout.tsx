@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserCheck,
   Activity, Settings, LogOut, Menu, X,
-  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, Languages
+  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, Languages, CreditCard
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
@@ -27,6 +27,7 @@ const NAV_MAIN: NavItemDef[] = [
 ];
 const NAV_SYSTEM: NavItemDef[] = [
   { label: 'Audit Logs',      icon: Activity,  path: '/audit-logs', permission: 'view_audit_logs' },
+  { label: 'Payment Gateways', icon: CreditCard, path: '/payments' },
   { label: 'Settings',        icon: Settings,  path: '/settings' },
 ];
 
@@ -158,6 +159,7 @@ export default function Layout() {
     '/analytics': 'City Safety Analytics',
     '/audit-logs': 'Audit Logs',
     '/settings': 'Settings',
+    '/payments': 'Payment Gateways',
   };
   const pageTitle = PAGE_TITLES[location.pathname] || 'Admin Portal';
 

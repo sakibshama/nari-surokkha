@@ -22,6 +22,7 @@ const Responders = lazy(() => import('./pages/Responders'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const Incidents = lazy(() => import('./pages/Incidents'));
 const Settings = lazy(() => import('./pages/Settings'));
+const PaymentGateways = lazy(() => import('./pages/PaymentGateways'));
 // Analytics pulls in Recharts — by far the heaviest page, and the one least
 // likely to be the first thing anyone opens.
 const Analytics = lazy(() => import('./pages/Analytics'));
@@ -76,6 +77,7 @@ function App() {
           <Route path="analytics" element={<Analytics />} />
           <Route path="audit-logs" element={<AuditLogs />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="payments" element={<PaymentGateways />} />
         </Route>
       </Routes>
     </BrowserRouter>

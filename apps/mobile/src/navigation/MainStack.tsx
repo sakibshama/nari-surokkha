@@ -21,6 +21,9 @@ import FakeCallScreen from '../screens/main/FakeCallScreen';
 import OfflineSosScreen from '../screens/main/OfflineSosScreen';
 import SafeRouteScreen from '../screens/main/SafeRouteScreen';
 import SettingsScreen from '../screens/main/SettingsScreen';
+import SubscriptionScreen from '../screens/main/SubscriptionScreen';
+import EmergencyDetectionScreen from '../screens/main/EmergencyDetectionScreen';
+import AlertHistoryScreen from '../screens/main/AlertHistoryScreen';
 import { ChevronLeft, Menu } from 'lucide-react-native';
 import { Theme, useTheme, useThemedStyles } from '../theme';
 import { radius, spacing, type } from '../theme/tokens';
@@ -43,6 +46,9 @@ export type MainStackParamList = {
   SmsHistory: undefined;
   EvidenceLibrary: undefined;
   Settings: undefined;
+  Subscription: undefined;
+  EmergencyDetection: undefined;
+  AlertHistory: undefined;
 };
 
 // ─── Header ──────────────────────────────────────────────────────────────────
@@ -224,6 +230,21 @@ export default function MainStack() {
         name="Settings"
         component={SettingsScreen}
         options={{ title: 'Settings' }}
+      />
+      <Stack.Screen
+        name="Subscription"
+        component={SubscriptionScreen}
+        options={{ title: 'Subscription' }}
+      />
+      <Stack.Screen
+        name="EmergencyDetection"
+        component={EmergencyDetectionScreen}
+        options={{ title: 'Emergency Detection' }}
+      />
+      <Stack.Screen
+        name="AlertHistory"
+        component={AlertHistoryScreen}
+        options={{ title: 'Alert History' }}
       />
     </Stack.Navigator>
   );

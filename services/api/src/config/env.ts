@@ -100,6 +100,13 @@ const EnvSchema = z.object({
   // Server-side encryption for evidence at rest. Unset = SSE-S3 (AES256);
   // set to a KMS key id for a customer-managed key with its own audit trail.
   S3_KMS_KEY_ID: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  // Which SSE header to send on uploads:
+  //   auto    — aws:kms if S3_KMS_KEY_ID is set; otherwise AES256, EXCEPT on
+  //             MinIO, where it sends none (MinIO rejects every SSE request
+  //             with "KMS not configured" unless a KMS/KES is attached).
+  //   AES256 / aws:kms — force that mode.
+  //   none    — send no SSE header (rely on bucket-default / disk encryption).
+  S3_SSE: z.enum(['auto', 'AES256', 'aws:kms', 'none']).default('auto'),
   // How long evidence is retained after its alert is closed. Evidence for an
   // OPEN case is never purged regardless of age.
   EVIDENCE_RETENTION_DAYS: z.coerce.number().int().positive().default(365),

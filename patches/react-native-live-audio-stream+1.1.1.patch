@@ -1,0 +1,103 @@
+diff --git a/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java b/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
+--- a/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
++++ b/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
+@@ -27,7 +27,7 @@
+ 
+     private AudioRecord recorder;
+     private int bufferSize;
+-    private boolean isRecording;
++    private volatile boolean isRecording;
+ 
+     public RNLiveAudioStreamModule(ReactApplicationContext reactContext) {
+         super(reactContext);
+@@ -75,13 +75,48 @@
+         }
+ 
+         int recordingBufferSize = bufferSize * 3;
+-        recorder = new AudioRecord(audioSource, sampleRateInHz, channelConfig, audioFormat, recordingBufferSize);
++        // Nari Surokkha patch: init() may be called again; release the previous
++        // recorder instead of leaking it (each leak holds the microphone).
++        releaseRecorder();
++        try {
++            recorder = new AudioRecord(audioSource, sampleRateInHz, channelConfig, audioFormat, recordingBufferSize);
++            if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
++                Log.e("RNLiveAudioStream", "AudioRecord failed to initialise (permission or busy microphone)");
++                releaseRecorder();
++            }
++        } catch (Exception e) {
++            Log.e("RNLiveAudioStream", "AudioRecord constructor threw", e);
++            recorder = null;
++        }
++    }
++
++    private synchronized void releaseRecorder() {
++        if (recorder != null) {
++            try {
++                if (recorder.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) recorder.stop();
++            } catch (Exception ignored) { }
++            try { recorder.release(); } catch (Exception ignored) { }
++            recorder = null;
++        }
+     }
+ 
+     @ReactMethod
+     public void start() {
++        // Nari Surokkha patch: never throw on the JS thread. A recorder that
++        // failed to initialise (permission revoked, mic held by a call) used to
++        // crash the app here with IllegalStateException.
++        final AudioRecord rec = recorder;
++        if (rec == null || rec.getState() != AudioRecord.STATE_INITIALIZED || isRecording) {
++            Log.w("RNLiveAudioStream", "start() ignored: recorder not ready or already recording");
++            return;
++        }
++        try {
++            rec.startRecording();
++        } catch (Exception e) {
++            Log.e("RNLiveAudioStream", "startRecording failed", e);
++            return;
++        }
+         isRecording = true;
+-        recorder.startRecording();
+ 
+         Thread recordingThread = new Thread(new Runnable() {
+             public void run() {
+@@ -92,20 +127,27 @@
+                     byte[] buffer = new byte[bufferSize];
+ 
+                     while (isRecording) {
+-                        bytesRead = recorder.read(buffer, 0, buffer.length);
++                        bytesRead = rec.read(buffer, 0, buffer.length);
+ 
+                         // skip first 2 buffers to eliminate "click sound"
+                         if (bytesRead > 0 && ++count > 2) {
+-                            base64Data = Base64.encodeToString(buffer, Base64.NO_WRAP);
++                            // Only the bytes actually read (a short read used to
++                            // emit stale samples from the previous buffer).
++                            base64Data = Base64.encodeToString(buffer, 0, bytesRead, Base64.NO_WRAP);
+                             eventEmitter.emit("data", base64Data);
++                        } else if (bytesRead < 0) {
++                            Log.e("RNLiveAudioStream", "AudioRecord.read error " + bytesRead);
++                            break;
+                         }
+                     }
+-                    recorder.stop();
++                    rec.stop();
+                 } catch (Exception e) {
+                     e.printStackTrace();
++                } finally {
++                    isRecording = false;
+                 }
+             }
+-        });
++        }, "RNLiveAudioStream");
+ 
+         recordingThread.start();
+     }
+@@ -113,5 +155,7 @@
+     @ReactMethod
+     public void stop(Promise promise) {
+         isRecording = false;
++        // Nari Surokkha patch: the promise was never settled.
++        promise.resolve(null);
+     }
+ }

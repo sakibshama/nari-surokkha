@@ -20,11 +20,25 @@ import { env } from '@/config/env';
 const REDIS_KEY = 'config:googleMapsApiKey';
 
 /** Build the WebRTC ICE server list from env (STUN always, TURN when set). */
-function buildIceServers() {
+async function buildIceServers() {
   const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
     { urls: env.STUN_URL },
   ];
-  if (env.TURN_HOST && env.TURN_PASSWORD) {
+  if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN) {
+    try {
+      const auth = Buffer.from(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`).toString('base64');
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Tokens.json`, {
+        method: 'POST',
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
+      const data = await res.json() as any;
+      if (data && data.ice_servers) {
+        return data.ice_servers;
+      }
+    } catch (e) {
+      console.error('Twilio TURN fetch failed', e);
+    }
+  } else if (env.TURN_HOST && env.TURN_PASSWORD) {
     iceServers.push({
       urls: [
         `turn:${env.TURN_HOST}:${env.TURN_PORT}?transport=udp`,
@@ -60,7 +74,8 @@ export function configRoutes(
     '/ice-servers',
     { onRequest: [fastify.authenticate] },
     async (_req, reply) => {
-      return reply.send({ success: true, data: { iceServers: buildIceServers() } });
+      const iceServers = await buildIceServers();
+      return reply.send({ success: true, data: { iceServers } });
     },
   );
 

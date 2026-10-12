@@ -17,6 +17,10 @@ config.resolver.nodeModulesPaths = [
 ];
 config.watchFolders = [monorepoRoot];
 
+// On-device emergency detection models (react-native-fast-tflite loads them
+// from the bundle via require('…/model.tflite')).
+config.resolver.assetExts = [...config.resolver.assetExts.filter((e) => e !== 'tflite'), 'tflite'];
+
 // Disable package exports to fix the event-target-shim warning from react-native-webrtc
 config.resolver.unstable_enablePackageExports = false;
 

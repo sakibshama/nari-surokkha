@@ -13,7 +13,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const KEY = '@sms_history';
 const MAX = 50;
 
-export type SmsChannel = 'offline-sim' | 'online-server';
+// quota-sim: online SOS, but the plan's SMS quota was used up, so the phone
+// texted the contacts from its own SIM.
+export type SmsChannel = 'offline-sim' | 'online-server' | 'quota-sim';
 // offline outcomes: auto (silent), manual (composer), failed.
 // online outcome: sent (server accepted the dispatch).
 export type SmsStatus = 'auto' | 'manual' | 'failed' | 'sent';

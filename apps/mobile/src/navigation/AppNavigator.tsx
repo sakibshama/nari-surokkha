@@ -13,6 +13,8 @@ import DrawerNavigator from './DrawerNavigator';
 import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 import api from '../services/api';
 import { useTheme } from '../theme';
+import { navigationRef } from './navigationRef';
+import EmergencyRuntime from '../components/EmergencyRuntime';
 
 export default function AppNavigator() {
   const { isAuthenticated, isLoading, restoreToken } = useAuthStore();
@@ -68,8 +70,10 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer theme={navTheme} ref={navigationRef}>
       {isAuthenticated ? <DrawerNavigator /> : <AuthStack />}
+      {/* Microphone emergency detection + soft alerts, only while signed in. */}
+      {isAuthenticated && <EmergencyRuntime />}
     </NavigationContainer>
   );
 }

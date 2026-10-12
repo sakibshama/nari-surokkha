@@ -8,7 +8,7 @@ import { AlertsService } from './alerts.service';
 import { AlertsRepository } from './alerts.repository';
 import { ContactsRepository } from '../contacts/contacts.repository';
 import { ResponderRepository } from '../responder/responder.repository';
-import { createSosSchema, updateLocationSchema, generateTrackingTokenSchema, createSoftAlertSchema, cancelSoftAlertSchema, confirmSoftAlertSchema, cancelSosAlertSchema, safeRouteSchema } from './alerts.schemas';
+import { createSosSchema, updateLocationSchema, generateTrackingTokenSchema, createSoftAlertSchema, cancelSoftAlertSchema, confirmSoftAlertSchema, cancelSosAlertSchema, safeRouteSchema, smsFallbackSchema } from './alerts.schemas';
 import { env } from '@/config/env';
 import { isValidTwilioSignature } from '@/utils/twilio-signature';
 
@@ -92,6 +92,12 @@ export function alertsRoutes(
     authRequiredRouter.post('/soft', { schema: createSoftAlertSchema }, controller.createSoftAlert);
     authRequiredRouter.patch('/:id/soft/cancel', { schema: cancelSoftAlertSchema }, controller.cancelSoftAlert);
     authRequiredRouter.patch('/:id/soft/confirm', { schema: confirmSoftAlertSchema }, controller.confirmSoftAlert);
+
+    authRequiredRouter.post(
+      '/:id/sms-fallback',
+      { schema: smsFallbackSchema, config: { rateLimit: { max: 3, timeWindow: 60000 } } },
+      controller.requestServerSms,
+    );
 
     authRequiredRouter.post('/safe-route', { schema: safeRouteSchema }, controller.getSafeRoute);
     authRequiredRouter.post('/safe-route/:id/location', controller.updateRouteLocation);

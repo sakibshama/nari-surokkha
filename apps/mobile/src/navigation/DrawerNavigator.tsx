@@ -24,6 +24,9 @@ import {
   Timer,
   User,
   Users,
+  CreditCard,
+  Ear,
+  History,
 } from 'lucide-react-native';
 
 import MainStack from './MainStack';
@@ -50,6 +53,7 @@ const PRIMARY: Item[] = [
   { key: 'home', label: 'Home', icon: Home, screen: 'Home' },
   { key: 'contacts', label: 'Trusted Contacts', icon: Users, screen: 'TrustedContacts' },
   { key: 'profile', label: 'Profile', icon: User, screen: 'ProfileSetup' },
+  { key: 'subscription', label: 'Subscription', icon: CreditCard, screen: 'Subscription' },
   { key: 'settings', label: 'Settings', icon: Settings, screen: 'Settings' },
 ];
 
@@ -57,6 +61,7 @@ const SAFETY: Item[] = [
   { key: 'route', label: 'Safe Route', icon: Navigation, screen: 'SafeRoute' },
   { key: 'map', label: 'Safety Map', icon: MapIcon, screen: 'SafetyMap' },
   { key: 'silent', label: 'Silent Alert', icon: Timer, screen: 'SoftAlert', params: { manual: true } },
+  { key: 'detection', label: 'Emergency Detection', icon: Ear, screen: 'EmergencyDetection' },
   { key: 'fake', label: 'Fake Call', icon: PhoneCall, screen: 'FakeCall' },
   { key: 'report', label: 'Report Incident', icon: FileText, screen: 'ReportIncident' },
   { key: 'responder', label: 'Responder Hub', icon: ShieldAlert, screen: 'ResponderHub' },
@@ -64,6 +69,7 @@ const SAFETY: Item[] = [
 
 const RECORDS: Item[] = [
   { key: 'sms', label: 'SOS SMS History', icon: MessageSquare, screen: 'SmsHistory' },
+  { key: 'alerts', label: 'Alert History', icon: History, screen: 'AlertHistory' },
   { key: 'evidence', label: 'Evidence Library', icon: Archive, screen: 'EvidenceLibrary' },
 ];
 

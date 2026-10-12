@@ -82,6 +82,71 @@ describe('AlertsService', () => {
     );
   });
 
+  describe('SMS quota → SMS from the phone\'s SIM', () => {
+    const alert = { id: 'alert-9', status: 'confirmed', userId: 'user-9', type: 'manual', latitude: 23.7, longitude: 90.4 };
+    beforeEach(() => {
+      contactsRepo.getContactsByUserId.mockResolvedValue([{ phone: '+8801711111111' }]);
+      alertsRepo.createAlert.mockResolvedValue(alert as any);
+      fastifyMock.prisma.userProfile = { findUnique: vi.fn().mockResolvedValue({ fullName: 'Rina' }) };
+      fastifyMock.settings = { getSmsTemplate: vi.fn().mockResolvedValue('{name} needs help. Live: {trackLink} Map: {mapLink}') };
+    });
+
+    it('quota left → server sends the SMS, phone does nothing', async () => {
+      fastifyMock.prisma.subscription = { findUnique: vi.fn().mockResolvedValue({ status: 'active', smsRemaining: 5 }) };
+      const r = await service.triggerManualSos('user-9', { latitude: 23.7, longitude: 90.4 });
+      expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
+        'notify_trusted_contacts', expect.objectContaining({ mode: 'all' }), { jobId: 'fanout:alert-9' });
+      expect(r.smsViaDevice).toBe(false);
+      expect(r.deviceSmsMessage).toBeUndefined();
+    });
+
+    it.each([
+      ['quota used up', { status: 'active', smsRemaining: 0 }],
+      ['plan expired', { status: 'expired', smsRemaining: 40 }],
+      ['no plan at all', null],
+    ])('%s → phone texts contacts from its SIM; server only pushes', async (_n, sub) => {
+      fastifyMock.prisma.subscription = { findUnique: vi.fn().mockResolvedValue(sub) };
+      const r = await service.triggerManualSos('user-9', { latitude: 23.7, longitude: 90.4 });
+      expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
+        'notify_trusted_contacts', expect.objectContaining({ mode: 'push_only' }), { jobId: 'fanout:alert-9' });
+      expect(r.smsViaDevice).toBe(true);
+      expect(r.contactPhones).toEqual(['+8801711111111']);
+      // Same admin template the server would have used, with a live tracking link.
+      expect(r.deviceSmsMessage).toMatch(/^Rina needs help\. Live: \S+\/t\/\S{12} Map: https:\/\/maps\.google\.com\/\?q=23\.7,90\.4$/);
+    });
+
+    it('unreadable subscription fails open (server sends)', async () => {
+      fastifyMock.prisma.subscription = { findUnique: vi.fn().mockRejectedValue(new Error('db')) };
+      const r = await service.triggerManualSos('user-9', { latitude: 23.7, longitude: 90.4 });
+      expect(r.smsViaDevice).toBe(false);
+    });
+
+    it('server-side auto-escalation always sends from the server (the phone is not answering)', async () => {
+      fastifyMock.prisma.subscription = { findUnique: vi.fn().mockResolvedValue(null) };
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ ...alert, status: 'created' });
+      alertsRepo.updateAlert = vi.fn().mockResolvedValue({ ...alert, status: 'confirmed' });
+      const r = await service.confirmSoftAlert('user-9', 'alert-9', { forceServerSms: true });
+      expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
+        'notify_trusted_contacts', expect.objectContaining({ mode: 'all' }), { jobId: 'fanout:alert-9' });
+      expect(r.smsViaDevice).toBe(false);
+    });
+
+    it('phone could not send → server sends anyway (sms_retry)', async () => {
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ ...alert, status: 'confirmed' });
+      const r = await service.requestServerSms('user-9', 'alert-9');
+      expect(r.queued).toBe(true);
+      expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
+        'notify_trusted_contacts', { alertId: 'alert-9', userId: 'user-9', mode: 'sms_retry' }, { jobId: 'fanout-sms:alert-9' });
+    });
+
+    it('sms fallback refuses other users\' alerts and closed alerts', async () => {
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ ...alert, userId: 'someone-else' });
+      await expect(service.requestServerSms('user-9', 'alert-9')).rejects.toThrow(ForbiddenError);
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ ...alert, status: 'resolved' });
+      await expect(service.requestServerSms('user-9', 'alert-9')).rejects.toThrow(ForbiddenError);
+    });
+  });
+
   describe('triggerManualSos', () => {
     it('allows SOS creation even if user has no trusted contacts', async () => {
       contactsRepo.getContactsByUserId.mockResolvedValue([]);
@@ -121,7 +186,8 @@ describe('AlertsService', () => {
       // SOS unable to double-notify.
       expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
         'notify_trusted_contacts',
-        { alertId: 'alert-123', userId: 'user-123' },
+        // No subscription data available → fails open: the server sends the SMS.
+        { alertId: 'alert-123', userId: 'user-123', mode: 'all' },
         { jobId: 'fanout:alert-123' },
       );
 

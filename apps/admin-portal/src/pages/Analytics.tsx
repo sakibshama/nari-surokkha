@@ -3,8 +3,8 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
 } from 'recharts';
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
+import IncidentHeatmap from '../components/IncidentHeatmap';
+import { useThemeStore } from '../store/themeStore';
 import api from '../services/api';
 import { Activity, MapPin, AlertCircle, TrendingUp } from 'lucide-react';
 import { useT } from '../i18n';
@@ -13,8 +13,10 @@ const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899'
 
 export default function Analytics() {
   const t = useT();
+  const dark = useThemeStore((s) => s.mode === 'dark');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<{ title: string; detail: string; hint: string } | null>(null);
 
   useEffect(() => {
     fetchAnalytics();
@@ -23,12 +25,31 @@ export default function Analytics() {
   const fetchAnalytics = async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await api.get('/admin/analytics');
-      if (res.data.success) {
+      if (res.data?.success && res.data.data) {
         setData(res.data.data);
+      } else {
+        setError({ title: 'Unexpected response from the API', detail: JSON.stringify(res.data).slice(0, 300), hint: 'Restart the API server and try again.' });
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('[analytics]', err);
+      const status: number | undefined = err?.response?.status;
+      const server: string = err?.response?.data?.error?.message || err?.response?.data?.message || '';
+      const base = api.defaults.baseURL ?? '';
+      setError(
+        !err?.response
+          ? { title: 'The API server could not be reached', detail: `${base}/admin/analytics — ${err?.message ?? 'network error'}`,
+              hint: 'Check that the API is running and that VITE_API_URL in apps/admin-portal/.env points to this computer\'s current address (restart the portal after changing it).' }
+          : status === 401
+            ? { title: 'Your session has expired', detail: server || 'HTTP 401', hint: 'Sign out and sign in again.' }
+            : status === 403
+              ? { title: 'Your account cannot view analytics', detail: server || 'HTTP 403', hint: 'Analytics needs the admin role.' }
+              : status === 404
+                ? { title: 'The analytics route was not found', detail: `HTTP 404 at ${base}/admin/analytics`, hint: 'Restart the API server so it loads the latest code.' }
+                : { title: `The server returned an error (HTTP ${status})`, detail: server || 'No message from the server.',
+                    hint: 'After pulling new code run, in services/api: npx prisma migrate deploy, then npx prisma generate, then restart the API. The API terminal shows the full error.' },
+      );
     } finally {
       setLoading(false);
     }
@@ -43,7 +64,21 @@ export default function Analytics() {
   }
 
   if (!data) {
-    return <div style={{ padding: 24 }}>Failed to load data.</div>;
+    return (
+      <div className="animate-in" style={{ padding: 24, maxWidth: 720 }}>
+        <div className="card" style={{ borderColor: 'rgba(225,29,58,0.35)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <AlertCircle size={22} color="var(--emergency)" />
+            <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>{error?.title ?? t('Failed to load analytics')}</h2>
+          </div>
+          {error?.detail && (
+            <pre style={{ margin: '0 0 12px', padding: '10px 12px', borderRadius: 8, background: 'var(--bg-card-alt)', border: '1px solid var(--border)', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text-sub)' }}>{error.detail}</pre>
+          )}
+          {error?.hint && <p style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--text-sub)' }}>{error.hint}</p>}
+          <button className="btn btn-primary" onClick={fetchAnalytics}><Activity size={16} /> {t('Try again')}</button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -144,41 +179,18 @@ export default function Analytics() {
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '24px 24px 16px' }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <MapPin size={20} color="var(--primary)" /> Incident Heatmap (Last 30 Days)
+            <MapPin size={20} color="var(--primary)" /> {t('Incident Heatmap (Last 30 Days)')}
           </h2>
           <p style={{ margin: '8px 0 0', color: 'var(--text-sub)', fontSize: 14 }}>
             Use this map to identify high-risk areas for strategic placement of streetlights, CCTV and volunteer responders.
           </p>
         </div>
-        <div style={{ height: 400, width: '100%', backgroundColor: 'var(--bg-input)' }}>
-          <MapContainer center={[23.8103, 90.4125]} zoom={12} style={{ height: '100%', width: '100%' }}>
-            {/* Dark mode friendly map tiles */}
-            <TileLayer
-              url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            />
-            {data.recentIncidents?.map((incident: any, idx: number) => (
-              <CircleMarker 
-                key={idx}
-                center={[incident.latitude, incident.longitude]}
-                radius={8}
-                pathOptions={{
-                  fillColor: '#ef4444',
-                  fillOpacity: 0.6,
-                  color: '#b91c1c',
-                  weight: 1
-                }}
-              >
-                <Popup>
-                  <div style={{ padding: 4 }}>
-                    <strong>{incident.type}</strong><br/>
-                    {new Date(incident.createdAt).toLocaleDateString()}
-                  </div>
-                </Popup>
-              </CircleMarker>
-            ))}
-          </MapContainer>
-        </div>
+        <IncidentHeatmap
+          dark={dark}
+          points={(data.recentIncidents ?? [])
+            .map((p: any) => ({ latitude: Number(p.latitude), longitude: Number(p.longitude), weight: Number(p.weight ?? 1), type: p.type }))
+            .filter((p: any) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude))}
+        />
       </div>
     </div>
   );

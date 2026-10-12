@@ -45,11 +45,23 @@ export class IncidentsService {
   }
 
   async deleteIncident(id: string): Promise<IncidentReport> {
+    // Collect the attached files first: the rows cascade away with the incident.
+    const keys = await this.fastify.prisma.incidentMedia
+      .findMany({ where: { incidentId: id }, select: { fileKey: true } })
+      .then((rows) => rows.map((r) => r.fileKey))
+      .catch(() => [] as string[]);
+    let deleted: IncidentReport;
     try {
-      return await this.repo.deleteIncident(id);
+      deleted = await this.repo.deleteIncident(id);
     } catch (err) {
       throw new NotFoundError('Incident not found');
     }
+    if (keys.length) {
+      await this.fastify.storage.deleteFiles(keys).catch((err) =>
+        this.fastify.log.warn({ err, incidentId: id }, 'Could not delete incident media files'),
+      );
+    }
+    return deleted;
   }
 
   async calculateSafetyScore(latitude: number, longitude: number): Promise<{ score: number, factors: any }> {

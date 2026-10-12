@@ -3,7 +3,7 @@ import { Text, View } from 'react-native';
 import { showAlert } from '../../utils/notify';
 import { useFocusEffect } from '@react-navigation/native';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { CheckCircle2, Clock, MessageSquare, Send, Trash2, Users, Wifi, WifiOff, XCircle } from 'lucide-react-native';
+import { CheckCircle2, Clock, MessageSquare, Send, Smartphone, Trash2, Users, Wifi, WifiOff, XCircle } from 'lucide-react-native';
 import { formatDistanceToNow } from 'date-fns';
 import { bn as bnLocale } from 'date-fns/locale';
 
@@ -23,6 +23,7 @@ const STATUS: Record<string, { label: string; tone: 'success' | 'info' | 'danger
 const CHANNEL: Record<string, { label: string; tone: 'info' | 'warning'; Icon: any }> = {
   'online-server': { label: 'Online · server', tone: 'info', Icon: Wifi },
   'offline-sim': { label: 'Offline · SIM', tone: 'warning', Icon: WifiOff },
+  'quota-sim': { label: 'SMS limit · SIM', tone: 'warning', Icon: Smartphone },
 };
 
 export default function SmsHistoryScreen() {
@@ -140,7 +141,7 @@ export default function SmsHistoryScreen() {
 
               {it.reason ? (
                 <Txt variant="xs" tone="danger">
-                  {t('Reason')}: {it.reason}
+                  {t('Reason')}: {t(it.reason)}
                 </Txt>
               ) : null}
             </Animated.View>

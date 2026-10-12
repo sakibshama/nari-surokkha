@@ -20,12 +20,20 @@ export class IncidentsRepository {
     });
   }
 
-  async getIncidentsByStatus(status: IncidentStatus, limit: number = 50): Promise<IncidentReport[]> {
-    return this.prisma.incidentReport.findMany({
-      where: { status },
-      orderBy: { createdAt: 'desc' },
-      take: limit
-    });
+  async getIncidentsByStatus(status: IncidentStatus, limit: number = 50): Promise<Array<IncidentReport & { mediaCount: number }>> {
+    try {
+      const rows = await this.prisma.incidentReport.findMany({
+        where: { status },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: { _count: { select: { media: true } } },
+      });
+      return rows.map(({ _count, ...r }) => ({ ...r, mediaCount: _count.media }));
+    } catch {
+      // Media migration not applied yet (or an old Prisma client): still list the reports.
+      const rows = await this.prisma.incidentReport.findMany({ where: { status }, orderBy: { createdAt: 'desc' }, take: limit });
+      return rows.map((r) => ({ ...r, mediaCount: 0 }));
+    }
   }
 
   async updateIncidentStatus(id: string, status: IncidentStatus): Promise<IncidentReport> {

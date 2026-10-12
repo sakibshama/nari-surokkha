@@ -2,7 +2,7 @@
   "name": "nari-surokkha",
   "version": "0.1.0",
   "private": true,
-  "description": "Nari Surokkha — Women's Safety & Emergency Response Platform",
+  "description": "Nari Surokkha \u2014 Women's Safety & Emergency Response Platform",
   "workspaces": [
     "apps/*",
     "services/*",
@@ -17,7 +17,8 @@
     "type-check": "npm run type-check --workspaces --if-present",
     "docker:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d",
     "docker:down": "docker compose -f infra/docker/docker-compose.dev.yml down",
-    "docker:logs": "docker compose -f infra/docker/docker-compose.dev.yml logs -f"
+    "docker:logs": "docker compose -f infra/docker/docker-compose.dev.yml logs -f",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "react-native-worklets": "0.8.3"
@@ -25,7 +26,8 @@
   "devDependencies": {
     "typescript": "^5.4.5",
     "prettier": "^3.3.2",
-    "eslint": "^9.5.0"
+    "eslint": "^9.5.0",
+    "patch-package": "^8.0.0"
   },
   "engines": {
     "node": ">=20.0.0",

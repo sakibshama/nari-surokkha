@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { IncidentsService } from './incidents.service';
 import { IncidentType, IncidentStatus } from '@prisma/client';
+import { createUploadToken, MAX_MEDIA_PER_INCIDENT, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from './incident-media';
 
 export class IncidentsController {
   constructor(private readonly service: IncidentsService) {}
@@ -23,10 +24,20 @@ export class IncidentsController {
       req.body.description
     );
 
+    // Photos/videos are attached in follow-up requests authorised by this
+    // short-lived token — the report itself stays account-less.
+    const upload = createUploadToken(incident.id);
     return reply.status(201).send({
       success: true,
       message: 'Incident reported anonymously',
-      data: incident,
+      data: {
+        ...incident,
+        uploadToken: upload.token,
+        uploadTokenExpiresAt: upload.expiresAt,
+        maxMedia: MAX_MEDIA_PER_INCIDENT,
+        maxImageBytes: MAX_IMAGE_BYTES,
+        maxVideoBytes: MAX_VIDEO_BYTES,
+      },
     });
   };
 

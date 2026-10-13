@@ -1,8 +1,64 @@
 import { FastifyInstance } from 'fastify';
-import { AdminRepository } from './admin.repository';
-import { AuditLog } from '@prisma/client';
-import { NotFoundError } from '@/utils/errors';
+import argon2 from 'argon2';
+import { AuditLog, EmergencyAlert, Prisma } from '@prisma/client';
+import { AdminRepository, AdminUserView } from './admin.repository';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/utils/errors';
 import { bumpTokenVersion } from '@/utils/token-version';
+import { env } from '@/config/env';
+import { emitToAlert } from '@/utils/alert-rooms';
+import { invalidateAlertMeta } from '@/modules/alerts/alert-location.buffer';
+import type { AdminSettableStatus } from '@/modules/alerts/alert-status';
+
+/** The admin performing the action. */
+export interface AdminActor {
+  id: string;
+  permissions: string[];
+}
+
+export interface CreateUserInput {
+  phone: string;
+  password: string;
+  fullName: string;
+  email?: string;
+  nationalId?: string;
+  role?: string;
+  permissions?: string[];
+  isVerified?: boolean;
+}
+
+export type UpdateUserInput = Partial<Omit<CreateUserInput, 'password'>> & {
+  password?: string;
+  status?: 'active' | 'inactive' | 'suspended' | 'pending_verification';
+};
+
+const ADMIN_PERMISSIONS = ['manage_users', 'manage_admins', 'view_audit_logs'];
+/** Roles that still exist in old data but can no longer be assigned. */
+const RETIRED_ROLES = ['police'];
+
+function assertCanGrant(actor: AdminActor, permissions: string[]): void {
+  const missing = permissions.filter((p) => !actor.permissions.includes(p));
+  if (missing.length > 0) {
+    throw new ForbiddenError(`You cannot grant permissions you do not hold: ${missing.join(', ')}`);
+  }
+}
+
+function sameSet(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x));
+}
+
+function normalizeEmail(email?: string): string | null {
+  const trimmed = email?.trim().toLowerCase();
+  return trimmed ? trimmed : null;
+}
+
+function hashPassword(password: string): Promise<string> {
+  return argon2.hash(password, {
+    type: argon2.argon2id,
+    memoryCost: env.ARGON2_MEMORY_COST,
+    timeCost: env.ARGON2_TIME_COST,
+    parallelism: env.ARGON2_PARALLELISM,
+  });
+}
 
 export class AdminService {
   constructor(
@@ -14,51 +70,132 @@ export class AdminService {
     return this.repo.listUsers(roleKey, search, limit, offset);
   }
 
-  async createUser(data: any) {
-    return this.repo.createUser(data);
+  /**
+   * B1/B2: a password is mandatory (no shared default), the role must exist,
+   * and an admin can only hand out permissions they hold themselves.
+   */
+  async createUser(actor: AdminActor, data: CreateUserInput): Promise<AdminUserView> {
+    const roleKey = data.role ?? 'citizen';
+    await this.assertRoleAssignable(actor, roleKey);
+
+    // An admin created without an explicit list gets the admin permissions the
+    // creator can vouch for — never more.
+    const permissions =
+      data.permissions ?? (roleKey === 'admin' ? ADMIN_PERMISSIONS.filter((p) => actor.permissions.includes(p)) : []);
+    assertCanGrant(actor, permissions);
+
+    const email = normalizeEmail(data.email);
+    if (await this.repo.isPhoneTaken(data.phone)) throw new ConflictError('A user with this phone number already exists');
+    if (email && (await this.repo.isEmailTaken(email))) throw new ConflictError('A user with this email already exists');
+
+    return this.repo.createUser({
+      phone: data.phone,
+      email,
+      passwordHash: await hashPassword(data.password),
+      fullName: data.fullName,
+      nationalId: data.nationalId || undefined,
+      roleKey,
+      permissions,
+      isVerified: data.isVerified ?? false,
+    });
   }
 
   /**
-   * Update a user.
-   *
-   * Any change to role, permissions or status revokes the user's existing
-   * access tokens immediately. Without this, demoting an admin or suspending
-   * an account left their current token fully privileged until it expired.
+   * Only the fields present are changed. Tokens are revoked only when what
+   * the user may do actually changed (role, permissions, status, password) —
+   * the portal sends the whole form on every save, and logging a user out
+   * because their name was edited was a bug.
    */
-  async updateUser(id: string, data: any) {
-    let updated;
-    try {
-      updated = await this.repo.updateUser(id, data);
-    } catch (e) {
-      throw new NotFoundError('User not found');
+  async updateUser(actor: AdminActor, id: string, data: UpdateUserInput): Promise<AdminUserView> {
+    const existing = await this.repo.findUser(id);
+    if (!existing) throw new NotFoundError('User');
+
+    const currentRole = existing.role?.key ?? 'citizen';
+    const roleChanged = data.role !== undefined && data.role !== currentRole;
+    const permissionsChanged =
+      data.permissions !== undefined && !sameSet(data.permissions, existing.permissions);
+    const statusChanged = data.status !== undefined && data.status !== existing.status;
+
+    if (id === actor.id && (roleChanged || permissionsChanged)) {
+      throw new ForbiddenError('You cannot change your own role or permissions');
+    }
+    if ((currentRole === 'admin' || data.role === 'admin') && !actor.permissions.includes('manage_admins')) {
+      throw new ForbiddenError('You do not have permission to edit admin users');
+    }
+    if (roleChanged) await this.assertRoleAssignable(actor, data.role!);
+    if (permissionsChanged) {
+      assertCanGrant(actor, data.permissions!.filter((p) => !existing.permissions.includes(p)));
     }
 
-    // Anything that changes what this user is allowed to do invalidates every
-    // access token they currently hold.
-    const privilegeChanged =
-      data.role !== undefined || data.permissions !== undefined || data.status !== undefined;
-    if (privilegeChanged) {
+    const update: Prisma.UserUpdateInput = {};
+    if (data.phone !== undefined && data.phone !== existing.phone) {
+      if (await this.repo.isPhoneTaken(data.phone, id)) throw new ConflictError('A user with this phone number already exists');
+      update.phone = data.phone;
+    }
+    if (data.email !== undefined) {
+      const email = normalizeEmail(data.email);
+      if (email && (await this.repo.isEmailTaken(email, id))) throw new ConflictError('A user with this email already exists');
+      update.email = email;
+    }
+    if (roleChanged) update.role = { connect: { key: data.role! } };
+    if (permissionsChanged) update.permissions = data.permissions;
+    if (statusChanged) update.status = data.status;
+    if (data.password !== undefined) update.passwordHash = await hashPassword(data.password);
+
+    const profile: Prisma.UserProfileUpdateWithoutUserInput = {};
+    if (data.fullName !== undefined) profile.fullName = data.fullName;
+    if (data.nationalId !== undefined) profile.nationalId = data.nationalId || null;
+    if (data.isVerified !== undefined) {
+      profile.isVerified = data.isVerified;
+      profile.verifiedAt = data.isVerified ? new Date() : null;
+    }
+    if (Object.keys(profile).length > 0 && existing.profile) update.profile = { update: profile };
+
+    const updated = await this.repo.updateUser(id, update);
+
+    if (data.password !== undefined) await this.repo.revokeSessions(id);
+    if (roleChanged || permissionsChanged || statusChanged || data.password !== undefined) {
       await bumpTokenVersion(this.fastify, id);
     }
-
     return updated;
   }
 
-  async deleteUser(id: string) {
-    try {
-      // Revoke first: if the delete succeeds, any token they hold is already
-      // dead; if it fails, revoking a live user's token is the safe error.
-      await bumpTokenVersion(this.fastify, id);
-      return await this.repo.deleteUser(id);
-    } catch (e) {
-      throw new NotFoundError('User not found');
+  /**
+   * Hard-delete only a user with no history. Anyone with alerts, payments or
+   * an audit trail is deactivated instead: those records must survive, and
+   * the foreign keys (rightly) refuse to cascade.
+   */
+  async deleteUser(actor: AdminActor, id: string): Promise<{ result: 'deleted' | 'deactivated' }> {
+    if (id === actor.id) throw new ForbiddenError('You cannot delete your own account');
+    const existing = await this.repo.findUser(id);
+    if (!existing) throw new NotFoundError('User');
+    if (existing.role?.key === 'admin' && !actor.permissions.includes('manage_admins')) {
+      throw new ForbiddenError('You do not have permission to delete admin users');
+    }
+
+    // Revoke first: whichever way this goes, their current tokens are dead.
+    await bumpTokenVersion(this.fastify, id);
+    if (await this.repo.hasHistory(id)) {
+      await this.repo.deactivateUser(id);
+      return { result: 'deactivated' };
+    }
+    await this.repo.deleteUser(id);
+    return { result: 'deleted' };
+  }
+
+  private async assertRoleAssignable(actor: AdminActor, roleKey: string): Promise<void> {
+    if (RETIRED_ROLES.includes(roleKey) || !(await this.repo.roleExists(roleKey))) {
+      throw new ValidationError(`Unknown role: ${roleKey}`);
+    }
+    if (roleKey === 'admin' && !actor.permissions.includes('manage_admins')) {
+      throw new ForbiddenError('You do not have permission to assign the admin role');
     }
   }
 
   async updateUserVerification(id: string, isVerified: boolean) {
     try {
       return await this.repo.updateUserVerification(id, isVerified);
-    } catch (e) {
+    } catch {
       throw new NotFoundError('User not found');
     }
   }
@@ -70,7 +207,7 @@ export class AdminService {
   async verifyResponder(id: string, isVerified: boolean) {
     try {
       return await this.repo.updateResponderVerification(id, isVerified);
-    } catch (e) {
+    } catch {
       throw new NotFoundError('Responder not found');
     }
   }
@@ -78,7 +215,7 @@ export class AdminService {
   async deleteResponder(id: string) {
     try {
       return await this.repo.deleteResponder(id);
-    } catch (e) {
+    } catch {
       throw new NotFoundError('Responder not found');
     }
   }
@@ -133,6 +270,35 @@ export class AdminService {
     return alert;
   }
 
+  /** Admin closes the loop on an alert (in progress / resolved / closed / false alarm). */
+  async setAlertStatus(
+    actor: AdminActor,
+    id: string,
+    status: AdminSettableStatus,
+    note?: string,
+  ): Promise<EmergencyAlert> {
+    const alert = await this.repo.getAlertById(id);
+    if (!alert) throw new NotFoundError('Alert');
+
+    const now = new Date();
+    const updated = await this.repo.updateAlertStatus(id, {
+      status,
+      ...(status === 'resolved' ? { resolvedAt: now } : {}),
+      ...(status !== 'in_progress' ? { closedAt: now } : {}),
+    });
+    // The cached authorisation record carries status (location pings).
+    await invalidateAlertMeta(this.fastify, id);
+    await this.repo.createAuditLog({
+      userId: actor.id,
+      action: status === 'closed' ? 'case_closed' : 'updated',
+      entityType: 'alert',
+      entityId: id,
+      metadata: { from: alert.status, to: status, ...(note ? { note } : {}) },
+    });
+    emitToAlert(this.fastify, id, 'alert_status_update', { alertId: id, status });
+    return updated;
+  }
+
   // --- INCIDENTS ---
   async listIncidents(status?: any, limit?: number) {
     return this.repo.listIncidents(status, limit);
@@ -141,7 +307,7 @@ export class AdminService {
   async updateIncidentStatus(id: string, status: any) {
     try {
       return await this.repo.updateIncidentStatus(id, status);
-    } catch (e) {
+    } catch {
       throw new NotFoundError('Incident not found');
     }
   }

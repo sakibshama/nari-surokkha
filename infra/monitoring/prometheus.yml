@@ -3,6 +3,11 @@
 # The API exposes /metrics on METRICS_PORT (9091) — a separate port from the
 # public API, reachable only on the internal Docker network. It is deliberately
 # not proxied by nginx.
+#
+# Replicas: `docker compose up --scale api=3` gives three containers behind
+# ONE service name. A static target `api:9091` would scrape whichever replica
+# DNS returned first. dns_sd_configs (type A) asks Docker's DNS for every
+# replica's address and scrapes each one (instance label = container IP).
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -19,18 +24,26 @@ alerting:
 
 scrape_configs:
   - job_name: 'api'
-    static_configs:
-      - targets: ['api:9091']
-        labels:
-          component: api
+    dns_sd_configs:
+      - names: ['api']
+        type: A
+        port: 9091
+        refresh_interval: 30s
+    relabel_configs:
+      - target_label: component
+        replacement: api
 
   # The worker runs the same image with WORKER_MODE=true and exposes the same
   # metrics port, so dispatch/notification timings are attributed to it.
   - job_name: 'worker'
-    static_configs:
-      - targets: ['worker:9091']
-        labels:
-          component: worker
+    dns_sd_configs:
+      - names: ['worker']
+        type: A
+        port: 9091
+        refresh_interval: 30s
+    relabel_configs:
+      - target_label: component
+        replacement: worker
 
   - job_name: 'prometheus'
     static_configs:

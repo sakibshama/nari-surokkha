@@ -87,3 +87,18 @@ services/ml-training/keywords/work/
 
 # Assistant preview screenshots
 Claude outputs/
+
+# Expo prebuild output — generated from app.json/app.config + config plugins.
+# Regenerate with `npx expo prebuild --clean`; never edit or commit it.
+apps/mobile/android/
+apps/mobile/ios/
+
+# Python tool caches (ml-service / ml-training)
+.ruff_cache/
+.ipynb_checkpoints/
+services/ml-service/.pytest_cache/
+services/ml-training/.pytest_cache/
+
+# Generated reports (stale snapshots were committed before)
+type-check-report.txt
+lint-report.txt

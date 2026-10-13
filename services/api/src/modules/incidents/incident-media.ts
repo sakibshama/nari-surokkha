@@ -165,7 +165,7 @@ export function scrubLocationStrings(buf: Buffer): number {
   const text = buf.toString('latin1');
   let n = 0;
   for (const m of text.matchAll(ISO6709)) {
-    const start = m.index!;
+    const start = m.index;
     for (let k = 0; k < m[0].length; k++) {
       const c = buf[start + k];
       if (c >= 0x30 && c <= 0x39) buf[start + k] = 0x30;

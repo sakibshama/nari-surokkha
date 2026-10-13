@@ -1,13 +1,14 @@
 import fp from 'fastify-plugin';
 import { FastifyInstance } from 'fastify';
 import { Server as SocketIOServer, Socket } from 'socket.io';
-// @ts-ignore
 import { createAdapter } from '@socket.io/redis-adapter';
 import jwt from 'jsonwebtoken';
 import { env } from '@/config/env';
 import type { JwtAccessPayload } from '@/types/index';
 import { wsConnections } from '@/plugins/metrics';
 import { ADMIN_ROOM } from '@/utils/alert-rooms';
+import { canAccessAlert } from '@/utils/alert-access';
+import { isTokenVersionValid } from '@/utils/token-version';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -63,21 +64,22 @@ async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
   // Every connection MUST present a valid access token. Emergency location
   // and WebRTC signalling data flow over this socket, so anonymous access is
   // never allowed.
-  io.use((socket, next) => {
+  const authenticateSocket = async (socket: Socket): Promise<Error | undefined> => {
     try {
       const raw =
         (socket.handshake.auth as { token?: string } | undefined)?.token ??
         (typeof socket.handshake.headers.authorization === 'string'
           ? socket.handshake.headers.authorization.replace(/^Bearer\s+/i, '')
           : undefined);
-
-      if (!raw) {
-        return next(new Error('Unauthorized: missing token'));
-      }
+      if (!raw) return new Error('Unauthorized: missing token');
 
       const payload = jwt.verify(raw, env.JWT_SECRET) as JwtAccessPayload;
-      if (payload.type !== 'access') {
-        return next(new Error('Unauthorized: invalid token type'));
+      if (payload.type !== 'access') return new Error('Unauthorized: invalid token type');
+
+      // Revoked sessions (password change, role change, deactivation) must not
+      // keep receiving live emergency data over an already-issued token.
+      if (!(await isTokenVersionValid(fastify, payload.sub, payload.ver))) {
+        return new Error('Unauthorized: token revoked');
       }
 
       (socket as AuthedSocket).data.user = {
@@ -85,10 +87,14 @@ async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
         role: payload.role,
         phone: payload.phone,
       };
-      return next();
+      return undefined;
     } catch {
-      return next(new Error('Unauthorized: invalid or expired token'));
+      return new Error('Unauthorized: invalid or expired token');
     }
+  };
+
+  io.use((socket, next) => {
+    void authenticateSocket(socket).then((err) => next(err));
   });
 
   io.on('connection', (rawSocket) => {
@@ -120,14 +126,19 @@ async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
     });
 
     socket.on('join:alert', async (alertId: string) => {
-      // Owner of the alert or a privileged responder may join the alert room.
-      const authorized = isPrivileged(user.role) || (await ownsAlert(fastify, alertId, user.id));
+      // The owner, an admin, or a responder who ACCEPTED a dispatch for it.
+      const authorized = await mayJoinAlert(fastify, alertId, user);
       if (!authorized) {
         socket.emit('error', { message: 'Forbidden: cannot join this alert room' });
         return;
       }
       void socket.join(`alert:${alertId}`);
       fastify.log.info(`Socket ${socket.id} joined room alert:${alertId}`);
+    });
+
+    socket.on('leave:alert', (alertId: string) => {
+      if (typeof alertId !== 'string') return;
+      void socket.leave(`alert:${alertId}`);
     });
 
     socket.on('alert:location_update_from_client', async (data: { alertId: string; latitude: number; longitude: number }) => {
@@ -173,13 +184,23 @@ async function websocketPlugin(fastify: FastifyInstance): Promise<void> {
   fastify.decorate('io', io);
 
   fastify.addHook('onClose', (app, done) => {
-    app.io.close(() => {
+    void app.io.close(() => {
       app.log.info('Socket.IO server closed');
       done();
     });
   });
 
   fastify.log.info('✅ WebSocket plugin initialized (authenticated)');
+}
+
+async function mayJoinAlert(fastify: FastifyInstance, alertId: string, user: SocketUser): Promise<boolean> {
+  if (typeof alertId !== 'string' || !alertId) return false;
+  try {
+    return await canAccessAlert(fastify.prisma, alertId, user);
+  } catch (err) {
+    fastify.log.error(err, 'join:alert authorisation lookup failed');
+    return false;
+  }
 }
 
 /** Returns true if the given alert belongs to the given user. */

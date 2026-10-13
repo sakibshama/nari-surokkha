@@ -18,7 +18,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import helmet from '@fastify/helmet';
 import sensible from '@fastify/sensible';
 
-import { env } from '@/config/env';
+import { env, IS_PRODUCTION, TRUST_PROXY } from '@/config/env';
 import databasePlugin from '@/plugins/database';
 import sentryPlugin from '@/plugins/sentry';
 import metricsPlugin from '@/plugins/metrics';
@@ -32,6 +32,7 @@ import workerPlugin from '@/plugins/worker';
 import firebasePlugin from '@/plugins/firebase';
 import { healthRoutes } from '@/routes/health.route';
 import { trackingRoutes } from '@/routes/tracking.route';
+import { contactConsentRoutes } from '@/routes/contact-consent.route';
 import { registerErrorHandler } from '@/middleware/error-handler';
 import { setupAuthenticateMiddleware } from '@/middleware/authenticate';
 import { authRoutes } from '@/modules/auth/auth.routes';
@@ -76,6 +77,9 @@ export async function buildApp(): Promise<FastifyInstance> {
     genReqId: () => crypto.randomUUID(),
     requestIdHeader: 'x-request-id',
     requestIdLogLabel: 'requestId',
+    // Which proxies may set X-Forwarded-For (B3). Drives request.ip, which is
+    // what rate limiting keys on.
+    trustProxy: TRUST_PROXY,
     // Strict body parsing — Fastify v5 uses ajv directly
     ajv: {
       customOptions: {
@@ -128,7 +132,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       // browser simply will not attach this cookie to a cross-site request.
       sameSite: 'strict',
       httpOnly: true,
-      secure: env.NODE_ENV === 'production',
+      secure: IS_PRODUCTION,
       path: '/',
     },
   });
@@ -193,6 +197,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Public SOS live-tracking page (short link sent in SMS: /t/:token)
   await fastify.register(trackingRoutes);
 
+  // Public trusted-contact consent page (short link sent in SMS: /c/:token)
+  await fastify.register(contactConsentRoutes);
+
   // All API routes are prefixed with /api/v1
   await fastify.register(
     (apiRouter, _opts, done) => {
@@ -212,7 +219,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       void apiRouter.register(subscriptionRoutes, { prefix: '/subscriptions' });
       void apiRouter.register(paymentsAdminRoutes, { prefix: '/payments' });
 
-      // Placeholder for Phase 2 — confirms API router is working
+      // Connection check used by the mobile Settings screen.
       apiRouter.get('/ping', {
         schema: {
           tags: ['health'],

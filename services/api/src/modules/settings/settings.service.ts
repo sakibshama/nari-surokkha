@@ -195,8 +195,8 @@ export class SettingsService {
     const next = (template ?? '').trim() || SMS_TEMPLATE_DEFAULT;
     await this.db.systemSetting.upsert({
       where: { key: SMS_TEMPLATE_KEY },
-      create: { key: SMS_TEMPLATE_KEY, value: { template: next } as unknown as Prisma.InputJsonValue, updatedBy: userId ?? null },
-      update: { value: { template: next } as unknown as Prisma.InputJsonValue, updatedBy: userId ?? null },
+      create: { key: SMS_TEMPLATE_KEY, value: { template: next }, updatedBy: userId ?? null },
+      update: { value: { template: next }, updatedBy: userId ?? null },
     });
     return next;
   }

@@ -1,10 +1,90 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
+/**
+ * Production Content-Security-Policy, injected as a <meta> ONLY in builds
+ * (`apply: 'build'`) so Vite's dev server / HMR (inline scripts, ws to the dev
+ * server) keeps working untouched.
+ *
+ * Origins come from VITE_API_URL / VITE_WS_URL at build time. The app replaces
+ * a literal `localhost` in those URLs with the page's hostname at runtime, so
+ * in that case any host on the API port is allowed.
+ * Extra origins can be appended with VITE_CSP_EXTRA (space-separated).
+ * frame-ancestors cannot be set from a <meta>; send it as an HTTP header.
+ */
+function cspPlugin(env: Record<string, string>): Plugin {
+  const origins = new Set<string>()
+  const wsOrigins = new Set<string>()
+  const addOrigin = (raw: string | undefined, fallbackPort = '3001') => {
+    let u: URL
+    try {
+      u = new URL(raw || `http://localhost:${fallbackPort}`)
+    } catch {
+      return
+    }
+    const port = u.port ? `:${u.port}` : ''
+    const http = u.protocol === 'https:' || u.protocol === 'wss:' ? 'https' : 'http'
+    const ws = http === 'https' ? 'wss' : 'ws'
+    const host = u.hostname === 'localhost' ? '*' : u.hostname
+    if (host === '*') {
+      // Runtime hostname substitution: allow both schemes on that port.
+      for (const s of ['http', 'https']) origins.add(`${s}://*${port}`)
+      for (const s of ['ws', 'wss']) wsOrigins.add(`${s}://*${port}`)
+    } else {
+      origins.add(`${http}://${host}${port}`)
+      wsOrigins.add(`${ws}://${host}${port}`)
+    }
+  }
+  addOrigin(env.VITE_API_URL)
+  if (env.VITE_WS_URL) addOrigin(env.VITE_WS_URL)
+  const api = [...origins].join(' ')
+  const ws = [...wsOrigins].join(' ')
+  const extra = (env.VITE_CSP_EXTRA || '').trim()
+
+  const google = 'https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.gstatic.com https://*.google.com'
+  const tiles = 'https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com'
+
+  const directives: Record<string, string> = {
+    'default-src': "'self'",
+    // Google Maps JS needs 'unsafe-eval' and blob: workers (per Google's CSP guide).
+    'script-src': `'self' ${google} 'unsafe-eval' blob:`,
+    // React inline style attributes, MUI/emotion and component <style> tags.
+    'style-src': "'self' 'unsafe-inline' https://fonts.googleapis.com",
+    'font-src': "'self' data: https://fonts.gstatic.com",
+    // Evidence comes from the API origin or a signed S3/R2 URL (any https host).
+    'img-src': `'self' data: blob: ${api} ${tiles} ${google} https://*.ggpht.com https://*.googleusercontent.com https: ${extra}`,
+    'media-src': `'self' data: blob: ${api} https: ${extra}`,
+    'connect-src': `'self' ${api} ${ws} https://router.project-osrm.org https://overpass-api.de ${google} data: blob: ${extra}`,
+    'worker-src': "'self' blob:",
+    'frame-src': 'https://*.google.com',
+    'object-src': "'none'",
+    'base-uri': "'self'",
+    'form-action': "'self'",
+  }
+  const policy = Object.entries(directives)
+    .map(([k, v]) => `${k} ${v.replace(/\s+/g, ' ').trim()}`)
+    .join('; ')
+
+  return {
+    name: 'nari-csp-meta',
+    apply: 'build',
+    // Insert right after <meta charset>: the charset must stay within the
+    // first 1024 bytes, and the CSP must precede every script/style it governs.
+    transformIndexHtml(html) {
+      const meta = `<meta http-equiv="Content-Security-Policy" content="${policy.replace(/"/g, '&quot;')}" />`
+      const charset = /<meta charset=[^>]*>/i
+      return charset.test(html) ? html.replace(charset, (m) => `${m}\n    ${meta}`) : html.replace('<head>', `<head>\n    ${meta}`)
+    },
+  }
+}
+
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), 'VITE_')
+  return {
   plugins: [
-    react()
+    react(),
+    cspPlugin(env),
   ],
   server: {
     port: 5174,
@@ -64,6 +144,5 @@ export default defineConfig({
       'leaflet',
     ],
   },
+}
 })
-
-

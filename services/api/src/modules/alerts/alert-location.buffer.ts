@@ -35,7 +35,6 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import type Redis from 'ioredis';
 
 /** How long a cached alert authorisation record stays valid. */
 const META_TTL_SECONDS = 3600;
@@ -73,7 +72,7 @@ export async function getAlertMeta(
   fastify: FastifyInstance,
   alertId: string,
 ): Promise<AlertMeta | null> {
-  const redis = fastify.redis as Redis;
+  const redis = fastify.redis;
 
   try {
     const cached = await redis.get(metaKey(alertId));
@@ -113,7 +112,7 @@ export async function invalidateAlertMeta(
   alertId: string,
 ): Promise<void> {
   try {
-    await (fastify.redis as Redis).del(metaKey(alertId));
+    await (fastify.redis).del(metaKey(alertId));
   } catch (err) {
     fastify.log.warn({ err, alertId }, 'alert meta cache invalidation failed');
   }
@@ -128,7 +127,7 @@ export async function recordPing(
   alertId: string,
   position: LivePosition,
 ): Promise<void> {
-  const redis = fastify.redis as Redis;
+  const redis = fastify.redis;
   const payload = JSON.stringify(position);
 
   await redis
@@ -147,7 +146,7 @@ export async function getLastPosition(
   alertId: string,
 ): Promise<LivePosition | null> {
   try {
-    const raw = await (fastify.redis as Redis).get(lastKey(alertId));
+    const raw = await (fastify.redis).get(lastKey(alertId));
     return raw ? (JSON.parse(raw) as LivePosition) : null;
   } catch {
     return null;
@@ -164,7 +163,7 @@ export async function getLastPosition(
  * Returns the number of points written, for metrics.
  */
 export async function flushLocationBuffers(fastify: FastifyInstance): Promise<number> {
-  const redis = fastify.redis as Redis;
+  const redis = fastify.redis;
   let written = 0;
 
   const alertIds = await redis.smembers(PENDING_SET);

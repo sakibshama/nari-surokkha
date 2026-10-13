@@ -5,15 +5,15 @@ import {
   NavigationContainer,
   Theme as NavTheme,
 } from '@react-navigation/native';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, Linking, View } from 'react-native';
 
 import { useAuthStore } from '../store/authStore';
 import AuthStack from './AuthStack';
 import DrawerNavigator from './DrawerNavigator';
-import { registerForPushNotificationsAsync } from '../services/pushNotifications';
-import api from '../services/api';
+import { registerDeviceTokenWithServer } from '../services/pushNotifications';
+import { useSettingsStore } from '../store/settingsStore';
 import { useTheme } from '../theme';
-import { navigationRef } from './navigationRef';
+import { currentRouteName, navigateMain, navigationRef } from './navigationRef';
 import EmergencyRuntime from '../components/EmergencyRuntime';
 
 export default function AppNavigator() {
@@ -25,18 +25,32 @@ export default function AppNavigator() {
   }, [restoreToken]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      registerForPushNotificationsAsync().then((token) => {
-        if (token) {
-          api
-            .post('/auth/device-token', {
-              token,
-              platform: Platform.OS === 'ios' ? 'ios' : 'android',
-            })
-            .catch((err) => console.error('Failed to register device token:', err));
-        }
+    if (!isAuthenticated) return;
+    (async () => {
+      await useSettingsStore.getState().hydrate();
+      // The Settings switch decides whether this device gets push at all.
+      if (!useSettingsStore.getState().pushEnabled) return;
+      await registerDeviceTokenWithServer().catch((err) => {
+        if (__DEV__) console.warn('Failed to register device token:', err);
       });
-    }
+    })();
+  }, [isAuthenticated]);
+
+  // Payment deep link (narisurokkha://subscription?trx=…): open the
+  // Subscription screen, including when the link cold-starts the app.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const open = (url: string | null) => {
+      if (!url?.startsWith('narisurokkha://subscription')) return;
+      if (currentRouteName() === 'Subscription') return; // the screen handles it
+      const m = /[?&]trx=([^&]+)/.exec(url);
+      const params = m ? { trx: decodeURIComponent(m[1]) } : undefined;
+      const go = () => navigateMain('Subscription', params);
+      if (!go()) setTimeout(go, 800); // navigator not ready yet on a cold start
+    };
+    void Linking.getInitialURL().then(open);
+    const sub = Linking.addEventListener('url', ({ url }) => open(url));
+    return () => sub.remove();
   }, [isAuthenticated]);
 
   /**

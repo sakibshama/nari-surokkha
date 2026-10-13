@@ -12,7 +12,9 @@ import {
   updateContactSchema,
   deleteContactSchema,
   verifyContactSchema,
+  requestVerificationSchema,
 } from './contacts.schemas';
+import { ContactConsentService } from './contact-consent';
 
 export function contactsRoutes(
   fastify: FastifyInstance,
@@ -21,7 +23,7 @@ export function contactsRoutes(
 ): void {
   const repo = new ContactsRepository(fastify.prisma);
   const service = new ContactsService(repo);
-  const controller = new ContactsController(service);
+  const controller = new ContactsController(service, new ContactConsentService(fastify));
 
   // ─── Authenticated Routes ───────────────────────────────────
 
@@ -53,11 +55,16 @@ export function contactsRoutes(
       controller.deleteContact,
     );
 
+    // B4: the contact confirms by SMS link; the owner can no longer self-verify.
     authRequiredRouter.post(
-      '/:id/verify',
-      { schema: verifyContactSchema },
-      controller.verifyContact,
+      '/:id/verification',
+      { schema: requestVerificationSchema, config: { rateLimit: { max: 10, timeWindow: 3_600_000 } } },
+      controller.requestVerification,
     );
+
+    // Retired: kept so old app builds get a clear answer instead of a 404.
+    authRequiredRouter.patch('/:id/verify', { schema: verifyContactSchema }, controller.verifyContactGone);
+    authRequiredRouter.post('/:id/verify', { schema: verifyContactSchema }, controller.verifyContactGone);
 
     innerDone();
   });

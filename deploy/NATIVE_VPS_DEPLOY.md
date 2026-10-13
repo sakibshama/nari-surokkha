@@ -1,7 +1,7 @@
 # Nari Surokkha — Native VPS Deployment (no Docker)
 
 For a VPS that already has **Ubuntu, PostgreSQL, Redis, Git and Node.js**.
-The API runs as a systemd service, the two portals are built to static files
+The API runs as a systemd service, the admin portal is built to static files
 served by Nginx, and everything talks to your local Postgres/Redis.
 
 Domain used below: `mystrix-soft.com` → change if different.
@@ -12,7 +12,7 @@ Layout: `api.` = API, `admin.` = admin portal.
 ## 0. Prerequisites
 
 ```bash
-node -v          # must be >= 20
+node -v          # must be >= 22.12 (Node 22 LTS)
 psql --version   # note the major version (e.g. 16)
 
 # Build tools (argon2 compiles natively) + PostGIS + Nginx + TLS
@@ -22,7 +22,7 @@ sudo apt install -y build-essential python3 nginx certbot python3-certbot-nginx
 sudo apt install -y postgresql-16-postgis-3
 ```
 
-DNS: point three A-records at the VPS IP — `api.mystrix-soft.com`,
+DNS: point two A-records at the VPS IP — `api.mystrix-soft.com`,
 `admin.mystrix-soft.com`.
 
 ---
@@ -73,7 +73,21 @@ HOST=127.0.0.1
 API_BASE_URL=https://api.mystrix-soft.com
 
 DATABASE_URL=postgresql://nari_user:CHANGE_ME_db_password@localhost:5432/nari_surokkha
+# schema.prisma's directUrl (used by `prisma migrate deploy`). Same as
+# DATABASE_URL unless you put PgBouncer in front of Postgres.
+DIRECT_DATABASE_URL=postgresql://nari_user:CHANGE_ME_db_password@localhost:5432/nari_surokkha
 REDIS_URL=redis://localhost:6379
+
+# nginx on this host is the single trusted proxy hop (rate limits use the
+# real client IP). Must match the X-Forwarded-For handling in section 7.
+TRUST_PROXY=1
+# Phone OTP on registration (needs a working SMS provider)
+PHONE_VERIFICATION=required
+# HMAC key for signed local evidence URLs (openssl rand -hex 32)
+EVIDENCE_URL_SECRET=CHANGE_ME
+# TURN relay (optional; coturn with use-auth-secret — see VPS_DEPLOYMENT.md)
+TURN_HOST=
+TURN_SECRET=
 
 # openssl rand -hex 48   (each >= 64 chars, must differ)
 JWT_SECRET=CHANGE_ME
@@ -106,7 +120,7 @@ cd services/api
 npx prisma generate
 npx prisma migrate deploy                      # creates schema + PostGIS columns
 npm run build                                  # tsc + tsc-alias -> dist/
-npm run prisma:seed                            # optional: roles + first admin
+npm run prisma:seed                            # system roles (demo users are never seeded in production)
 ```
 
 Quick check: `node dist/server.js` should log "running" with no
@@ -125,6 +139,7 @@ After=network.target postgresql.service redis-server.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/nari-surokkha/services/api
+Environment=WORKER_MODE=false
 ExecStart=/usr/bin/node dist/server.js
 Restart=always
 RestartSec=5
@@ -140,6 +155,35 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now nari-api
 sudo systemctl status nari-api --no-pager
 curl -s http://127.0.0.1:3001/health/live      # -> ok
+```
+
+In production the HTTP process does **not** run the background jobs
+(notifications, SOS escalation, dispatch, retention). Run the worker as a
+second unit — without it, SMS/push fan-out and escalation never happen:
+
+```bash
+sudo tee /etc/systemd/system/nari-worker.service >/dev/null <<'UNIT'
+[Unit]
+Description=Nari Surokkha background worker
+After=network.target postgresql.service redis-server.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/nari-surokkha/services/api
+Environment=WORKER_MODE=true
+Environment=METRICS_PORT=9092
+ExecStart=/usr/bin/node dist/worker.js
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now nari-worker
 ```
 
 Logs: `journalctl -u nari-api -f`
@@ -165,6 +209,8 @@ sudo cp -r apps/admin-portal/dist/*  /var/www/admin.mystrix-soft.com/
 
 ```bash
 sudo tee /etc/nginx/sites-available/nari-surokkha >/dev/null <<'NGINX'
+map $http_upgrade $connection_upgrade { default upgrade; '' ''; }
+
 # ---- API (proxy to Node) ----
 server {
     server_name api.mystrix-soft.com;
@@ -175,11 +221,12 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Overwrite (never append) so a client cannot spoof its IP (B3).
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         # WebSocket / Socket.IO / WebRTC signaling
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection $connection_upgrade;
         proxy_read_timeout 3600s;
     }
     listen 80;
@@ -236,7 +283,7 @@ cd /opt/nari-surokkha && git pull
 npm ci
 npm run build --workspace=packages/shared
 cd services/api && npx prisma migrate deploy && npm run build
-sudo systemctl restart nari-api
+sudo systemctl restart nari-api nari-worker
 # rebuild portals only if their code changed (section 6), then re-copy to /var/www
 ```
 
@@ -244,11 +291,13 @@ sudo systemctl restart nari-api
 
 ## Notes
 
-- **ML service** (`services/ml-service`, FastAPI) is optional and its endpoints
-  are currently mocked. To run it, install Python 3.11 + `pip install -r
-  services/ml-service/requirements.txt`, run it on `127.0.0.1:8000` via a second
-  systemd unit, and add `ML_SERVICE_URL=http://127.0.0.1:8000` to the API `.env`.
+- **ML service** (`services/ml-service`) is deprecated and not deployed:
+  detection runs on the phone. See `services/ml-service/DEPRECATED.md`.
 - **Push / SMS / S3** stay in mock mode unless you add `FIREBASE_*`, the SMS
   provider (managed in the Admin Portal), and `AWS_S3_*` to the `.env`.
-- Evidence uploads are written to `data/uploads` — back that folder up along
-  with nightly `pg_dump nari_surokkha`.
+- Evidence uploads are written to `data/uploads`. For encrypted off-site
+  backups and point-in-time recovery see `docs/operations/backup-and-restore.md`
+  (the scripts assume the Docker stack; with native Postgres replace the
+  `docker compose exec postgres` calls with local `pg_dump`/`pg_restore`).
+- The production-grade path is the Docker stack (`VPS_DEPLOYMENT.md`), which
+  adds PgBouncer, a separate worker, edge rate limits, TURN and monitoring.

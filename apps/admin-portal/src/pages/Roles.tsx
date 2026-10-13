@@ -3,8 +3,10 @@ import {
   Crown, Shield, UserCircle, Users as UsersIcon, KeyRound, Check,
   ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, X, AlertTriangle, UserCog
 } from 'lucide-react';
-import api from '../services/api';
-import { useT } from '../i18n';
+import toast from 'react-hot-toast';
+import api, { apiErrorMessage } from '../services/api';
+import { useT, fmt } from '../i18n';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 interface DynamicRole {
   id: string;
@@ -30,6 +32,8 @@ export default function RolesPage() {
   const [formData, setFormData] = useState({ id: '', name: '', key: '', description: '' });
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DynamicRole | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchRoles();
@@ -42,8 +46,10 @@ export default function RolesPage() {
       if (res.data.data.length > 0 && !activeRoleKey) {
         setActiveRoleKey(res.data.data[0].key);
       }
-    } catch (err) {
-      console.error('Failed to fetch roles', err);
+    } catch (err: any) {
+      toast.error(err?.response?.status === 403
+        ? t('You need the “Manage Users” permission to manage roles.')
+        : apiErrorMessage(err, t('Failed to load roles')));
     } finally {
       setLoading(false);
     }
@@ -72,29 +78,38 @@ export default function RolesPage() {
       } else if (modalMode === 'edit') {
         await api.put(`/admin/roles/${formData.id}`, { name: formData.name, description: formData.description });
       }
+      toast.success(modalMode === 'create' ? t('Role created') : t('Role updated'));
       setModalMode(null);
       fetchRoles();
     } catch (err: any) {
-      setErrorMsg(err.response?.data?.message || err.response?.data?.error?.message || 'Failed to save role');
+      const msg = apiErrorMessage(err, t('Failed to save role'));
+      setErrorMsg(msg);
+      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Are you absolutely sure you want to delete the role "${name}"? This action cannot be undone.`)) return;
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setDeleting(true);
     try {
       await api.delete(`/admin/roles/${id}`);
+      toast.success(t('Role deleted'));
       setActiveRoleKey(roles.find(r => r.id !== id)?.key || null);
+      setDeleteTarget(null);
       fetchRoles();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to delete role');
+      toast.error(apiErrorMessage(err, t('Failed to delete role')));
+    } finally {
+      setDeleting(false);
     }
   };
 
   const activeRole = roles.find(r => r.key === activeRoleKey);
 
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading roles...</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>{t('Loading roles…')}</div>;
 
   return (
     <div className="animate-in fade-in slide-in-bottom-4 duration-500">
@@ -102,7 +117,7 @@ export default function RolesPage() {
         <div>
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: 'var(--text)' }}>{t('Role Management')}</h1>
           <p style={{ margin: '6px 0 0', color: 'var(--text-sub)', fontSize: 14 }}>
-            Configure platform roles and dynamic permissions securely.
+            {t('Configure platform roles and dynamic permissions securely.')}
           </p>
         </div>
         <button
@@ -117,7 +132,7 @@ export default function RolesPage() {
           onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
         >
           <Plus size={18} />
-          Create Custom Role
+          {t('Create Custom Role')}
         </button>
       </div>
 
@@ -126,7 +141,7 @@ export default function RolesPage() {
         {/* ─── Role List ─── */}
         <div className="card" style={{ padding: 12, border: '1px solid var(--border)', background: 'var(--bg-card)', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '8px 12px', marginBottom: 4 }}>
-            Available Roles
+            {t('Available Roles')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {roles.map(r => (
@@ -148,7 +163,7 @@ export default function RolesPage() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: activeRoleKey === r.key ? 'var(--text)' : 'var(--text-sub)', transition: 'all 0.2s' }}>{r.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{r.isSystem ? 'System Default' : 'Custom Role'}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{r.isSystem ? t('System Default') : t('Custom Role')}</div>
                 </div>
                 {activeRoleKey === r.key && <ChevronRight size={16} color="#38bdf8" />}
               </button>
@@ -174,11 +189,11 @@ export default function RolesPage() {
                         <code style={{ fontSize: 13, color: '#38bdf8', background: 'rgba(56,189,248,0.1)', padding: '4px 10px', borderRadius: 8, fontWeight: 600 }}>{activeRole.key}</code>
                         {activeRole.isSystem ? (
                           <span style={{ fontSize: 13, color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '4px 10px', borderRadius: 8, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <Lock size={14} /> Core System Role
+                            <Lock size={14} /> {t('Core System Role')}
                           </span>
                         ) : (
                           <span style={{ fontSize: 13, color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '4px 10px', borderRadius: 8, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <Unlock size={14} /> Custom Role
+                            <Unlock size={14} /> {t('Custom Role')}
                           </span>
                         )}
                       </div>
@@ -190,9 +205,9 @@ export default function RolesPage() {
               {/* Body Content */}
               <div style={{ padding: 32 }}>
                 <div style={{ marginBottom: 32 }}>
-                  <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</h3>
+                  <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('Description')}</h3>
                   <p style={{ margin: 0, fontSize: 15, color: 'var(--text-sub)', lineHeight: 1.6, background: 'var(--bg-card-alt)', padding: 16, borderRadius: 12, border: '1px solid var(--border)' }}>
-                    {activeRole.description || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No description provided for this role.</span>}
+                    {activeRole.description || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{t('No description provided for this role.')}</span>}
                   </p>
                 </div>
 
@@ -203,21 +218,21 @@ export default function RolesPage() {
                     onMouseOver={e => e.currentTarget.style.background = 'rgba(56,189,248,0.05)'}
                     onMouseOut={e => e.currentTarget.style.background = 'var(--bg-card-alt)'}
                   >
-                    <Edit2 size={16} /> Edit Role
+                    <Edit2 size={16} /> {t('Edit Role')}
                   </button>
                   
                   {!activeRole.isSystem ? (
                     <button 
-                      onClick={() => handleDelete(activeRole.id, activeRole.name)} 
+                      onClick={() => setDeleteTarget(activeRole)} 
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 10, background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', cursor: 'pointer', fontWeight: 600, transition: 'all 0.2s' }}
                       onMouseOver={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
                       onMouseOut={e => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
                     >
-                      <Trash2 size={16} /> Delete Role
+                      <Trash2 size={16} /> {t('Delete Role')}
                     </button>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 10, background: 'var(--bg-card)', border: '1px dashed var(--border)', color: 'var(--text-muted)', fontSize: 13 }}>
-                      <AlertTriangle size={16} /> System roles cannot be deleted
+                      <AlertTriangle size={16} /> {t('System roles cannot be deleted')}
                     </div>
                   )}
                 </div>
@@ -256,10 +271,10 @@ export default function RolesPage() {
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>
-                    {modalMode === 'create' ? 'Create Custom Role' : 'Edit Role'}
+                    {modalMode === 'create' ? t('Create Custom Role') : t('Edit Role')}
                   </h3>
                   <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--text-sub)' }}>
-                    {modalMode === 'create' ? 'Define a new set of permissions.' : `Modifying ${formData.name}.`}
+                    {modalMode === 'create' ? t('Define a new role users can be assigned.') : fmt(t('Modifying {name}.'), { name: formData.name })}
                   </p>
                 </div>
               </div>
@@ -302,16 +317,27 @@ export default function RolesPage() {
               {/* Modal Footer */}
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: 24, margin: '0 -32px -32px', paddingBottom: 32, paddingRight: 32, paddingLeft: 32, background: 'var(--bg-card-alt)' }}>
                 <button type="button" onClick={() => setModalMode(null)} style={{ padding: '12px 20px', borderRadius: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer', fontWeight: 600, transition: 'all 0.2s' }} onMouseOver={e => e.currentTarget.style.background = 'var(--bg-input)'} onMouseOut={e => e.currentTarget.style.background = 'var(--bg-card)'}>
-                  Cancel
+                  {t('Cancel')}
                 </button>
                 <button type="submit" disabled={isSubmitting} style={{ padding: '12px 24px', borderRadius: 10, background: 'linear-gradient(135deg, #0ea5e9, #38bdf8)', border: 'none', color: '#fff', cursor: isSubmitting ? 'wait' : 'pointer', fontWeight: 600, opacity: isSubmitting ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 4px 14px rgba(56, 189, 248, 0.3)' }} onMouseOver={e => e.currentTarget.style.transform = 'translateY(-1px)'} onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}>
-                  {isSubmitting ? 'Saving...' : modalMode === 'create' ? 'Create Role' : 'Save Changes'}
+                  {isSubmitting ? t('Saving…') : modalMode === 'create' ? t('Create Role') : t('Save Changes')}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        danger
+        title={fmt(t('Delete the role “{name}”?'), { name: deleteTarget?.name ?? '' })}
+        message={t('This cannot be undone. Users who still have this role must be moved to another role first.')}
+        confirmLabel={t('Delete Role')}
+        busy={deleting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => { void handleDelete(); }}
+      />
     </div>
   );
 }

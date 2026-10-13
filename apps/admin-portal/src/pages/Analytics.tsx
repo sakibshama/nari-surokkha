@@ -33,7 +33,7 @@ export default function Analytics() {
         setError({ title: 'Unexpected response from the API', detail: JSON.stringify(res.data).slice(0, 300), hint: 'Restart the API server and try again.' });
       }
     } catch (err: any) {
-      console.error('[analytics]', err);
+      if (import.meta.env.DEV) console.error('[analytics]', err);
       const status: number | undefined = err?.response?.status;
       const server: string = err?.response?.data?.error?.message || err?.response?.data?.message || '';
       const base = api.defaults.baseURL ?? '';

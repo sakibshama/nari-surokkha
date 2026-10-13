@@ -1,0 +1,20 @@
+# Monthly restore test. Runs restore-test.sh against the newest off-site
+# backup. Install this on the machine that holds the age PRIVATE key (an
+# admin box or a dedicated restore host with Docker) — NOT on the production
+# server, which should only have the public key.
+#
+# /etc/nari-surokkha/restore-test.env must define BACKUP_S3_URI,
+# BACKUP_S3_ENDPOINT, BACKUP_S3_REGION, BACKUP_AWS_ACCESS_KEY_ID,
+# BACKUP_AWS_SECRET_ACCESS_KEY (read-only key is enough) and
+# BACKUP_AGE_IDENTITY_FILE.
+[Unit]
+Description=Nari Surokkha backup restore test
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+Environment=ENV_FILE=/etc/nari-surokkha/restore-test.env
+Environment=RPO_HOURS=26
+ExecStart=/usr/bin/env bash /opt/nari-surokkha/deploy/production/scripts/restore-test.sh
+TimeoutStartSec=2h

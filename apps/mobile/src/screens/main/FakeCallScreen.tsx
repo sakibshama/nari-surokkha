@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, Vibration, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeIn as RFadeIn, FadeInDown } from 'react-native-reanimated';
@@ -14,6 +15,9 @@ import { useLanguage, useT } from '../../i18n';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'FakeCall'>;
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const RINGTONE = require('../../../assets/sounds/ringtone.wav') as number;
+
 export default function FakeCallScreen({ navigation }: Props) {
   // Pinned dark: this imitates the system incoming-call screen, which is dark
   // on every phone. Theming it would break the illusion the feature relies on.
@@ -25,20 +29,41 @@ export default function FakeCallScreen({ navigation }: Props) {
   const [callState, setCallState] = useState<'ringing' | 'active'>('ringing');
   const [seconds, setSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ringtone = useAudioPlayer(RINGTONE);
 
   useEffect(() => {
     if (callState === 'ringing') {
       // Vibrate 1s, pause 1s, looping.
       Vibration.vibrate([0, 1000, 1000], true);
+      // A real ring, looped. playsInSilentMode: false keeps the phone's
+      // silent / vibrate mode in charge (iOS and Android).
+      ringtone.loop = true;
+      void setAudioModeAsync({ playsInSilentMode: false })
+        .catch(() => {})
+        .then(() => ringtone.play());
     } else {
+      ringtone.pause();
       Vibration.cancel();
       timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     }
     return () => {
       Vibration.cancel();
+      try {
+        ringtone.pause();
+      } catch {
+        /* player already released on unmount */
+      }
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [callState]);
+  }, [callState, ringtone]);
+
+  // Give the default audio mode back (the microphone detector shares the session).
+  useEffect(
+    () => () => {
+      void setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+    },
+    [],
+  );
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');

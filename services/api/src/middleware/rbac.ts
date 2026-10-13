@@ -31,8 +31,8 @@ export function requirePermissions(permissions: string[]) {
     }
 
     // Admins need to have ALL requested permissions to proceed
-    const userPermissions = (request.user as any).permissions || [];
-    
+    const userPermissions = request.user.permissions ?? [];
+
     for (const p of permissions) {
       if (!userPermissions.includes(p)) {
         throw new ForbiddenError(

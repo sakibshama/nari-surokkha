@@ -1,10 +1,10 @@
 import React, { useCallback, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { showAlert } from '../../utils/notify';
+import { showAlert, toast } from '../../utils/notify';
 import Animated, { FadeInDown, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AlertCircle, Heart, Phone, RefreshCw, User, UserMinus, UserPlus, Users } from 'lucide-react-native';
+import { AlertCircle, Heart, Phone, RefreshCw, ShieldCheck, User, UserMinus, UserPlus, Users } from 'lucide-react-native';
 
 import api from '../../services/api';
 import { useTheme } from '../../theme';
@@ -25,7 +25,7 @@ import {
   Txt,
 } from '../../components/ui';
 
-interface Contact { id: string; name: string; phone: string; relation: string }
+interface Contact { id: string; name: string; phone: string; relation: string; isVerified?: boolean }
 
 const MAX_CONTACTS = 5;
 
@@ -115,6 +115,22 @@ export default function TrustedContactsScreen() {
       showAlert(t('Error'), e.response?.data?.error?.message || t('Failed to add contact'));
     } finally {
       setAdding(false);
+    }
+  };
+
+  const [verifying, setVerifying] = useState<string | null>(null);
+
+  /** Text the contact a consent link; they become "Verified" once they agree. */
+  const requestVerification = async (c: Contact) => {
+    setVerifying(c.id);
+    try {
+      await api.post(`/contacts/${c.id}/verification`);
+      toast(t('Consent SMS sent'), t('{name} gets a link to agree to be your emergency contact.', { name: c.name }), 'success');
+    } catch (e) {
+      const msg = (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      showAlert(t('Error'), msg || t('Could not send the consent SMS.'));
+    } finally {
+      setVerifying(null);
     }
   };
 
@@ -261,14 +277,29 @@ export default function TrustedContactsScreen() {
                     <Phone color={colors.textMuted} size={12} />
                     <Text style={[type.sm, { color: colors.textMuted }]}>{item.phone}</Text>
                   </View>
-                  {!!item.relation && (
-                    <Badge
-                      label={item.relation}
-                      tone="accent"
-                      icon={<Heart color={colors.accentText} size={10} />}
-                      style={{ marginTop: 6 }}
-                    />
-                  )}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                    {!!item.relation && (
+                      <Badge label={item.relation} tone="accent" icon={<Heart color={colors.accentText} size={10} />} />
+                    )}
+                    {item.isVerified ? (
+                      <Badge label={t('Verified')} tone="success" icon={<ShieldCheck color={colors.successText} size={10} />} />
+                    ) : (
+                      <>
+                        <Badge label={t('Pending consent')} tone="warning" />
+                        <PressableScale
+                          accessibilityRole="button"
+                          accessibilityLabel={t('Verify {name}', { name: item.name })}
+                          onPress={() => requestVerification(item)}
+                          disabled={verifying === item.id}
+                          hitSlop={6}
+                        >
+                          <Txt variant="xs" tone="accent" style={{ fontWeight: '700' }}>
+                            {verifying === item.id ? t('Sending…') : t('Verify')}
+                          </Txt>
+                        </PressableScale>
+                      </>
+                    )}
+                  </View>
                 </View>
                 <PressableScale
                   accessibilityRole="button"

@@ -28,7 +28,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       tags: ['Responders'],
       summary: 'Get my responder profile',
     }
-  }, controller.getMyProfile as any);
+  }, controller.getMyProfile);
 
   fastify.post('/apply', {
     onRequest: [fastify.authenticate],
@@ -67,7 +67,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       tags: ['Responders'],
       summary: 'Get pending responder applications (Admin)'
     }
-  }, controller.getPending as any);
+  }, controller.getPending);
 
   fastify.get('/dispatches', {
     onRequest: [fastify.authenticate],
@@ -76,7 +76,7 @@ export async function responderRoutes(fastify: FastifyInstance) {
       summary: 'Get dispatches assigned to me',
       response: { 200: getDispatchesResponseSchema }
     }
-  }, controller.getMyDispatches as any);
+  }, controller.getMyDispatches);
 
   fastify.patch('/dispatches/:dispatchId/response', {
     onRequest: [fastify.authenticate],

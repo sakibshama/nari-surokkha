@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldAlert, MapPin } from 'lucide-react';
 import { playSiren } from '../utils/audio';
+import { useT } from '../i18n';
 
 interface GlobalAlertModalProps {
   alert: {
@@ -17,6 +18,7 @@ interface GlobalAlertModalProps {
 export default function GlobalAlertModal({ alert, onDismiss }: GlobalAlertModalProps) {
   const navigate = useNavigate();
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const t = useT();
 
   useEffect(() => {
     if (!alert) return;
@@ -28,7 +30,7 @@ export default function GlobalAlertModal({ alert, onDismiss }: GlobalAlertModalP
         await playSiren();
         setAudioBlocked(false);
       } catch (err) {
-        console.error('Audio playback failed - likely browser autoplay blocked', err);
+        if (import.meta.env.DEV) console.warn('Audio playback failed - likely browser autoplay blocked', err);
         setAudioBlocked(true);
       }
     };
@@ -51,7 +53,7 @@ export default function GlobalAlertModal({ alert, onDismiss }: GlobalAlertModalP
       await playSiren();
       setAudioBlocked(false);
     } catch (err) {
-      console.warn('Still blocked', err);
+      if (import.meta.env.DEV) console.warn('Still blocked', err);
     }
   };
 
@@ -63,44 +65,44 @@ export default function GlobalAlertModal({ alert, onDismiss }: GlobalAlertModalP
           <ShieldAlert size={48} color="#fff" />
         </div>
         
-        <h2 style={styles.title}>EMERGENCY SOS DETECTED</h2>
+        <h2 style={styles.title}>{t('EMERGENCY SOS DETECTED')}</h2>
         
         <p style={styles.subtitle}>
-          A citizen has triggered an SOS and requires immediate assistance.
+          {t('A citizen has triggered an SOS and requires immediate assistance.')}
         </p>
         
         <div style={styles.detailsBox}>
           <div style={styles.detailRow}>
             <MapPin size={18} color="var(--danger)" />
             <span>
-              Location: {alert.latitude.toFixed(4)}, {alert.longitude.toFixed(4)}
+              {t('Location')}: {Number(alert.latitude).toFixed(4)}, {Number(alert.longitude).toFixed(4)}
             </span>
           </div>
           <div style={styles.detailRow}>
             <span style={{ fontSize: 12, color: 'var(--text-sub)' }}>
-              Time: {new Date(alert.timestamp).toLocaleTimeString()}
+              {t('Time')}: {new Date(alert.timestamp).toLocaleTimeString()}
             </span>
           </div>
         </div>
         
         {audioBlocked && (
           <div style={{ color: '#ef4444', marginBottom: 16, fontSize: 14 }}>
-            🔇 Browser blocked the siren. Click below to unmute!
+            🔇 {t('Browser blocked the siren. Click below to unmute!')}
           </div>
         )}
         
         <div style={styles.actions}>
           {audioBlocked ? (
             <button style={{...styles.viewBtn, backgroundColor: '#f97316'}} onClick={handleUnmute}>
-              Unmute Siren
+              {t('Unmute Siren')}
             </button>
           ) : (
             <button style={styles.dismissBtn} onClick={onDismiss}>
-              Dismiss
+              {t('Dismiss')}
             </button>
           )}
           <button style={styles.viewBtn} onClick={handleViewAlert}>
-            View Alert Details
+            {t('View Alert Details')}
           </button>
         </div>
       </div>

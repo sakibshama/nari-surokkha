@@ -74,6 +74,9 @@ export const updateLocationSchema = {
       latitude: { type: 'number', minimum: -90, maximum: 90 },
       longitude: { type: 'number', minimum: -180, maximum: 180 },
       accuracy: { type: 'number', nullable: true },
+      // When the fix was taken: ISO string or epoch milliseconds. Queued pings
+      // are replayed after a coverage gap; the server clamps this value.
+      timestamp: { type: ['string', 'number', 'null'] },
     },
     additionalProperties: false,
   },
@@ -83,41 +86,6 @@ export const updateLocationSchema = {
       properties: {
         success: { type: 'boolean' },
         message: { type: 'string' },
-      },
-    },
-  },
-};
-
-export const generateTrackingTokenSchema = {
-  tags: ['alerts'],
-  summary: 'Generate a tracking token for an active SOS alert',
-  params: {
-    type: 'object',
-    required: ['id'],
-    properties: {
-      id: { type: 'string', format: 'uuid' },
-    },
-  },
-  body: {
-    type: 'object',
-    properties: {
-      trustedContactId: { type: 'string', format: 'uuid', nullable: true },
-    },
-    additionalProperties: false,
-  },
-  response: {
-    200: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean' },
-        message: { type: 'string' },
-        data: {
-          type: 'object',
-          properties: {
-            token: { type: 'string' },
-            expiresAt: { type: 'string', format: 'date-time' },
-          },
-        },
       },
     },
   },
@@ -194,6 +162,26 @@ export const cancelSosAlertSchema = {
   },
 };
 
+export const resolveAlertSchema = {
+  tags: ['alerts'],
+  summary: "Resolve your own alert (\"I'm safe now\")",
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: { id: { type: 'string', format: 'uuid' } },
+  },
+  response: {
+    200: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        message: { type: 'string' },
+        data: { type: 'object', properties: alertProperties },
+      },
+    },
+  },
+};
+
 export const confirmSoftAlertSchema = {
   tags: ['alerts'],
   summary: 'Confirm a soft alert, triggering SOS dispatch',
@@ -212,12 +200,9 @@ export const confirmSoftAlertSchema = {
         message: { type: 'string' },
         data: {
           type: 'object',
-          // The response serializer drops anything not listed here. Without
-          // these two the app never received the tracking link or the contact
-          // numbers it needs for the phone-side SMS fallback.
+          // The response serializer drops anything not listed here.
           properties: {
             ...alertProperties,
-            trackingToken: { type: 'string', nullable: true },
           },
         },
       },
@@ -293,6 +278,43 @@ export const safeRouteSchema = {
   },
 };
 
+export const routeLocationSchema = {
+  tags: ['alerts'],
+  summary: 'Report position on an active safe route; raises one soft alert on first deviation',
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: { id: { type: 'string', format: 'uuid' } },
+  },
+  body: {
+    type: 'object',
+    required: ['latitude', 'longitude'],
+    additionalProperties: false,
+    properties: {
+      latitude: { type: 'number', minimum: -90, maximum: 90 },
+      longitude: { type: 'number', minimum: -180, maximum: 180 },
+    },
+  },
+  response: {
+    200: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'object',
+          required: ['deviated', 'distanceM'],
+          properties: {
+            deviated: { type: 'boolean' },
+            distanceM: { type: 'number' },
+            // Only on the call that first detected the deviation.
+            alertId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+  },
+};
+
 export const smsFallbackSchema = {
   tags: ['alerts'],
   summary: 'The phone could not send the SOS SMS from its SIM — send it from the server',
@@ -308,6 +330,32 @@ export const smsFallbackSchema = {
         success: { type: 'boolean' },
         message: { type: 'string' },
         data: { type: 'object', properties: { queued: { type: 'boolean' } } },
+      },
+    },
+  },
+};
+
+export const alertStatusSchema = {
+  tags: ['alerts'],
+  summary: 'Current status of an alert you can access (used to restore an SOS after an app restart)',
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: { id: { type: 'string', format: 'uuid' } },
+  },
+  response: {
+    200: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            status: { type: 'string' },
+            createdAt: { type: 'string' },
+          },
+        },
       },
     },
   },

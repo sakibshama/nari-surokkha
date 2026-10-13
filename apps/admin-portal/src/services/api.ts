@@ -2,7 +2,11 @@ import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 
 const HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-const API_BASE_URL = import.meta.env.VITE_API_URL?.replace('localhost', HOST) || `http://${HOST}:3001/api/v1`;
+export const API_BASE_URL: string =
+  import.meta.env.VITE_API_URL?.replace('localhost', HOST) || `http://${HOST}:3001/api/v1`;
+
+const tunnelHeaders = (url: string): Record<string, string> =>
+  url.includes('loca.lt') ? { 'Bypass-Tunnel-Reminder': 'true' } : {};
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -12,10 +16,9 @@ const api = axios.create({
   withCredentials: true, // always send cookies (for httpOnly refreshToken)
 });
 
-// Interceptor to attach JWT token
+// Interceptor to attach the in-memory access token
 api.interceptors.request.use((config) => {
-  const state = useAuthStore.getState();
-  const token = state.accessToken;
+  const token = useAuthStore.getState().accessToken;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -25,76 +28,79 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// ── Token refresh (single-flight) ────────────────────────────────────────────
+// The API rotates refresh tokens and treats reuse of an old one as theft, so
+// two concurrent refreshes (several 401s at once, the socket reconnecting while
+// a request retries, React StrictMode double effects…) must share ONE request.
+let refreshInFlight: Promise<string> | null = null;
+
+/**
+ * Exchange the httpOnly refresh cookie for a new access token.
+ * Resolves with the token (also stored in memory); rejects if the session is
+ * gone. Callers decide what to do on failure.
+ */
+export function refreshAccessToken(): Promise<string> {
+  if (!refreshInFlight) {
+    refreshInFlight = axios
+      .post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true, headers: tunnelHeaders(API_BASE_URL) })
+      .then((res) => {
+        const body = res.data?.data ?? res.data;
+        const token: string | undefined = body?.accessToken;
+        if (!token) throw new Error('Refresh response did not include an access token');
+        const store = useAuthStore.getState();
+        store.setAccessToken(token);
+        // Contract: refresh returns { accessToken, user } — keep permissions current.
+        if (body?.user) store.setUser(body.user);
+        return token;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+/** Clear the local session and go to the login page (once). */
+export function forceLogout() {
+  useAuthStore.getState().logout();
+  if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+}
+
 // ── Response interceptor: auto-refresh on 401 ────────────────────────────────
-let isRefreshing = false;
-let failedQueue: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
-
-const processQueue = (error: unknown, token: string | null = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(token);
-    }
-  });
-  failedQueue = [];
-};
-
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    const url: string = originalRequest?.url ?? '';
 
-    // Don't retry refresh requests themselves or already-retried requests
     if (
       error.response?.status === 401 &&
+      originalRequest &&
       !originalRequest._retry &&
-      !originalRequest.url?.includes('/auth/refresh')
+      !url.includes('/auth/refresh') &&
+      !url.includes('/auth/login')
     ) {
-      if (isRefreshing) {
-        // Queue up requests while we wait for the refresh
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then(() => api(originalRequest))
-          .catch((err) => Promise.reject(err));
-      }
-
       originalRequest._retry = true;
-      isRefreshing = true;
-
       try {
-        // The httpOnly refreshToken cookie is sent automatically via withCredentials
-        const refreshRes = await axios.post(
-          `${API_BASE_URL}/auth/refresh`,
-          {},
-          { withCredentials: true }
-        );
-
-        // The backend sends the new accessToken in the response body too
-        const newAccessToken =
-          refreshRes.data?.data?.accessToken || refreshRes.data?.accessToken;
-
-        if (newAccessToken) {
-          useAuthStore.getState().setAccessToken(newAccessToken);
-          originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`;
-        }
-
-        processQueue(null, newAccessToken);
+        const token = await refreshAccessToken();
+        originalRequest.headers = originalRequest.headers ?? {};
+        originalRequest.headers['Authorization'] = `Bearer ${token}`;
         return api(originalRequest);
       } catch (err) {
-        processQueue(err, null);
-        // Refresh failed — force logout and redirect to login
-        useAuthStore.getState().logout();
-        window.location.href = '/login';
+        forceLogout();
         return Promise.reject(err);
-      } finally {
-        isRefreshing = false;
       }
     }
 
     return Promise.reject(error);
-  }
+  },
 );
+
+/** Best human-readable message from an API error. */
+export function apiErrorMessage(e: any, fallback: string): string {
+  return e?.response?.data?.error?.message || e?.response?.data?.message || fallback;
+}
 
 export default api;

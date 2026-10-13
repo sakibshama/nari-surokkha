@@ -21,6 +21,7 @@ import { AlertTriangle, CheckCircle, History, Phone, RefreshCw, Send, Wifi, Wifi
 
 import { MainStackParamList } from '../../navigation/MainStack';
 import { sendOfflineSosSms } from '../../services/offlineSos';
+import { useAuthStore } from '../../store/authStore';
 import { getSmsHistory, type SmsHistoryEntry } from '../../services/smsHistory';
 import { useTheme } from '../../theme';
 import { useT } from '../../i18n';
@@ -56,7 +57,8 @@ export default function OfflineSosScreen({ navigation }: Props) {
   const resend = async () => {
     setSending(true);
     try {
-      const result = await sendOfflineSosSms();
+      // Same text as the first SMS, including who is asking for help.
+      const result = await sendOfflineSosSms({ userName: useAuthStore.getState().user?.profile?.fullName });
       await refreshHistory();
       if (result.opened && !result.auto) {
         showAlert(t('Review & send'), t('Your Messages app opened with the SOS text ready — tap Send to dispatch it.'));
@@ -97,7 +99,7 @@ export default function OfflineSosScreen({ navigation }: Props) {
           </Txt>
           <Txt variant="sm" tone="muted" center style={{ marginTop: 4, paddingHorizontal: spacing.lg }}>
             {online
-              ? t('Send the full SOS now so your contacts get live tracking.')
+              ? t('Your SOS is sent online automatically so your contacts get live tracking. You can also send it now.')
               : t('Your SOS goes out by SMS over the mobile network. We will tell you when the internet is back.')}
           </Txt>
         </FadeIn>

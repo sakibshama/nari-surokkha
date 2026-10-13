@@ -1,16 +1,15 @@
 import fp from 'fastify-plugin';
 import { FastifyInstance } from 'fastify';
-import { Worker, Job } from 'bullmq';
+import { Queue, Worker, Job, ConnectionOptions } from 'bullmq';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { AlertsService } from '@/modules/alerts/alerts.service';
 import { AlertsRepository } from '@/modules/alerts/alerts.repository';
 import { ContactsRepository } from '@/modules/contacts/contacts.repository';
 import { ResponderRepository } from '@/modules/responder/responder.repository';
 import type { AlertFanOutPayload } from '@/modules/alerts/alerts.service';
-import { RUNS_WORKERS } from '@/config/env';
+import { env, RUNS_WORKERS } from '@/config/env';
 import { flushLocationBuffers } from '@/modules/alerts/alert-location.buffer';
 import { EvidenceRepository } from '@/modules/evidence/evidence.repository';
-import { env } from '@/config/env';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -18,6 +17,7 @@ declare module 'fastify' {
       notifications?: Worker;
       escalations?: Worker;
       dispatch?: Worker;
+      maintenance?: Worker;
     };
   }
 }
@@ -79,21 +79,7 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
     async (job: Job) => {
       if (job.name === 'auto_escalate_soft_alert') {
         const { alertId, userId } = job.data;
-        try {
-          // If the alert is still 'created', this will escalate it to 'confirmed' and trigger dispatch
-          // Nobody answered on the phone (it may be dead or out of reach), so
-          // the server must text the contacts itself — never hand the SMS to a
-          // phone that is not responding, whatever the user's SMS quota.
-          await alertsService.confirmSoftAlert(userId, alertId, { forceServerSms: true });
-          fastify.log.info({ alertId }, 'Soft alert automatically escalated to SOS');
-        } catch (error: any) {
-          if (error.message && error.message.includes('Cannot confirm an alert that is not in soft-alert state')) {
-            // It was already cancelled or confirmed manually, safely ignore
-            fastify.log.debug({ alertId }, 'Soft alert was already resolved before auto-escalation');
-          } else {
-            throw error;
-          }
-        }
+        await alertsService.autoEscalateSoftAlert(alertId, userId);
       }
     },
     {
@@ -186,40 +172,66 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
     return purged;
   }
 
-  const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
-  const retentionSweep = setInterval(() => {
-    void (async () => {
-      try {
-        const [result] = await fastify.prisma.$queryRaw<
-          Array<{ deleted_locations: bigint; deleted_notifications: bigint; deleted_audits: bigint }>
-        >`SELECT * FROM prune_old_records();`;
-        const evidencePurged = await purgeExpiredEvidence();
-        fastify.log.info(
-          {
-            locations: Number(result?.deleted_locations ?? 0),
-            notifications: Number(result?.deleted_notifications ?? 0),
-            audits: Number(result?.deleted_audits ?? 0),
-            evidenceFiles: evidencePurged,
-            evidenceRetentionDays: env.EVIDENCE_RETENTION_DAYS,
-          },
-          'Retention sweep complete',
-        );
-      } catch (err) {
-        fastify.log.error({ err }, 'Retention sweep failed');
-      }
-    })();
-  }, RETENTION_INTERVAL_MS);
-  retentionSweep.unref();
+  async function runRetentionSweep(): Promise<void> {
+    const [result] = await fastify.prisma.$queryRaw<
+      Array<{ deleted_locations: bigint; deleted_notifications: bigint; deleted_audits: bigint }>
+    >`SELECT * FROM prune_old_records();`;
+    const evidencePurged = await purgeExpiredEvidence();
+    fastify.log.info(
+      {
+        locations: Number(result?.deleted_locations ?? 0),
+        notifications: Number(result?.deleted_notifications ?? 0),
+        audits: Number(result?.deleted_audits ?? 0),
+        evidenceFiles: evidencePurged,
+        evidenceRetentionDays: env.EVIDENCE_RETENTION_DAYS,
+      },
+      'Retention sweep complete',
+    );
+  }
+
+  // A BullMQ job scheduler, not setInterval: the schedule lives in Redis, so it
+  // survives deploys (a 24 h in-process timer never fired on a service that
+  // redeploys daily) and each run executes exactly once across all replicas.
+  // upsertJobScheduler is idempotent, so every worker may call it at boot.
+  // bullmq bundles its own ioredis typings; the instance is the same library.
+  const bullConnection = fastify.redisBullMQ as unknown as ConnectionOptions;
+  const maintenanceQueue = new Queue('maintenance', {
+    connection: bullConnection,
+    defaultJobOptions: {
+      removeOnComplete: { age: 7 * 24 * 3600, count: 50 },
+      removeOnFail: { age: 30 * 24 * 3600 },
+    },
+  });
+  try {
+    await maintenanceQueue.upsertJobScheduler(
+      'retention-daily',
+      { pattern: '30 3 * * *', tz: 'Asia/Dhaka' }, // 03:30, the quietest hour
+      { name: 'retention_sweep' },
+    );
+  } catch (err) {
+    fastify.log.error({ err }, 'Could not register the daily retention schedule');
+  }
+
+  const maintenanceWorker = new Worker(
+    'maintenance',
+    async (job: Job) => {
+      if (job.name === 'retention_sweep') await runRetentionSweep();
+    },
+    { connection: bullConnection, concurrency: 1 },
+  );
+  maintenanceWorker.on('failed', (job, err) => {
+    fastify.log.error({ jobId: job?.id, err }, 'Retention sweep failed');
+  });
 
   fastify.decorate('workers', {
     notifications: worker,
     escalations: escalationsWorker,
     dispatch: dispatchWorker,
+    maintenance: maintenanceWorker,
   });
 
   fastify.addHook('onClose', async (app) => {
     clearInterval(locationFlusher);
-    clearInterval(retentionSweep);
     // Final drain on shutdown so a rolling deploy never discards the points
     // buffered since the last interval.
     try {
@@ -230,6 +242,8 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
     await app.workers.notifications?.close();
     await app.workers.escalations?.close();
     await app.workers.dispatch?.close();
+    await app.workers.maintenance?.close();
+    await maintenanceQueue.close();
     app.log.info('BullMQ Worker closed');
   });
 

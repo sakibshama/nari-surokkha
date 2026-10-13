@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import api from '../services/api';
+import { useT } from '../i18n';
 
 // Both map implementations are lazy, and that is the point.
 //
@@ -38,6 +39,7 @@ function fetchKey(): Promise<string | null> {
  *    so the system keeps working before/without a key.
  */
 export default function SmartLocationMap(props: Props) {
+  const t = useT();
   const [apiKey, setApiKey] = useState<string | null | undefined>(cachedKey);
   useEffect(() => {
     let mounted = true;
@@ -47,7 +49,7 @@ export default function SmartLocationMap(props: Props) {
 
   const loading = (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-sub)' }}>
-      Loading map…
+      {t('Loading map…')}
     </div>
   );
 

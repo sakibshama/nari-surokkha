@@ -1,53 +1,62 @@
 # Staging Deployment Guide
 
-This guide details the steps to launch the Nari Surokkha platform in a staging environment.
+Staging runs the same images as production (`services/api/Dockerfile`,
+`apps/admin-portal/Dockerfile`) with `NODE_ENV=staging`, which the API treats
+like production for every safety check (no wildcard CORS, trustProxy = 1, phone
+OTP required unless `PHONE_VERIFICATION=optional`, no demo seed data).
+
+One host, one origin: nginx serves the admin portal at `/` and proxies `/api`,
+`/socket.io`, `/t`, `/c` and `/health` to the API. A worker container runs the
+background jobs.
 
 ## Prerequisites
-- Docker and Docker Compose installed.
-- Node.js installed (for running initial Prisma migrations/seeds).
 
-## 1. Configure Environment
-Copy the example environment file and customize it if needed:
+- Docker Engine with the Compose plugin. Nothing else — migrations and the
+  roles seed run inside the API container.
+
+## 1. Configure
+
 ```bash
 cp deploy/staging/.env.example deploy/staging/.env
+nano deploy/staging/.env     # STAGING_URL, passwords, JWT secrets, CONFIG_ENCRYPTION_KEY
 ```
 
-## 2. Build Frontend Portals
-Before starting the cluster, ensure both React portals are statically built so Nginx can serve them:
+## 2. Start (from the repository root)
+
 ```bash
-# Build Admin Portal
-cd apps/admin-portal
-npm install
-npm run build
+docker compose -f deploy/staging/docker-compose.staging.yml \
+  --env-file deploy/staging/.env up -d --build
 ```
 
-## 3. Start the Cluster
-Launch the PostgreSQL, Redis, API Backend, and Nginx containers:
+The API container applies migrations (`prisma migrate deploy`) and seeds the
+system roles on every start, then serves HTTP. Postgres and Redis are not
+published on the host.
+
+## 3. Verify
+
 ```bash
-cd deploy/staging
-docker-compose -f docker-compose.staging.yml up -d --build
+API_URL=http://localhost deploy/scripts/healthcheck.sh      # /health/ready -> 200
 ```
 
-## 4. Run Migrations & Seeding
-Once the database container (`nari_surokkha_db_staging`) is healthy, apply the Prisma schema and seed test users:
+- Admin portal: `STAGING_URL/`
+- API: `STAGING_URL/api/v1`, health: `STAGING_URL/health/ready`
+
+## 4. Test accounts
+
+Demo users are **not** seeded on staging (it behaves like production). Register
+through the app (with `PHONE_VERIFICATION=optional` and `SMS_PROVIDER=mock` no
+SMS is needed), then promote one account to admin as described in
+`deploy/production/VPS_DEPLOYMENT.md` → "First admin account".
+
+To load the development demo data on a throwaway staging DB only:
+
 ```bash
-cd services/api
-npm install
-npx prisma migrate deploy
-npm run prisma:seed
+docker compose -f deploy/staging/docker-compose.staging.yml --env-file deploy/staging/.env \
+  run --rm -e ALLOW_DEV_SEED=true api npm run prisma:seed
 ```
 
-## 5. Verify Health
-Run the bash health check script to ensure the API is responding:
-```bash
-bash deploy/scripts/healthcheck.sh
-```
+## TLS
 
-## 6. Accessing the Staging Environment
-- **Admin Portal**: `http://localhost/admin/`
-- **API Health**: `http://localhost/api/v1/health`
-
-### Staging Credentials
-- **Admin**: `superadmin@nari.test` / `Test@1234`
-- **Responder**: `+8801912345699` / `Test@1234`
-- **Citizen**: `+8801912345678` / `Test@1234`
+This compose listens on plain HTTP (`STAGING_HTTP_PORT`, default 80). Put it
+behind a TLS terminator, or reuse the production nginx template, before
+testing with real phones (Android blocks cleartext in release builds).

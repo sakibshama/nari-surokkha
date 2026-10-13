@@ -11,9 +11,10 @@ export class IncidentsService {
   ) {}
 
   async submitIncident(type: IncidentType, latitude: number, longitude: number, description?: string): Promise<IncidentReport> {
-    // Fuzz coordinates to 2 decimal places (approx 1km accuracy) for anonymity
-    const fuzzedLat = Math.round(latitude * 100) / 100;
-    const fuzzedLng = Math.round(longitude * 100) / 100;
+    // The single fuzzing step: 3 decimal places (~110 m) protects the
+    // reporter while staying useful for the heat map and route scoring.
+    const fuzzedLat = Math.round(latitude * 1000) / 1000;
+    const fuzzedLng = Math.round(longitude * 1000) / 1000;
     const incident = await this.repo.createIncident(type, fuzzedLat, fuzzedLng, description);
     
     // Broadcast the new incident to the admin view
@@ -31,7 +32,7 @@ export class IncidentsService {
   async updateIncidentStatus(id: string, status: IncidentStatus): Promise<IncidentReport> {
     try {
       return await this.repo.updateIncidentStatus(id, status);
-    } catch (err) {
+    } catch {
       throw new NotFoundError('Incident not found');
     }
   }
@@ -39,7 +40,7 @@ export class IncidentsService {
   async updateIncident(id: string, data: { type?: IncidentType; description?: string }): Promise<IncidentReport> {
     try {
       return await this.repo.updateIncident(id, data);
-    } catch (err) {
+    } catch {
       throw new NotFoundError('Incident not found');
     }
   }
@@ -53,7 +54,7 @@ export class IncidentsService {
     let deleted: IncidentReport;
     try {
       deleted = await this.repo.deleteIncident(id);
-    } catch (err) {
+    } catch {
       throw new NotFoundError('Incident not found');
     }
     if (keys.length) {

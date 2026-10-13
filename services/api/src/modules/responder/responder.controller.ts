@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { ResponderAvailability, ResponderStatus } from '@prisma/client';
-import { ResponderService } from './responder.service';
+import { ResponderStatus } from '@prisma/client';
+import { ResponderService, AvailabilityInput } from './responder.service';
 
 export interface ApplyResponderDTO {
   nationalId: string;
@@ -9,9 +9,9 @@ export interface ApplyResponderDTO {
 }
 
 export interface UpdateResponderLocationDTO {
-  latitude: number;
-  longitude: number;
-  availability?: string;
+  latitude?: number;
+  longitude?: number;
+  availability?: AvailabilityInput;
 }
 
 export interface RespondDispatchDTO {
@@ -39,7 +39,7 @@ export class ResponderController {
     reply: FastifyReply,
   ) => {
     const user = req.user!;
-    await this.service.updateLocation(user.id, req.body.latitude, req.body.longitude, req.body.availability as ResponderAvailability);
+    await this.service.updateLocation(user.id, req.body);
     return reply.send({ message: 'Location updated' });
   };
 

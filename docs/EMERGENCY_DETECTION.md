@@ -110,7 +110,7 @@ Thresholds (`constants.ts → TRIGGER_RULES`):
 
 | Trigger | Low | **Medium** | High |
 |---|---|---|---|
-| Help / Bachao (score every 80 ms) | ≥0.98 in 3 of 4 | **≥0.95 in 3 of 4** | ≥0.90 in 2 of 4 |
+| Help / Bachao (score every 80 ms) | ≥0.95 in 3 of 4 | **≥0.90 in 3 of 4** | ≥0.80 in 2 of 4 |
 | Shout (score every 0.5 s) | ≥0.60 in 2 of 3 | **≥0.40 in 2 of 3** | ≥0.30 once |
 | Cry (score every 0.5 s) | ≥0.60 in 4 of 5 | **≥0.45 in 3 of 5** | ≥0.30 in 2 of 4 |
 
@@ -219,3 +219,65 @@ Write down every miss and every false alert, with the sensitivity setting. Those
 7. **Android OEM battery killers** and the Android 14 rule that the microphone service must be started from the foreground (see §5).
 8. **Play Store:** a permanent microphone foreground service needs a clear explanation in the Play Console's foreground-service declaration (category "user-initiated personal safety").
 9. **iOS has not been built or tested.**
+
+---
+
+## 9. Data limitations and how to collect real data
+
+Every detector in this app was trained or tuned **without real emergency
+data**. The numbers in §4 prove the pipeline works; they are not field accuracy.
+
+| Model | Trained on | What it needs |
+|---|---|---|
+| Motion (fall / struggle), `motion_model.json` | 6,000 **synthetic** IMU windows (`services/ml-training/synthetic.py`) | Real labelled 2 s windows from phones in pockets and bags |
+| Keywords ("Help" / "Bachao"), `kws_head.tflite` | ~1,050 **TTS** voices | Real people saying and shouting the words, on target phones |
+| Shout / cry (YAMNet) | Google AudioSet (real audio) | A measured recall on real shouting; only false alarms were measured |
+
+### Motion: use the existing consented loop
+
+The app already collects labelled motion windows, **only when the user has
+turned on training-data sharing** (`mlDataSharingEnabled`, off by default):
+
+- confirming a real SOS after a motion trigger uploads that window as
+  `fall`/`struggle` (`source: confirmed_sos`);
+- tapping "I'm okay" on a motion alert uploads it as `normal`
+  (`source: false_alarm`).
+
+Uploads go to `POST /api/v1/ml/samples` (`apps/mobile/src/services/ml/motionSampleUploader.ts`)
+and store only the numeric window, the label and coarse device info. To retrain:
+
+1. Check volume: `GET /api/v1/ml/samples/stats?kind=motion` (admin).
+2. Pull: `python services/ml-training/pull_samples.py --out data/real`
+   (needs `API_URL` and an admin `ADMIN_TOKEN`).
+3. Train on synthetic + real: `python train.py --real data/real --out models`.
+4. Publish through the model registry (`POST /api/v1/ml/models`, admin) for an
+   OTA update — see `services/ml-training/TRAINING_AND_UPDATE_GUIDE.md`.
+
+Real emergencies are rare, so positives will accumulate slowly. Speed it up
+with a **staged collection session**: volunteers, with written consent, wear
+the phone as users do and act out falls (onto mats) and struggles while a
+facilitator records the label with the app's manual/test path. Keep each
+volunteer entirely in either the training or the test set.
+
+### Keywords and shouting: run a recording campaign
+
+The app does **not** upload microphone audio, and should not start doing so
+silently: recordings of voices are personal data and far more sensitive than
+IMU windows. Collect audio in a separate, explicit campaign instead:
+
+- written, informed consent per speaker (purpose, retention, right to delete);
+  for minors, guardian consent — or exclude them;
+- both genders, a spread of ages and regional accents; normal, shouted, crying
+  and whispered "Help" / "বাঁচাও" plus everyday speech, TV and street noise;
+- record on the phones you target, 16 kHz mono WAV, and store the files outside
+  this repository (they are personal data);
+- split by **speaker** into train/test, append the clips to `gen.py`
+  (`help_train`, `bachao_train`, `neg_train`) and re-run the pipeline in
+  `services/ml-training/keywords/` from `build_feats.py`;
+- report recall on the real test speakers next to the synthetic numbers in §4
+  before changing the default thresholds.
+
+A few hundred real utterances will move real-world accuracy more than any
+further synthetic data. Until then, keep the 15 s cancel window and the
+per-trigger switches, and present automatic detection in the store listing and
+onboarding as an aid — not a guarantee.

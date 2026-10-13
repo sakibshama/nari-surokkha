@@ -8,9 +8,23 @@ import { AlertsService } from './alerts.service';
 import { AlertsRepository } from './alerts.repository';
 import { ContactsRepository } from '../contacts/contacts.repository';
 import { ResponderRepository } from '../responder/responder.repository';
-import { createSosSchema, updateLocationSchema, generateTrackingTokenSchema, createSoftAlertSchema, cancelSoftAlertSchema, confirmSoftAlertSchema, cancelSosAlertSchema, safeRouteSchema, smsFallbackSchema } from './alerts.schemas';
+import {
+  createSosSchema,
+  updateLocationSchema,
+  createSoftAlertSchema,
+  cancelSoftAlertSchema,
+  confirmSoftAlertSchema,
+  cancelSosAlertSchema,
+  resolveAlertSchema,
+  alertStatusSchema,
+  safeRouteSchema,
+  routeLocationSchema,
+  smsFallbackSchema,
+} from './alerts.schemas';
 import { env } from '@/config/env';
 import { isValidTwilioSignature } from '@/utils/twilio-signature';
+import { canAccessAlert } from '@/utils/alert-access';
+import { ForbiddenError } from '@/utils/errors';
 
 export function alertsRoutes(
   fastify: FastifyInstance,
@@ -77,17 +91,28 @@ export function alertsRoutes(
       controller.updateLocation,
     );
 
-    authRequiredRouter.post(
-      '/:id/share',
-      { schema: generateTrackingTokenSchema },
-      controller.generateTrackingToken,
-    );
 
     authRequiredRouter.patch(
       '/:id/cancel',
       { schema: cancelSosAlertSchema },
       controller.cancelSosAlert,
     );
+
+    authRequiredRouter.get<{ Params: { id: string } }>('/:id/status', { schema: alertStatusSchema }, async (req, reply) => {
+      const user = { id: req.user!.id, role: req.user!.role };
+      if (!(await canAccessAlert(fastify.prisma, req.params.id, user))) {
+        throw new ForbiddenError('Alert not found');
+      }
+      const alert = await fastify.prisma.emergencyAlert.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, status: true, createdAt: true },
+      });
+      if (!alert) throw new ForbiddenError('Alert not found');
+      return reply.send({ success: true, data: alert });
+    });
+
+    // "I'm safe now" — the owner ends their own alert.
+    authRequiredRouter.post('/:id/resolve', { schema: resolveAlertSchema }, controller.resolveAlert);
 
     authRequiredRouter.post('/soft', { schema: createSoftAlertSchema }, controller.createSoftAlert);
     authRequiredRouter.patch('/:id/soft/cancel', { schema: cancelSoftAlertSchema }, controller.cancelSoftAlert);
@@ -100,7 +125,7 @@ export function alertsRoutes(
     );
 
     authRequiredRouter.post('/safe-route', { schema: safeRouteSchema }, controller.getSafeRoute);
-    authRequiredRouter.post('/safe-route/:id/location', controller.updateRouteLocation);
+    authRequiredRouter.post('/safe-route/:id/location', { schema: routeLocationSchema }, controller.updateRouteLocation);
 
     innerDone();
   });

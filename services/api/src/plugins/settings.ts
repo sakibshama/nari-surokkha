@@ -14,7 +14,7 @@ import fp from 'fastify-plugin';
 import { FastifyInstance } from 'fastify';
 import { SettingsService } from '@/modules/settings/settings.service';
 import { isEncryptionConfigured } from '@/utils/crypto-secret';
-import { env } from '@/config/env';
+import { IS_PRODUCTION } from '@/config/env';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -31,7 +31,7 @@ async function settingsPlugin(fastify: FastifyInstance): Promise<void> {
   if (!isEncryptionConfigured()) {
     const msg =
       'CONFIG_ENCRYPTION_KEY is not set — SMS provider secrets cannot be saved from the Admin Portal.';
-    if (env.NODE_ENV === 'production') {
+    if (IS_PRODUCTION) {
       fastify.log.error(msg);
     } else {
       fastify.log.warn(msg);

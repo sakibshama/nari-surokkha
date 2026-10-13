@@ -128,7 +128,20 @@ export const deleteContactSchema = {
 
 export const verifyContactSchema = {
   tags: ['contacts'],
-  summary: 'Verify a trusted contact',
+  summary: 'Retired (410): contacts now confirm by SMS — see POST /contacts/:id/verification',
+  deprecated: true,
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+    },
+  },
+};
+
+export const requestVerificationSchema = {
+  tags: ['contacts'],
+  summary: 'SMS the contact a link to confirm they agree to be an emergency contact',
   params: {
     type: 'object',
     required: ['id'],
@@ -142,10 +155,7 @@ export const verifyContactSchema = {
       properties: {
         success: { type: 'boolean' },
         message: { type: 'string' },
-        data: {
-          type: 'object',
-          properties: contactProperties,
-        },
+        data: { type: 'object', properties: { sent: { type: 'boolean' } } },
       },
     },
   },

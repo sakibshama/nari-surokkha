@@ -12,7 +12,8 @@ import { z } from 'zod';
 
 const EnvSchema = z.object({
   // ─── Server ────────────────────────────────────────────────
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  // 'staging' is treated like production for every safety check (IS_PRODUCTION).
+  NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3001),
   HOST: z.string().default('0.0.0.0'),
   API_BASE_URL: z.string().url().default('http://localhost:3001'),
@@ -121,21 +122,7 @@ const EnvSchema = z.object({
   S3_BUCKET_EVIDENCE: z.string().default('nari-evidence'),
   S3_BUCKET_PUBLIC: z.string().default('nari-public'),
 
-  // ─── ML Service ────────────────────────────────────────────
-  ML_SERVICE_URL: z.string().url().default('http://localhost:8000'),
-  ML_SERVICE_API_KEY: z.string().optional(),
-  //
-  // NOTE (2026-08-19): ML_SERVICE_URL and ML_SERVICE_API_KEY are declared here
-  // but referenced NOWHERE else in the API. Detection runs on-device (TFLite
-  // in the mobile app); the `ml` module is only a model registry and training
-  // sample collector, and never calls the FastAPI service.
-  //
-  // So the ml-service container in docker-compose currently serves no traffic
-  // from us. Before adding key rotation here, decide which is true:
-  //   (a) it is genuinely unused  -> drop the service and these two vars, or
-  //   (b) it is meant to be used  -> wire the calls, THEN add rotation.
-  // Adding rotation for a call that does not exist would just be more dead
-  // config of exactly the kind this file already accumulated.
+  // (The Python ml-service is not deployed; detection runs on-device. See services/ml-service/DEPRECATED.md.)
 
   // ─── Live tracking ─────────────────────────────────────────
   // Public base URL for the SOS tracking link sent in SMS (e.g.
@@ -148,10 +135,35 @@ const EnvSchema = z.object({
   // in ONE place (here) and never drifts out of sync with the coturn container.
   // TURN is required for streaming across different networks (cellular ↔ wifi).
   STUN_URL: z.string().default('stun:stun.l.google.com:19302'),
-  TURN_HOST: z.string().optional(),      // e.g. api.mystrix-soft.com
+  TURN_HOST: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()), // e.g. api.mystrix-soft.com
   TURN_PORT: z.coerce.number().int().positive().default(3478),
+  // coturn `use-auth-secret` / `static-auth-secret`. When set, clients get
+  // short-lived HMAC credentials instead of a shared static password.
+  TURN_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  // Legacy static credentials. No longer handed out to clients (B5); kept only
+  // so existing env files still validate.
   TURN_USERNAME: z.string().default('nari'),
-  TURN_PASSWORD: z.string().optional(),  // same value passed to the coturn container
+  TURN_PASSWORD: z.string().optional(),
+
+  // ─── Phone verification (OTP) ──────────────────────────────
+  // 'required': /auth/register needs an otpToken from /auth/otp/verify.
+  // Defaults to required in production/staging, optional elsewhere.
+  PHONE_VERIFICATION: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.enum(['required', 'optional']).optional(),
+  ),
+
+  // ─── Evidence URLs ─────────────────────────────────────────
+  // HMAC key for signed local-storage evidence URLs. Falls back to a key
+  // derived from JWT_SECRET when unset.
+  EVIDENCE_URL_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(32).optional()),
+
+  // ─── Reverse proxy ─────────────────────────────────────────
+  // Fastify `trustProxy`: true/false, a hop count, or a comma-separated list
+  // of trusted addresses/CIDRs. Defaults to 1 hop (nginx) in production and
+  // staging, false otherwise. request.ip honours it; the raw X-Forwarded-For
+  // header is never trusted directly.
+  TRUST_PROXY: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
 
   // ─── Safe Route routing engine ─────────────────────────────
   // OSRM (Open Source Routing Machine). Default is the public demo server —
@@ -212,8 +224,8 @@ const EnvSchema = z.object({
     .default('http://localhost:3000,http://localhost:3002')
     .transform((val) => (val === '*' ? '*' : val.split(',').map((o) => o.trim()))),
 }).superRefine((cfg, ctx) => {
-  // Safety-critical: never allow wildcard CORS in production.
-  if (cfg.NODE_ENV === 'production') {
+  // Safety-critical: never allow wildcard CORS in production (or staging).
+  if (cfg.NODE_ENV === 'production' || cfg.NODE_ENV === 'staging') {
     if (cfg.CORS_ORIGINS === '*') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -253,6 +265,30 @@ function validateEnv(): Env {
 // Singleton — validated once on first import
 export const env = validateEnv();
 
+/** Production and staging share every production safety check. */
+export const IS_PRODUCTION: boolean = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging';
+
+export const PHONE_VERIFICATION_REQUIRED: boolean =
+  (env.PHONE_VERIFICATION ?? (IS_PRODUCTION ? 'required' : 'optional')) === 'required';
+
+/**
+ * Parse TRUST_PROXY into the shape Fastify's `trustProxy` option accepts.
+ * Exported for tests.
+ */
+export function parseTrustProxy(
+  raw: string | undefined,
+  isProduction: boolean,
+): boolean | number | string[] {
+  if (raw === undefined) return isProduction ? 1 : false;
+  const v = raw.trim().toLowerCase();
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (/^\d+$/.test(v)) return Number(v);
+  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+export const TRUST_PROXY = parseTrustProxy(env.TRUST_PROXY, IS_PRODUCTION);
+
 /**
  * Should THIS process run the BullMQ workers?
  *
@@ -262,4 +298,4 @@ export const env = validateEnv();
  * default there is "yes".
  */
 export const RUNS_WORKERS: boolean =
-  env.WORKER_MODE ?? env.NODE_ENV !== 'production';
+  env.WORKER_MODE ?? !IS_PRODUCTION;

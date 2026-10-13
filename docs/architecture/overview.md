@@ -18,22 +18,27 @@
 │                   Rate Limiting | SSL/TLS                   │
 └─────────────────────────────┬───────────────────────────────┘
                                │
-          ┌────────────────────┴────────────────────┐
-          ▼                                         ▼
-┌──────────────────────┐                ┌─────────────────────┐
-│   Fastify API        │                │  FastAPI ML Service  │
-│   (Node.js/TS)       │◄──────────────►│  (Python)           │
-│   Port: 3001         │                │  Port: 8000         │
-└──────────┬───────────┘                └─────────────────────┘
-           │
-    ┌──────┴──────┬──────────────┐
-    ▼             ▼              ▼
-┌────────┐  ┌─────────┐  ┌──────────┐
-│PostgreS│  │  Redis  │  │  MinIO   │
-│+PostGIS│  │ (Cache/ │  │  (S3     │
-│        │  │  Queue) │  │ Storage) │
-└────────┘  └─────────┘  └──────────┘
+          ┌────────────────────┴─────┐
+          ▼                          ▼
+┌──────────────────┐ ┌──────────────────┐ ┌─────────────────────┐
+│ Fastify API      │ │ Worker (BullMQ)  │ │ coturn (TURN relay) │
+│ HTTP + Socket.IO │ │ SMS/push fan-out,│ │ WebRTC media across │
+│ Port 3001        │ │ dispatch, escal- │ │ NAT; short-lived    │
+│ (N replicas)     │ │ ation, retention │ │ HMAC credentials    │
+└────────┬─────────┘ └────────┬─────────┘ └─────────────────────┘
+         └──────────┬─────────┘
+    ┌───────────────┼──────────────┬──────────────┐
+    ▼               ▼              ▼              ▼
+┌──────────┐  ┌─────────┐  ┌──────────────┐  ┌──────────┐
+│PgBouncer │  │  Redis  │  │ R2/S3 (prod) │  │  OSRM    │
+│→ Postgres│  │ (Queue, │  │ MinIO (dev)  │  │(optional)│
+│ +PostGIS │  │ pub/sub)│  │  evidence    │  │  routing │
+└──────────┘  └─────────┘  └──────────────┘  └──────────┘
 ```
+
+Emergency detection (keywords, shout/cry, motion) runs **on the phone**
+(TFLite). There is no server-side ML service (`services/ml-service` is
+deprecated and not deployed).
 
 ## Data Flow — SOS Alert
 

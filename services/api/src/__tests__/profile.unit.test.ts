@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProfileService } from '@/modules/profile/profile.service';
 import { ProfileRepository } from '@/modules/profile/profile.repository';
-import { NotFoundError } from '@/utils/errors';
+import { NotFoundError, ConflictError } from '@/utils/errors';
 import { User, UserProfile } from '@prisma/client';
 import { Mocked } from 'vitest';
 
@@ -89,6 +89,28 @@ describe('ProfileService', () => {
       ).rejects.toThrow(NotFoundError);
       
       expect(repo.updateProfile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateProfile email', () => {
+    beforeEach(() => {
+      repo.getProfileByUserId.mockResolvedValue({ ...mockUserWithProfile, email: null });
+      repo.updateProfile.mockResolvedValue(mockUserWithProfile.profile!);
+      repo.isEmailTakenByOther = vi.fn().mockResolvedValue(false);
+      repo.updateEmail = vi.fn();
+    });
+
+    it('saves a normalised email and returns it', async () => {
+      const result = await service.updateProfile('user-123', { email: ' Rina@Example.COM ' });
+      expect(repo.updateEmail).toHaveBeenCalledWith('user-123', 'rina@example.com');
+      expect(repo.updateProfile).toHaveBeenCalledWith('user-123', {});
+      expect(result.email).toBe('rina@example.com');
+    });
+
+    it('409 when another account owns the email', async () => {
+      repo.isEmailTakenByOther = vi.fn().mockResolvedValue(true);
+      await expect(service.updateProfile('user-123', { email: 'taken@example.com' })).rejects.toThrow(ConflictError);
+      expect(repo.updateEmail).not.toHaveBeenCalled();
     });
   });
 

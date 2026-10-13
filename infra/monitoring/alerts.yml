@@ -91,6 +91,16 @@ groups:
         annotations:
           summary: "{{ $labels.component }} is not being scraped — it may be down"
 
+      # Targets come from Docker DNS (dns_sd_configs). When every replica is
+      # gone the service name stops resolving, there is no target at all, and
+      # `up == 0` above can never fire. absent() covers that case.
+      - alert: ApiDown
+        expr: absent(up{job="api"}) or absent(up{job="worker"})
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }} has no running replicas (no scrape targets)"
+
       - alert: ApiErrorRateHigh
         expr: |
           sum(rate(http_request_duration_seconds_count{status_code=~"5.."}[5m]))

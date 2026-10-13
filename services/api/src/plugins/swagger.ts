@@ -11,10 +11,10 @@ import fp from 'fastify-plugin';
 import { FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { env } from '@/config/env';
+import { env, IS_PRODUCTION } from '@/config/env';
 
 async function swaggerPlugin(fastify: FastifyInstance): Promise<void> {
-  if (env.NODE_ENV === 'production') {
+  if (IS_PRODUCTION) {
     fastify.log.info('Swagger docs disabled in production');
     return;
   }

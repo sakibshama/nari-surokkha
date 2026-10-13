@@ -32,17 +32,17 @@ export class ResponderRepository {
     });
   }
 
-  async updateLocationAndAvailability(id: string, latitude: number, longitude: number, availability?: ResponderAvailability): Promise<Responder> {
-    const data: any = {
-      latitude,
-      longitude,
-      lastLocationAt: new Date(),
-    };
-    if (availability) data.availability = availability;
-
+  async updateLocationAndAvailability(
+    id: string,
+    location: { latitude: number; longitude: number } | null,
+    availability?: ResponderAvailability,
+  ): Promise<Responder> {
     return this.prisma.responder.update({
       where: { id },
-      data,
+      data: {
+        ...(location ? { ...location, lastLocationAt: new Date() } : {}),
+        ...(availability ? { availability } : {}),
+      },
     });
   }
 

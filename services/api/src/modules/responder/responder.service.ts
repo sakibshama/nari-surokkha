@@ -3,6 +3,14 @@ import { ResponderRepository } from './responder.repository';
 import { ResponderStatus, ResponderAvailability } from '@prisma/client';
 import { emitToAlert } from '@/utils/alert-rooms';
 
+export type AvailabilityInput = 'online' | 'offline' | 'busy';
+
+const AVAILABILITY: Record<AvailabilityInput, ResponderAvailability> = {
+  online: 'available',
+  offline: 'offline',
+  busy: 'busy',
+};
+
 export class ResponderService {
   constructor(
     private readonly repository: ResponderRepository,
@@ -21,12 +29,31 @@ export class ResponderService {
     return this.repository.getResponderByUserId(userId);
   }
 
-  async updateLocation(userId: string, latitude: number, longitude: number, availability?: ResponderAvailability) {
+  /**
+   * Location and/or availability. The app sends 'online'; the enum's on-duty
+   * value is `available`. Coordinates are optional only when going offline,
+   * and a missing (or 0,0) fix never overwrites the last real location.
+   */
+  async updateLocation(
+    userId: string,
+    data: { latitude?: number; longitude?: number; availability?: AvailabilityInput },
+  ) {
     const responder = await this.repository.getResponderByUserId(userId);
     if (!responder) {
       throw this.fastify.httpErrors.notFound('Responder profile not found');
     }
-    return this.repository.updateLocationAndAvailability(responder.id, latitude, longitude, availability);
+    const hasFix =
+      data.latitude !== undefined &&
+      data.longitude !== undefined &&
+      !(data.latitude === 0 && data.longitude === 0);
+    if (!hasFix && data.availability !== 'offline') {
+      throw this.fastify.httpErrors.badRequest('latitude and longitude are required unless going offline');
+    }
+    return this.repository.updateLocationAndAvailability(
+      responder.id,
+      hasFix ? { latitude: data.latitude!, longitude: data.longitude! } : null,
+      data.availability ? AVAILABILITY[data.availability] : undefined,
+    );
   }
 
   async updateStatus(adminId: string, responderId: string, status: ResponderStatus) {
@@ -50,15 +77,14 @@ export class ResponderService {
     const updated = await this.repository.updateDispatchResponse(dispatchId, accepted, rejectReason);
     
     if (accepted) {
-      // Create Audit Log
       await this.fastify.prisma.auditLog.create({
         data: {
           action: 'alert_acknowledged',
           entityType: 'ResponderDispatch',
           entityId: dispatchId,
-          userId: userId,
-          details: { message: 'Responder accepted dispatch' } as any
-        } as any
+          userId,
+          metadata: { alertId: dispatch.alertId, responderId: dispatch.responderId, event: 'dispatch_accepted' },
+        },
       });
       // Tell the alert room and the admin view that a responder accepted.
       emitToAlert(
@@ -158,15 +184,14 @@ export class ResponderService {
       },
     });
 
-    // Audit Log
     await this.fastify.prisma.auditLog.create({
       data: {
-        action: 'responder_verified',
+        action: 'responder_approved',
         entityType: 'ResponderDispatch',
         entityId: dispatchId,
         userId: adminUserId,
-        details: { newScore, badges } as any,
-      } as any,
+        metadata: { event: 'dispatch_verified', responderId: updatedDispatch.responderId, newScore, badges },
+      },
     });
 
     return updatedResponder;

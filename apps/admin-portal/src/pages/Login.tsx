@@ -36,7 +36,7 @@ export default function Login() {
       login(user, tokens.accessToken);
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || err.response?.data?.message || 'Login failed. Please check your credentials.');
+      setError(err.response?.data?.error?.message || err.response?.data?.message || t('Login failed. Please check your credentials.'));
     } finally {
       setLoading(false);
     }

@@ -1,11 +1,27 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Mic, Video } from 'lucide-react';
-import api from '../services/api';
+import { ArrowLeft, Mic, PlayCircle, CheckCircle2, Archive, XCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+import api, { apiErrorMessage } from '../services/api';
 import { socketService } from '../services/socket';
 
 import LiveLocationMap from '../components/SmartLocationMap';
-import { useT } from '../i18n';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useT, fmt } from '../i18n';
+
+// Contract 7: statuses an admin can set, and which count as "active".
+type AdminStatus = 'in_progress' | 'resolved' | 'closed' | 'false_alarm';
+const ACTIVE_STATUSES = ['created', 'confirmed', 'notified_contacts', 'in_progress'];
+const STATUS_LABEL: Record<string, string> = {
+  created: 'New',
+  confirmed: 'Confirmed',
+  notified_contacts: 'Contacts notified',
+  in_progress: 'In progress',
+  resolved: 'Resolved',
+  closed: 'Closed',
+  false_alarm: 'False alarm',
+  cancelled: 'Cancelled',
+};
 
 // STUN-only FALLBACK. The authoritative ICE list (incl. TURN credential) is
 // fetched from the API — see loadIceServers() — so the TURN password lives in
@@ -52,6 +68,8 @@ export default function AlertDetails() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [pendingAction, setPendingAction] = useState<AdminStatus | null>(null);
+  const [savingStatus, setSavingStatus] = useState(false);
 
   // Connect as the WebRTC offerer (the role the victim's app answers).
   const connectStream = async () => {
@@ -62,7 +80,7 @@ export default function AlertDetails() {
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         const c = e.candidate;
-        socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: 'candidate', candidate: { candidate: c.candidate, sdpMLineIndex: c.sdpMLineIndex, sdpMid: c.sdpMid } } });
+        socketService.emit('webrtc:signal', { alertId: id, signal: { type: 'candidate', candidate: { candidate: c.candidate, sdpMLineIndex: c.sdpMLineIndex, sdpMid: c.sdpMid } } });
       }
     };
     pc.ontrack = (e) => { if (videoRef.current) videoRef.current.srcObject = e.streams[0]; };
@@ -72,7 +90,7 @@ export default function AlertDetails() {
     const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
     await pc.setLocalDescription(offer);
     const d = pc.localDescription;
-    socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: d?.type, sdp: d?.sdp } });
+    socketService.emit('webrtc:signal', { alertId: id, signal: { type: d?.type, sdp: d?.sdp } });
     setStreaming(true);
   };
 
@@ -106,9 +124,9 @@ export default function AlertDetails() {
         .map((r) => r.value);
       setEvidenceList(urls);
       const failed = settled.length - urls.length;
-      if (failed > 0) console.warn(`${failed} evidence item(s) could not be loaded`);
+      if (failed > 0) toast.error(fmt(t('{n} evidence item(s) could not be loaded'), { n: failed }));
     } catch (err) {
-      console.error('Failed to fetch evidence', err);
+      if (import.meta.env.DEV) console.error('Failed to fetch evidence', err);
     }
   };
 
@@ -118,7 +136,7 @@ export default function AlertDetails() {
         const alertRes = await api.get(`/admin/alerts/${id}`);
         setAlert(alertRes.data.data);
       } catch (err) {
-        console.error('Failed to fetch alert', err);
+        if (import.meta.env.DEV) console.error('Failed to fetch alert', err);
       }
 
       // Responders for map markers — may fail with 403 if admin lacks permission, that's OK
@@ -137,72 +155,96 @@ export default function AlertDetails() {
       fetchEvidence();
     }
 
-    // WebSocket Integration
+    // WebSocket Integration — named handlers so cleanup removes ONLY ours
+    // (off(event) without a handler would also remove Layout's listeners).
     socketService.connect();
-    if (socketService.socket) {
-      // Join the alert-specific room so WebRTC signals are routed correctly
-      socketService.socket.emit('join:alert', id);
-      socketService.socket.emit('join:admin');
+    if (id) socketService.joinAlert(id); // re-joined automatically after a reconnect
 
-      socketService.socket.on('alert:location_update', (data: any) => {
-        if (data.alertId === id) {
-          setAlert(prev => prev ? { ...prev, latitude: data.latitude, longitude: data.longitude } : prev);
+    const onLocation = (data: any) => {
+      if (data.alertId === id) {
+        setAlert(prev => prev ? { ...prev, latitude: data.latitude, longitude: data.longitude } : prev);
+      }
+    };
+    const onEvidence = (data: any) => {
+      if (data.alertId === id) fetchEvidence();
+    };
+    const onMode = (data: any) => {
+      if (data.alertId === id) setIsAudioOnly(data.isAudioOnly);
+    };
+    const onStatus = (data: { alertId: string; status: string }) => {
+      if (data?.alertId === id && data.status) {
+        setAlert(prev => prev ? { ...prev, status: data.status } : prev);
+      }
+    };
+    const onSignal = async (data: any) => {
+      if (data.alertId !== id || !pcRef.current) return;
+      const pc = pcRef.current;
+      try {
+        if (data.signal.type === 'offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          const desc = pc.localDescription;
+          socketService.emit('webrtc:signal', { alertId: id, signal: { type: desc?.type, sdp: desc?.sdp } });
+        } else if (data.signal.type === 'answer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
+        } else if (data.signal.type === 'candidate') {
+          await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
         }
-      });
-      socketService.socket.on('evidence_uploaded', (data: any) => {
-        if (data.alertId === id) {
-          fetchEvidence();
-        }
-      });
-      socketService.socket.on('webrtc:mode_changed', (data: any) => {
-        if (data.alertId === id) {
-          setIsAudioOnly(data.isAudioOnly);
-        }
-      });
-      socketService.socket.on('webrtc:signal', async (data: any) => {
-        if (data.alertId === id) {
-          if (!pcRef.current) return;
+      } catch (e) {
+        if (import.meta.env.DEV) console.error('WebRTC error', e);
+      }
+    };
 
-          const pc = pcRef.current;
-
-          try {
-            if (data.signal.type === 'offer') {
-              await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              const desc = pc.localDescription;
-              socketService.socket?.emit('webrtc:signal', { alertId: id, signal: { type: desc?.type, sdp: desc?.sdp } });
-            } else if (data.signal.type === 'answer') {
-              console.log('[WebRTC] Received answer from mobile, setting remote description');
-              await pc.setRemoteDescription(new RTCSessionDescription(data.signal));
-            } else if (data.signal.type === 'candidate') {
-              await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
-            }
-          } catch (e) {
-            console.error('WebRTC error', e);
-          }
-        }
-      });
-    }
+    socketService.on('alert:location_update', onLocation);
+    socketService.on('evidence_uploaded', onEvidence);
+    socketService.on('webrtc:mode_changed', onMode);
+    socketService.on('webrtc:signal', onSignal);
+    socketService.on('alert_status_update', onStatus);
 
     return () => {
-      if (socketService.socket) {
-        socketService.socket.off('alert:location_update');
-        socketService.socket.off('evidence_uploaded');
-        socketService.socket.off('webrtc:signal');
-        socketService.socket.off('webrtc:mode_changed');
-      }
+      socketService.off('alert:location_update', onLocation);
+      socketService.off('evidence_uploaded', onEvidence);
+      socketService.off('webrtc:mode_changed', onMode);
+      socketService.off('webrtc:signal', onSignal);
+      socketService.off('alert_status_update', onStatus);
+      if (id) socketService.leaveAlert(id);
       if (pcRef.current) {
         try { pcRef.current.close(); } catch { /* noop */ }
         pcRef.current = null;
       }
     };
-  }, [id]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stable map centre: a new [lat, lng] array on every render made the map
+  // components re-request routes (paid Google Directions calls) each render.
+  const latNum = Number(alert?.latitude);
+  const lngNum = Number(alert?.longitude);
+  const mapCenter = useMemo<[number, number]>(() => [latNum, lngNum], [latNum, lngNum]);
+
+  const applyStatus = async (status: AdminStatus, note: string) => {
+    if (!id) return;
+    setSavingStatus(true);
+    try {
+      const res = await api.patch(`/admin/alerts/${id}/status`, { status, ...(note ? { note } : {}) });
+      const updated = res.data?.data;
+      setAlert(prev => prev ? { ...prev, status: updated?.status ?? status } : prev);
+      toast.success(fmt(t('Alert marked as {status}'), { status: t(STATUS_LABEL[status]) }));
+      setPendingAction(null);
+      if (status !== 'in_progress') disconnectStream();
+    } catch (err: any) {
+      toast.error(err?.response?.status === 403
+        ? t('You do not have permission to change this alert.')
+        : apiErrorMessage(err, t('Failed to update the alert status')));
+    } finally {
+      setSavingStatus(false);
+    }
+  };
 
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-sub)' }}>
-        Loading alert details...
+        {t('Loading alert details…')}
       </div>
     );
   }
@@ -211,7 +253,7 @@ export default function AlertDetails() {
     return (
       <div className="animate-in">
         <button className="btn btn-ghost" onClick={() => navigate(-1)} style={{ marginBottom: 24 }}>
-          <ArrowLeft size={16} /> Back
+          <ArrowLeft size={16} /> {t('Back')}
         </button>
         <div className="empty-state">
           <p>{t('Alert not found.')}</p>
@@ -220,23 +262,38 @@ export default function AlertDetails() {
     );
   }
 
+  const statusText = (status: string) => t(STATUS_LABEL[status] ?? status.replace(/_/g, ' '));
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'created':
       case 'confirmed':
-        return <span className="badge danger"><span className="badge-dot"></span>{status.replace('_', ' ')}</span>;
+      case 'notified_contacts':
+        return <span className="badge danger"><span className="badge-dot"></span>{statusText(status)}</span>;
       case 'in_progress':
-        return <span className="badge warning"><span className="badge-dot"></span>{status.replace('_', ' ')}</span>;
+        return <span className="badge warning"><span className="badge-dot"></span>{statusText(status)}</span>;
       case 'resolved':
+        return <span className="badge success">{statusText(status)}</span>;
       case 'false_alarm':
-        return <span className="badge success">{status.replace('_', ' ')}</span>;
+        return <span className="badge info">{statusText(status)}</span>;
       default:
-        return <span className="badge muted">{status}</span>;
+        return <span className="badge muted">{statusText(status)}</span>;
     }
   };
 
-  const lat = Number(alert.latitude);
-  const lng = Number(alert.longitude);
+  const lat = mapCenter[0];
+  const lng = mapCenter[1];
+  const isActive = ACTIVE_STATUSES.includes(alert.status);
+  const ACTIONS: { status: AdminStatus; label: string; icon: React.ReactNode; className: string; title: string; message: string; danger?: boolean; show: boolean }[] = [
+    { status: 'in_progress', label: 'Mark in progress', icon: <PlayCircle size={14} />, className: 'btn btn-blue btn-sm',
+      title: 'Mark this alert as in progress?', message: 'Use this when help is on the way. The alert stays active.', show: isActive && alert.status !== 'in_progress' },
+    { status: 'resolved', label: 'Resolve', icon: <CheckCircle2 size={14} />, className: 'btn btn-primary btn-sm',
+      title: 'Resolve this alert?', message: 'The person is safe and the emergency is over. Live tracking for this alert ends.', show: isActive },
+    { status: 'false_alarm', label: 'False alarm', icon: <XCircle size={14} />, className: 'btn btn-ghost btn-sm',
+      title: 'Mark as a false alarm?', message: 'The SOS was triggered by mistake. Live tracking for this alert ends.', show: isActive },
+    { status: 'closed', label: 'Close', icon: <Archive size={14} />, className: 'btn btn-danger btn-sm', danger: true,
+      title: 'Close this alert?', message: 'Closing archives the alert. Use it once follow-up is complete.', show: alert.status !== 'closed' },
+  ];
+  const pending = ACTIONS.find(a => a.status === pendingAction) ?? null;
   // Only render the map once we have a real fix — 0,0 or NaN means "no GPS yet".
   const hasValidCoords =
     Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
@@ -244,12 +301,34 @@ export default function AlertDetails() {
   return (
     <div className="animate-in">
       <button className="btn btn-ghost" onClick={() => navigate(-1)} style={{ marginBottom: 24 }}>
-        <ArrowLeft size={16} /> Back
+        <ArrowLeft size={16} /> {t('Back')}
       </button>
 
       <div className="page-header">
-        <h1 className="page-title">{t('Alert Details')}</h1>
+        <div className="page-header-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <h1 className="page-title">{t('Alert Details')}</h1>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {ACTIONS.filter(a => a.show).map(a => (
+              <button key={a.status} className={a.className} onClick={() => setPendingAction(a.status)} disabled={savingStatus}>
+                {a.icon} {t(a.label)}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
+
+      <ConfirmDialog
+        open={!!pending}
+        title={pending ? t(pending.title) : ''}
+        message={pending ? t(pending.message) : undefined}
+        confirmLabel={pending ? t(pending.label) : undefined}
+        danger={pending?.danger}
+        withNote
+        notePlaceholder={t('e.g. who responded, what happened')}
+        busy={savingStatus}
+        onCancel={() => setPendingAction(null)}
+        onConfirm={(note) => { if (pending) void applyStatus(pending.status, note); }}
+      />
 
       <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
         <div className="card" style={{ flex: '1 1 300px' }}>
@@ -258,46 +337,46 @@ export default function AlertDetails() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div className="detail-field">
-              <span className="detail-field-label">Status</span>
+              <span className="detail-field-label">{t('Status')}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 {getStatusBadge(alert.status)}
                 {alert.isSoftAlert && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 20, background: 'rgba(245,158,11,0.16)', color: '#f59e0b', fontSize: 11, fontWeight: 700, border: '1px solid rgba(245,158,11,0.35)' }}>
-                    ⏱ Soft Alert (pre-alarm)
+                    ⏱ {t('Soft Alert (pre-alarm)')}
                   </span>
                 )}
               </div>
             </div>
 
             <div className="detail-field">
-              <span className="detail-field-label">Type</span>
+              <span className="detail-field-label">{t('Type')}</span>
               <span className="detail-field-value" style={{ textTransform: 'uppercase' }}>{alert.type}</span>
             </div>
 
             <div className="detail-field">
-              <span className="detail-field-label">Victim Name</span>
-              <span className="detail-field-value">{alert.user?.profile?.fullName || 'Unknown'}</span>
+              <span className="detail-field-label">{t('Victim Name')}</span>
+              <span className="detail-field-value">{alert.user?.profile?.fullName || t('Unknown')}</span>
             </div>
 
             <div className="detail-field">
-              <span className="detail-field-label">Phone Number</span>
+              <span className="detail-field-label">{t('Phone Number')}</span>
               <span className="detail-field-value">{alert.user?.phone}</span>
             </div>
 
             <div className="detail-field">
-              <span className="detail-field-label">Blood Group</span>
-              <span className="detail-field-value">{alert.user?.profile?.bloodGroup || 'Unknown'}</span>
+              <span className="detail-field-label">{t('Blood Group')}</span>
+              <span className="detail-field-value">{alert.user?.profile?.bloodGroup || t('Unknown')}</span>
             </div>
 
             <div className="detail-field">
-              <span className="detail-field-label">Location (GPS)</span>
+              <span className="detail-field-label">{t('Location (GPS)')}</span>
               <span className="detail-field-value cell-mono">
                 {lat.toFixed(6)}, {lng.toFixed(6)}
               </span>
             </div>
 
             <div className="detail-field">
-              <span className="detail-field-label">Created At</span>
+              <span className="detail-field-label">{t('Created At')}</span>
               <span className="detail-field-value">{new Date(alert.createdAt).toLocaleString()}</span>
             </div>
           </div>
@@ -311,14 +390,14 @@ export default function AlertDetails() {
           <div style={{ flex: 1, position: 'relative', background: 'var(--bg-input)' }}>
             {hasValidCoords ? (
               <LiveLocationMap
-                center={[lat, lng]}
+                center={mapCenter}
                 responders={responders}
-                victimLabel={alert.user?.profile?.fullName || 'SOS Victim'}
+                victimLabel={alert.user?.profile?.fullName || t('SOS Victim')}
               />
             ) : (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-sub)', flexDirection: 'column', gap: 8 }}>
                 <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b' }} />
-                Awaiting valid GPS location…
+                {t('Awaiting valid GPS location…')}
               </div>
             )}
           </div>
@@ -329,27 +408,27 @@ export default function AlertDetails() {
       <div className="card" style={{ marginTop: 24, padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-            Live Stream
+            {t('Live Stream')}
           </h2>
-          {alert.status !== 'resolved' && alert.status !== 'false_alarm' && alert.status !== 'closed' && (
+          {isActive && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               {streaming ? (
                 <button className="btn btn-danger" onClick={disconnectStream} style={{ fontSize: 12, padding: '6px 12px' }}>
-                  Disconnect Stream
+                  {t('Disconnect Stream')}
                 </button>
               ) : (
                 <button className="btn btn-primary" onClick={connectStream} style={{ fontSize: 12, padding: '6px 12px' }}>
-                  Connect to Stream
+                  {t('Connect to Stream')}
                 </button>
               )}
               {streaming && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', fontWeight: 600, fontSize: 12 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'alert-pulse 1.5s infinite' }} />
-                LIVE
+                {t('LIVE')}
                 {isAudioOnly && (
                   <span className="badge warning" style={{ marginLeft: 8 }}>
                     <Mic size={12} style={{ marginRight: 4 }} />
-                    Audio Only (Low Bandwidth)
+                    {t('Audio Only (Low Bandwidth)')}
                   </span>
                 )}
               </div>
@@ -360,7 +439,7 @@ export default function AlertDetails() {
         <div style={{ width: '100%', background: '#000', borderRadius: 8, overflow: 'hidden', minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {!streaming && (
             <div style={{ color: 'var(--text-sub)', fontSize: 14, padding: 40, textAlign: 'center' }}>
-              Press “Connect to Stream” to view the victim's live camera &amp; audio.
+              {t('Press “Connect to Stream” to view the victim\'s live camera & audio.')}
             </div>
           )}
           <video
@@ -375,12 +454,12 @@ export default function AlertDetails() {
               <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Mic size={32} color="#10b981" />
               </div>
-              <p>Receiving Silent Audio Stream...</p>
+              <p>{t('Receiving Silent Audio Stream…')}</p>
               <audio ref={(el) => { if (el && videoRef.current) el.srcObject = videoRef.current.srcObject; }} autoPlay controls style={{ width: 300 }} />
             </div>
           )}
-          {!isAudioOnly && !videoRef.current?.srcObject && alert.status !== 'resolved' && alert.status !== 'closed' && (
-             <div style={{ color: '#fff', opacity: 0.5 }}>Waiting for video feed...</div>
+          {streaming && !isAudioOnly && !videoRef.current?.srcObject && isActive && (
+             <div style={{ color: '#fff', opacity: 0.5 }}>{t('Waiting for video feed…')}</div>
           )}
         </div>
       </div>
@@ -426,7 +505,7 @@ export default function AlertDetails() {
                           const div = document.createElement('div');
                           div.className = 'ev-fallback';
                           div.style.cssText = 'padding:24px;color:#94a3b8;font-size:13px;text-align:center;';
-                          div.textContent = 'Image unavailable';
+                          div.textContent = t('Image unavailable');
                           parent.appendChild(div);
                         }
                       }}
@@ -443,7 +522,7 @@ export default function AlertDetails() {
                   )}
                   {kind === 'document' && (
                     <a href={ev.url} target="_blank" rel="noopener noreferrer" style={{ padding: 24, color: 'var(--blue)', fontSize: 13, textAlign: 'center' }}>
-                      Open {ev.originalName}
+                      {t('Open')} {ev.originalName}
                     </a>
                   )}
                 </div>

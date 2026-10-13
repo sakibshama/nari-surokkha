@@ -41,6 +41,7 @@ import {
 import { MainStackParamList } from '../../navigation/MainStack';
 import { useAuthStore } from '../../store/authStore';
 import { useLocationStore } from '../../store/locationStore';
+import { useSettingsStore } from '../../store/settingsStore';
 import api, { describeApiTarget, previewBody } from '../../services/api';
 import { sensorProcessor } from '../../services/ml/SensorProcessor';
 import { softAlerts } from '../../services/emergency/runtime';
@@ -50,6 +51,7 @@ import { sendOfflineSosSms, getCachedContactPhones } from '../../services/offlin
 import { hasSmsPermission, requestSmsPermission } from '../../services/directSms';
 import { logSms } from '../../services/smsHistory';
 import { sendSosSmsFromDevice } from '../../services/deviceSms';
+import { buildSosText } from '../../services/sosText';
 import { useTheme } from '../../theme';
 import { useT } from '../../i18n';
 import { radius, spacing, type as typeScale } from '../../theme/tokens';
@@ -91,6 +93,8 @@ const ACTIONS: Action[] = [
 ];
 
 const SOS_SIZE = 212;
+/** How long the SOS waits for a fresh GPS fix before using the last known one. */
+const GPS_TIMEOUT_MS = 8000;
 
 export default function HomeScreen({ navigation }: Props) {
   const { colors, gradients, shadows, isDark } = useTheme();
@@ -98,6 +102,7 @@ export default function HomeScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { user, updateUser } = useAuthStore();
   const { isSosActive, setSosActive, activeAlertId } = useLocationStore();
+  const mlGyroEnabled = useSettingsStore((st) => st.mlGyroEnabled);
   const [loading, setLoading] = useState(false);
 
   // The SOS button drives its own press animation through a plain Pressable.
@@ -152,12 +157,15 @@ export default function HomeScreen({ navigation }: Props) {
 
     // Pull a newer on-device model over the air if the server has one.
     motionModelLoader.checkForUpdate();
+  }, []);
 
-    // Motion (fall / struggle) detections go through the same soft-alert
-    // manager as the sound detections, so they share its duplicate
-    // suppression, cooldown and history. Sound detection itself runs app-wide
-    // in <EmergencyRuntime/>, not only while this screen is mounted.
-    sensorProcessor.startListening();
+  // Motion (fall / struggle) detections go through the same soft-alert
+  // manager as the sound detections. The sensors run only while the
+  // "Fall & struggle detection" switch is on. Sound detection runs app-wide in
+  // <EmergencyRuntime/>, not only while this screen is mounted.
+  useEffect(() => {
+    if (!mlGyroEnabled) return;
+    void sensorProcessor.startListening();
     const onSensor = (c: number) => {
       if (c > 0.85) softAlerts.trigger('motion', { confidence: c });
     };
@@ -166,7 +174,7 @@ export default function HomeScreen({ navigation }: Props) {
       sensorProcessor.removeListener(onSensor);
       sensorProcessor.stopListening();
     };
-  }, []);
+  }, [mlGyroEnabled]);
 
   const handleAction = (id: string) => {
     if (id === 'fakecall') navigation.navigate('FakeCall');
@@ -207,7 +215,7 @@ export default function HomeScreen({ navigation }: Props) {
     }
 
     setLoading(true);
-    const userName = user?.profile?.fullName || 'A user';
+    const userName = user?.profile?.fullName?.trim() || '';
     try {
       // A real GPS fix every time — an SOS must never go out with a fallback
       // location, or responders are sent to the wrong place.
@@ -221,32 +229,29 @@ export default function HomeScreen({ navigation }: Props) {
         return;
       }
 
-      let loc: Location.LocationObject | null = null;
-      try {
-        loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
-      } catch (e) {
-        step('high-accuracy fix failed, falling back to last known', e);
-        loc = await Location.getLastKnownPositionAsync();
-      }
-      if (!loc) {
-        showAlert(
-          t('No GPS signal'),
-          t('Could not determine your location. Move near a window or open area and try again.'),
-        );
-        return;
-      }
-      const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
-      step('fix', coords);
+      // A fresh fix, but never wait forever for one: after GPS_TIMEOUT_MS use
+      // the last known position. With no position at all the SOS still goes
+      // out — by SMS, without coordinates — instead of doing nothing.
+      const fix = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null),
+        new Promise<null>((r) => setTimeout(() => r(null), GPS_TIMEOUT_MS)),
+      ]);
+      const loc = fix ?? (await Location.getLastKnownPositionAsync().catch(() => null));
+      step(fix ? 'fresh fix' : loc ? 'last known position' : 'no position');
+      const coords = loc ? { latitude: loc.coords.latitude, longitude: loc.coords.longitude } : null;
 
-      // ─── Offline path ────────────────────────────────────────
+      // ─── Offline path (or no position: the API needs one) ───
+      let offline = false;
       if (Platform.OS !== 'web') {
         const netInfo = await NetInfo.fetch();
         step('connectivity', netInfo.isConnected);
-        if (!netInfo.isConnected) {
-          await triggerOfflineSms(coords, userName);
-          navigation.navigate('OfflineSos');
-          return;
-        }
+        offline = netInfo.isConnected === false;
+      }
+      if (offline || !coords) {
+        if (!coords) toast(t('No GPS signal'), t('Sending your SOS by SMS without a location.'), 'info');
+        await triggerOfflineSms(coords ?? undefined, userName);
+        navigation.navigate('OfflineSos');
+        return;
       }
 
       // ─── Online path ─────────────────────────────────────────
@@ -281,10 +286,7 @@ export default function HomeScreen({ navigation }: Props) {
           contactPhones: alertData.contactPhones,
           message:
             alertData.deviceSmsMessage ||
-            t('EMERGENCY: {name} needs help! Location: {link}', {
-              name: userName,
-              link: `https://maps.google.com/?q=${coords.latitude},${coords.longitude}`,
-            }),
+            buildSosText(t, userName, coords),
         });
         step('device sms', outcome);
         if (outcome === 'sim') {
@@ -448,6 +450,26 @@ export default function HomeScreen({ navigation }: Props) {
           <DetectionStatusChip onPress={() => navigation.navigate('EmergencyDetection')} />
         </FadeIn>
 
+        {isSosActive && activeAlertId && (
+          <FadeIn style={{ paddingHorizontal: spacing.lg, marginTop: spacing.sm }}>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={t('Return to SOS')}
+              onPress={() => navigation.navigate('ActiveSos', { alertId: activeAlertId })}
+              style={[styles.sosBanner, { backgroundColor: colors.danger }]}
+            >
+              <ShieldAlert color={colors.onDanger} size={20} />
+              <View style={{ flex: 1 }}>
+                <Text style={[typeScale.smStrong, { color: colors.onDanger }]}>{t('SOS is active')}</Text>
+                <Text style={[typeScale.xs, { color: colors.onDanger, opacity: 0.9 }]}>
+                  {t('Your location is being shared. Tap to return to the SOS.')}
+                </Text>
+              </View>
+              <Text style={[typeScale.smStrong, { color: colors.onDanger }]}>{t('Return to SOS')}</Text>
+            </PressableScale>
+          </FadeIn>
+        )}
+
         {/* ── The one loud thing on this screen ─────────────────── */}
         <FadeIn from="zoom" delay={220} style={styles.sosArea}>
           <PulseRings color={colors.danger} size={SOS_SIZE + 40} count={3} duration={isSosActive ? 1500 : 2600} />
@@ -550,6 +572,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sosBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
   },
   sosArea: {
     height: SOS_SIZE + 90,

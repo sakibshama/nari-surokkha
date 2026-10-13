@@ -12,7 +12,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '@/app';
-import { generateTrackingToken } from '@/modules/alerts/alerts.tokens';
 
 const API = '/api/v1';
 
@@ -28,7 +27,6 @@ describe('E2E Emergency Flow: Citizen SOS -> Dispatch -> Audit -> WebRTC Stream 
   let citizenToken = '';
   let citizenUserId = '';
   let alertId = '';
-  let trackingToken = '';
 
   beforeAll(async () => {
     app = await buildApp();
@@ -126,9 +124,7 @@ describe('E2E Emergency Flow: Citizen SOS -> Dispatch -> Audit -> WebRTC Stream 
     const sosBody = sosRes.json();
     expect(sosBody.success).toBe(true);
     alertId = sosBody.data?.id;
-    trackingToken = sosBody.data?.trackingToken;
     expect(alertId).toBeTruthy();
-    expect(trackingToken).toBeTruthy();
 
     // Verify database record persisted
     const alertRow = await app.prisma.emergencyAlert.findUnique({
@@ -152,14 +148,9 @@ describe('E2E Emergency Flow: Citizen SOS -> Dispatch -> Audit -> WebRTC Stream 
   });
 
   // ─────────────────────────────────────────────────────────────
-  // Phase 4: WebRTC Streaming & Tracking Token Verification
+  // Phase 4: Live location streaming
   // ─────────────────────────────────────────────────────────────
-  it('Phase 4: Generates WebRTC live stream tracking token and validates token payload', async () => {
-    // Generate/Verify tracking token payload
-    const tokenPayload = generateTrackingToken(alertId);
-    expect(tokenPayload).toBeTruthy();
-    expect(typeof tokenPayload).toBe('string');
-
+  it('Phase 4: Accepts live location updates for the alert', async () => {
     // Verify alert live stream location updates
     const locationUpdateRes = await app.inject({
       method: 'POST',

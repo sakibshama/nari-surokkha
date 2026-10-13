@@ -24,12 +24,13 @@ export const applyResponderResponseSchema = {
   },
 };
 
+/** latitude/longitude are required unless availability is 'offline' (checked in the service). */
 export const updateLocationSchema = {
   type: 'object',
-  required: ['latitude', 'longitude'],
   properties: {
     latitude: { type: 'number', minimum: -90, maximum: 90 },
     longitude: { type: 'number', minimum: -180, maximum: 180 },
+    availability: { type: 'string', enum: ['online', 'offline', 'busy'] },
   },
   additionalProperties: false,
 };

@@ -1,0 +1,190 @@
+diff --git a/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java b/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java
+index 90cda30..5acaad4 100644
+--- a/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java
++++ b/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java
+@@ -3,12 +3,28 @@ package com.reactlibrary;
+ import com.facebook.react.bridge.ReactApplicationContext;
+ import com.facebook.react.bridge.ReactContextBaseJavaModule;
+ import com.facebook.react.bridge.Callback;
++import com.facebook.react.bridge.Promise;
+ import com.facebook.react.bridge.ReactMethod;
+ import com.facebook.react.uimanager.IllegalViewOperationException;
++import android.app.Activity;
++import android.app.PendingIntent;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.os.Build;
++import android.os.Handler;
++import android.os.Looper;
+ import android.telephony.SmsManager;
++import java.util.ArrayList;
++import java.util.concurrent.atomic.AtomicInteger;
+ 
+ public class DirectSmsModule extends ReactContextBaseJavaModule {
+ 
++    // Nari Surokkha patch: multi-part send with delivery-to-network confirmation.
++    private static final long MULTIPART_TIMEOUT_MS = 30000;
++    private static final AtomicInteger REQUEST_SEQ = new AtomicInteger();
++
+     public DirectSmsModule(ReactApplicationContext reactContext) {
+         super(reactContext); //required by React Native
+     }
+@@ -28,4 +44,156 @@ public class DirectSmsModule extends ReactContextBaseJavaModule {
+             System.out.println("couldn't send message.");
+         }
+     }
++
++    /**
++     * Nari Surokkha patch.
++     *
++     * sendTextMessage() silently drops a message longer than one SMS part (160
++     * GSM-7 / 70 UCS-2 characters), so a long or Bangla text never left the
++     * phone. This splits the message, sends every part with its own "sent"
++     * PendingIntent, and resolves "sent" only once every part reports
++     * RESULT_OK. Any failing part rejects with its result code; no answer
++     * within 30 s rejects with E_SMS_TIMEOUT.
++     */
++    @ReactMethod
++    public void sendDirectSmsMultipart(final String phoneNumber, final String msg, final Promise promise) {
++        final Context context = getReactApplicationContext();
++        final SmsManager smsManager;
++        final ArrayList<String> parts;
++        try {
++            smsManager = resolveSmsManager(context);
++            parts = smsManager.divideMessage(msg);
++        } catch (Exception ex) {
++            promise.reject("E_SMS_UNAVAILABLE", "SMS is not available: " + ex.getMessage(), ex);
++            return;
++        }
++        if (parts == null || parts.isEmpty()) {
++            promise.reject("E_SMS_EMPTY", "The message is empty");
++            return;
++        }
++        new MultipartSend(context, smsManager, phoneNumber, parts, promise).start();
++    }
++
++    private static SmsManager resolveSmsManager(Context context) {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++            SmsManager manager = context.getSystemService(SmsManager.class);
++            if (manager != null) return manager;
++        }
++        return SmsManager.getDefault();
++    }
++
++    private static String describeResult(int code) {
++        switch (code) {
++            case SmsManager.RESULT_ERROR_GENERIC_FAILURE: return "generic failure";
++            case SmsManager.RESULT_ERROR_RADIO_OFF: return "radio off (airplane mode?)";
++            case SmsManager.RESULT_ERROR_NULL_PDU: return "null PDU";
++            case SmsManager.RESULT_ERROR_NO_SERVICE: return "no mobile service";
++            default: return "result code " + code;
++        }
++    }
++
++    /** One multi-part send: owns its receiver, PendingIntents and timeout. */
++    private static final class MultipartSend {
++        private final Context context;
++        private final SmsManager smsManager;
++        private final String phoneNumber;
++        private final ArrayList<String> parts;
++        private final Promise promise;
++        private final String action;
++        private final Handler handler = new Handler(Looper.getMainLooper());
++        private final ArrayList<PendingIntent> sentIntents = new ArrayList<>();
++        private int okParts = 0;
++        private boolean settled = false;
++
++        private final BroadcastReceiver receiver = new BroadcastReceiver() {
++            @Override
++            public void onReceive(Context c, Intent intent) {
++                int code = getResultCode();
++                if (code == Activity.RESULT_OK) {
++                    okParts++;
++                    if (okParts >= parts.size()) settle(null, null);
++                } else {
++                    settle("E_SMS_RESULT_" + code, "SMS part failed: " + describeResult(code));
++                }
++            }
++        };
++
++        private final Runnable timeout = new Runnable() {
++            @Override
++            public void run() {
++                settle("E_SMS_TIMEOUT", "No send confirmation within " + (MULTIPART_TIMEOUT_MS / 1000) + " s ("
++                        + okParts + "/" + parts.size() + " parts sent)");
++            }
++        };
++
++        MultipartSend(Context context, SmsManager smsManager, String phoneNumber, ArrayList<String> parts, Promise promise) {
++            this.context = context;
++            this.smsManager = smsManager;
++            this.phoneNumber = phoneNumber;
++            this.parts = parts;
++            this.promise = promise;
++            this.action = context.getPackageName() + ".DIRECT_SMS_SENT." + REQUEST_SEQ.incrementAndGet() + "." + System.nanoTime();
++        }
++
++        void start() {
++            // Everything (receiver callbacks, timeout, settle) runs on the main
++            // looper, so the counters need no further synchronisation.
++            handler.post(new Runnable() {
++                @Override
++                public void run() {
++                    send();
++                }
++            });
++        }
++
++        private void send() {
++            try {
++                IntentFilter filter = new IntentFilter(action);
++                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
++                    // The PendingIntent is sent with this app's identity, so the
++                    // receiver does not need to be visible to other apps.
++                    context.registerReceiver(receiver, filter, null, handler, Context.RECEIVER_NOT_EXPORTED);
++                } else {
++                    context.registerReceiver(receiver, filter, null, handler);
++                }
++            } catch (Exception ex) {
++                settled = true;
++                promise.reject("E_SMS_RECEIVER", "Could not watch the SMS result: " + ex.getMessage(), ex);
++                return;
++            }
++
++            for (int i = 0; i < parts.size(); i++) {
++                Intent intent = new Intent(action).setPackage(context.getPackageName());
++                // Distinct request codes give every part its own PendingIntent.
++                sentIntents.add(PendingIntent.getBroadcast(context, i, intent, PendingIntent.FLAG_IMMUTABLE));
++            }
++            handler.postDelayed(timeout, MULTIPART_TIMEOUT_MS);
++
++            try {
++                if (parts.size() == 1) {
++                    smsManager.sendTextMessage(phoneNumber, null, parts.get(0), sentIntents.get(0), null);
++                } else {
++                    smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, null);
++                }
++            } catch (SecurityException ex) {
++                settle("E_SMS_PERMISSION", "SEND_SMS permission is not granted");
++            } catch (Exception ex) {
++                settle("E_SMS_SEND", "Could not send the SMS: " + ex.getMessage());
++            }
++        }
++
++        private void settle(String errorCode, String errorMessage) {
++            if (settled) return;
++            settled = true;
++            handler.removeCallbacks(timeout);
++            try {
++                context.unregisterReceiver(receiver);
++            } catch (Exception ignored) { }
++            for (PendingIntent pi : sentIntents) {
++                try { pi.cancel(); } catch (Exception ignored) { }
++            }
++            if (errorCode == null) promise.resolve("sent");
++            else promise.reject(errorCode, errorMessage);
++        }
++    }
+ }

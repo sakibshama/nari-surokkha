@@ -17,6 +17,7 @@ import { Platform } from 'react-native';
 //   "build": { "staging": { "env": { "EXPO_PUBLIC_API_URL": "https://api.staging.../api/v1" } } }
 
 import Constants from 'expo-constants';
+import { tStatic } from '../i18n';
 
 const extra = (Constants.expoConfig?.extra ?? {}) as { apiUrl?: string; wsUrl?: string };
 
@@ -377,6 +378,16 @@ async function refreshAccessToken(): Promise<string | null> {
   }
 }
 
+/** Refresh the access token once, shared by concurrent callers (HTTP 401s, the socket). */
+export async function refreshSession(): Promise<string | null> {
+  if (!refreshPromise) refreshPromise = refreshAccessToken();
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
+}
+
 api.interceptors.response.use(
   (response) => {
     // A 200 that is not our JSON is worse than an error: callers read fields
@@ -399,7 +410,7 @@ api.interceptors.response.use(
       const Toast = require('react-native-toast-message').default;
       Toast.show({
         type: 'error',
-        text1: 'Cannot reach the server',
+        text1: tStatic('Cannot reach the server'),
         // Name the address that failed: "connection error" with no URL is
         // impossible to act on, and this is usually a wrong host or a
         // firewall on the dev machine.
@@ -421,9 +432,7 @@ api.interceptors.response.use(
       !String(original.url || '').includes('/auth/login')
     ) {
       original._retry = true;
-      if (!refreshPromise) refreshPromise = refreshAccessToken();
-      const newToken = await refreshPromise;
-      refreshPromise = null;
+      const newToken = await refreshSession();
 
       if (newToken) {
         original.headers = original.headers || {};
@@ -432,8 +441,8 @@ api.interceptors.response.use(
       }
 
       // Refresh failed (refresh token expired/revoked) → genuine logout.
-      const { useAuthStore } = require('../store/authStore');
-      await useAuthStore.getState().logout();
+      const { signOut } = require('./signOut') as typeof import('./signOut');
+      await signOut({ revoke: false });
     }
 
     return Promise.reject(error);

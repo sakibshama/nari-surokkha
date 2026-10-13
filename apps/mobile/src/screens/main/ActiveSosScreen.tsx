@@ -4,18 +4,18 @@ import { showAlert } from '../../utils/notify';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainStack';
 import { useLocationStore } from '../../store/locationStore';
-import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
-import { Phone, XCircle, Camera, Wifi, Users, MapPin, Shield, ShieldAlert, VideoOff, Video } from 'lucide-react-native';
+import { Phone, XCircle, Camera, Wifi, Users, MapPin, Shield, ShieldAlert, VideoOff, Video, Radio } from 'lucide-react-native';
 import api, { fetchIceServers } from '../../services/api';
 import { socketService } from '../../services/socket';
-import { startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../services/backgroundTasks';
+import { endSos } from '../../services/sosSession';
+import { usePreventRemove } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Theme, useTheme, useThemedStyles } from '../../theme';
 import { radius, spacing, type } from '../../theme/tokens';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Breathing, FadeIn, PressableScale, PulseRings } from '../../components/ui';
-import { useT, tStatic } from '../../i18n';
+import { useT } from '../../i18n';
 let RTCPeerConnection: any;
 let RTCIceCandidate: any;
 let RTCSessionDescription: any;
@@ -48,8 +48,19 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
   const t = useT();
   const insets = useSafeAreaInsets();
   const { alertId } = route.params;
-  const { setSosActive } = useLocationStore();
-  const [locationSub, setLocationSub] = useState<Location.LocationSubscription | null>(null);
+  const isSosActive = useLocationStore((st) => st.isSosActive);
+  const activeAlertId = useLocationStore((st) => st.activeAlertId);
+  const trackingMode = useLocationStore((st) => st.trackingMode);
+  const lastPingAt = useLocationStore((st) => st.lastPingAt);
+  const queuedPings = useLocationStore((st) => st.queuedPings);
+  const sosLive = isSosActive && activeAlertId === alertId;
+  const ending = React.useRef(false);
+  const [socketUp, setSocketUp] = useState(socketService.isConnected());
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, []);
   const [uploading, setUploading] = useState(false);
   const [localStream, setLocalStream] = useState<any | null>(null);
   const [isAudioOnly, setIsAudioOnly] = useState(false);
@@ -79,20 +90,13 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     }
   }, []);
 
+  // Realtime link state for the status rows. The socket itself is app-wide:
+  // the room join and live tracking follow the SOS state (sosSession.ts), so
+  // leaving this screen does not stop them.
+  useEffect(() => socketService.onConnectionChange(setSocketUp), []);
+
   useEffect(() => {
-    // Connect WebSocket — then set alert context once connected
-    socketService.connect();
-    
-    // Ensure alert room is joined (handles both immediate connect and delayed connect)
-    const alertRoomJoin = () => {
-      socketService.setAlertContext(alertId);
-    };
-    if (socketService.socket?.connected) {
-      alertRoomJoin();
-    } else {
-      socketService.socket?.once('connect', alertRoomJoin);
-    }
-    socketService.setAlertContext(alertId);
+    void socketService.connect();
 
     // Setup WebRTC
     const setupWebRTC = async () => {
@@ -189,39 +193,28 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     };
     setupWebRTC();
 
-    (async () => {
-      if (Platform.OS === 'web') {
-        // Real browser geolocation — stream actual coordinates, never simulated ones.
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') { showAlert(tStatic('Permission needed'), tStatic('Location permission required.')); return; }
-        const watcher = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.Highest, timeInterval: 5000, distanceInterval: 5 },
-          (pos) => {
-            api.post(`/alerts/${alertId}/location`, {
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-              accuracy: pos.coords.accuracy ?? 10,
-            }).catch(console.error);
-          },
-        );
-        (window as any).webSosWatcher = watcher;
-      } else {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== 'granted') { showAlert(tStatic('Permission needed'), tStatic('Location permission required.')); return; }
-        try {
-          await startBackgroundLocationUpdates();
-        } catch (e) { console.error(e); }
-      }
-    })();
-
     return () => {
-      if ((window as any).webSosWatcher) { (window as any).webSosWatcher.remove(); (window as any).webSosWatcher = null; }
-      stopBackgroundLocationUpdates();
       socketService.offWebRTCMessage();
-      socketService.disconnect();
       stopMedia(); // release camera + mic + peer connection
     };
   }, [alertId]);
+
+  // While this SOS is live, Back / swipe / header-back asks first.
+  usePreventRemove(sosLive, ({ data }) => {
+    if (ending.current) {
+      navigation.dispatch(data.action);
+      return;
+    }
+    showAlert(t('SOS is still active'), t('Your location keeps being shared until you end the SOS.'), [
+      { text: t('Stay here'), style: 'cancel' },
+      { text: t('Keep SOS running'), onPress: () => navigation.dispatch(data.action) },
+      {
+        text: t("I'm safe — end SOS"),
+        style: 'destructive',
+        onPress: () => void finishSos().then(() => navigation.dispatch(data.action)),
+      },
+    ]);
+  });
 
   const captureEvidence = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -264,32 +257,28 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     }
   };
 
-  const cancelSos = async () => {
-    const proceedWithCancel = async () => {
-      // Release camera + mic immediately — don't wait for unmount cleanup.
-      stopMedia();
-      try {
-        await api.patch(`/alerts/${alertId}/cancel`);
-      } catch (e) {
-        console.error('Failed to cancel alert on backend', e);
-      }
-      stopBackgroundLocationUpdates();
-      socketService.setAlertContext(null);
-      setSosActive(false);
-      navigation.reset({ index: 0, routes: [{ name: 'Home' as any }] });
-    };
-
-    if (Platform.OS === 'web') {
-      const confirm = window.confirm(`${t('Cancel SOS?')} ${t('Are you sure you are safe?')}`);
-      if (confirm) {
-        await proceedWithCancel();
-      }
-    } else {
-      showAlert(t('Cancel SOS?'), t('Are you sure you are safe?'), [
-        { text: t('Keep active'), style: 'cancel' },
-        { text: t("Yes, I'm safe"), style: 'destructive', onPress: proceedWithCancel }
-      ]);
+  /** "I'm safe": resolve on the server, stop tracking (via the SOS state). */
+  const finishSos = async () => {
+    ending.current = true;
+    stopMedia(); // release camera + mic immediately
+    const { serverOk } = await endSos(alertId);
+    if (!serverOk) {
+      showAlert(t('Could not reach the server'), t('Tracking stopped on this phone, but your contacts may still see the alert as active.'));
     }
+  };
+
+  const cancelSos = () => {
+    showAlert(t('End SOS?'), t('Are you sure you are safe?'), [
+      { text: t('Keep active'), style: 'cancel' },
+      {
+        text: t("Yes, I'm safe"),
+        style: 'destructive',
+        onPress: async () => {
+          await finishSos();
+          navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+        },
+      },
+    ]);
   };
 
   const toggleAudioOnly = () => {
@@ -304,11 +293,28 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     }
   };
 
+  // Status rows from real state, never a hard-coded "transmitting".
+  const pingAge = lastPingAt ? Math.round((now - lastPingAt) / 1000) : null;
+  const locationRow =
+    pingAge !== null && pingAge < 90
+      ? { label: t('Live location sent {n}s ago', { n: pingAge }), color: colors.success }
+      : queuedPings > 0
+        ? { label: t('No signal — {n} locations queued', { n: queuedPings }), color: colors.warning }
+        : { label: t('Waiting for the first location fix…'), color: colors.warning };
+  const gpsRow =
+    trackingMode === 'background'
+      ? { label: t('GPS tracking active, also in the background'), color: colors.info }
+      : trackingMode === 'foreground'
+        ? { label: t('GPS tracking only while the app is open'), color: colors.warning }
+        : { label: t('Location permission is off — tracking stopped'), color: colors.danger };
   const STATUS = [
     { label: t('Contacts notified via SMS'), icon: Users, color: colors.success },
     { label: t('Nearby responders alerted'), icon: Shield, color: colors.success },
-    { label: t('Live location transmitting'), icon: Wifi, color: colors.info },
-    { label: t('GPS tracking active'), icon: MapPin, color: colors.info },
+    { ...locationRow, icon: Wifi },
+    { ...gpsRow, icon: MapPin },
+    socketUp
+      ? { label: t('Live link to responders connected'), icon: Radio, color: colors.success }
+      : { label: t('Live link reconnecting…'), icon: Radio, color: colors.warning },
   ];
 
   return (
@@ -402,7 +408,7 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
         <FadeIn delay={500}>
           <PressableScale onPress={cancelSos} style={styles.cancelBtn} accessibilityRole="button">
             <XCircle color={colors.textSub} size={18} />
-            <Text style={styles.cancelBtnText}>{t("I'm safe — cancel SOS")}</Text>
+            <Text style={styles.cancelBtnText}>{t("I'm safe — end SOS")}</Text>
           </PressableScale>
         </FadeIn>
       </ScrollView>

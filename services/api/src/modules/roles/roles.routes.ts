@@ -8,7 +8,7 @@ import {
   listRolesSchema,
   deleteRoleSchema
 } from './roles.schemas';
-import { requireRoles } from '@/middleware/rbac';
+import { requireRoles, requirePermissions } from '@/middleware/rbac';
 
 export function rolesRoutes(
   fastify: FastifyInstance,
@@ -21,9 +21,8 @@ export function rolesRoutes(
 
   fastify.addHook('onRequest', fastify.authenticate);
   fastify.addHook('onRequest', requireRoles(['admin', 'superadmin']));
-  
-  // Require manage_admins or specific role permissions for full CRUD?
-  // We'll just rely on admin role for now, but you could add requirePermissions(['manage_users'])
+  // Roles decide what users can do, so managing them is user management.
+  fastify.addHook('onRequest', requirePermissions(['manage_users']));
 
   fastify.get('/', { schema: listRolesSchema }, controller.listRoles);
   fastify.post('/', { schema: createRoleSchema }, controller.createRole);

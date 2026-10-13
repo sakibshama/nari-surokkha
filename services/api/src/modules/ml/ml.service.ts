@@ -87,7 +87,7 @@ export class MlService {
       fileKey,
       checksum,
       sizeBytes,
-      metadata: (metadata ?? {}) as Prisma.InputJsonValue,
+      metadata: (metadata ?? {}),
       createdBy: userId ?? null,
     });
 
@@ -129,7 +129,7 @@ export class MlService {
       source: input.source,
       window: input.window as Prisma.InputJsonValue,
       sampleRate: input.sampleRate,
-      deviceInfo: (input.deviceInfo ?? undefined) as Prisma.InputJsonValue | undefined,
+      deviceInfo: (input.deviceInfo ?? undefined),
     };
     const created = await this.repo.createSample(data);
     return { id: created.id };

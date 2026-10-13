@@ -60,3 +60,14 @@ describe('IncidentsService - Safety Score Calculation', () => {
     expect(result.factors.total_deductions).toBe(200);
   });
 });
+
+describe('IncidentsService - location privacy', () => {
+  it('fuzzes the reported location once, to 3 decimal places (~110 m)', async () => {
+    vi.mocked(mockRepository.createIncident).mockResolvedValue({ id: 'i1' } as IncidentReport);
+    const service = new IncidentsService(mockRepository, {} as FastifyInstance);
+
+    await service.submitIncident('harassment', 23.810349, 90.412549);
+
+    expect(mockRepository.createIncident).toHaveBeenCalledWith('harassment', 23.81, 90.413, undefined);
+  });
+});

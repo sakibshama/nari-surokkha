@@ -23,6 +23,7 @@ import { useTheme } from '../../theme';
 import { useLanguage, useT } from '../../i18n';
 import { radius, spacing, type } from '../../theme/tokens';
 import type { Palette } from '../../theme/tokens';
+import TileMap from '../../components/TileMap';
 import { AppBar, Card, EmptyState, FadeIn, Screen, SectionLabel, Shimmer, Txt } from '../../components/ui';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'SafetyMap'>;
@@ -61,6 +62,7 @@ export default function SafetyMapScreen(_props: Props) {
   const [loading, setLoading] = useState(true);
   const [noLocation, setNoLocation] = useState(false);
   const [locationName, setLocationName] = useState<string | null>(null);
+  const [position, setPosition] = useState<{ latitude: number; longitude: number } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -71,6 +73,7 @@ export default function SafetyMapScreen(_props: Props) {
           return;
         }
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setPosition({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
         try {
           const [geo] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
           if (geo) setLocationName([geo.district || geo.city, geo.region].filter(Boolean).join(', ') || null);
@@ -158,6 +161,12 @@ export default function SafetyMapScreen(_props: Props) {
           <AnimatedBar pct={score} color="#fff" track="rgba(255,255,255,0.25)" delay={200} />
         </LinearGradient>
       </FadeIn>
+
+      {position && (
+        <FadeIn delay={80} style={{ marginTop: spacing.md }}>
+          <TileMap latitude={position.latitude} longitude={position.longitude} color={info.color} />
+        </FadeIn>
+      )}
 
       <SectionLabel>{t('Risk factors · last 30 days · 2 km')}</SectionLabel>
       <Card padded={false} delay={120}>

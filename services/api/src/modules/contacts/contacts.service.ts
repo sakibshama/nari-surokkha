@@ -88,7 +88,9 @@ export class ContactsService {
       }
     }
 
-    return this.repo.updateContact(id, userId, data);
+    // A new number is a new person: their consent has not been given.
+    const phoneChanged = data.phone !== undefined && data.phone !== contact.phone;
+    return this.repo.updateContact(id, userId, phoneChanged ? { ...data, isVerified: false } : data);
   }
 
   async deleteContact(id: string, userId: string): Promise<void> {
@@ -109,18 +111,5 @@ export class ContactsService {
     }
 
     await this.repo.deleteContact(id, userId);
-  }
-
-  async verifyContact(id: string, userId: string): Promise<TrustedContact> {
-    const contact = await this.repo.getContactById(id, userId);
-    if (!contact) {
-      throw new NotFoundError('Contact not found.');
-    }
-
-    if (contact.isVerified) {
-      return contact;
-    }
-
-    return this.repo.updateContact(id, userId, { isVerified: true });
   }
 }

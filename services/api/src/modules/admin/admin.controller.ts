@@ -1,21 +1,11 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AdminService } from './admin.service';
 
-import { ForbiddenError } from '@/utils/errors';
+import type { CreateUserInput, UpdateUserInput, AdminActor } from './admin.service';
+import type { AdminSettableStatus } from '@/modules/alerts/alert-status';
 
-export interface CreateUserDTO {
-  phone: string;
-  password?: string;
-  fullName: string;
-  role?: string;
-  preferredLanguage?: string;
-}
-
-export interface UpdateUserDTO {
-  phone?: string;
-  role?: string;
-  status?: string;
-  isVerified?: boolean;
+function actorOf(req: FastifyRequest): AdminActor {
+  return { id: req.user!.id, permissions: req.user!.permissions };
 }
 
 export class AdminController {
@@ -29,29 +19,20 @@ export class AdminController {
     return reply.send({ success: true, ...result });
   };
 
-  createUser = async (req: FastifyRequest<{ Body: CreateUserDTO }>, reply: FastifyReply) => {
-    const body = req.body;
-    const permissions = req.user?.permissions || [];
-    if (body.role === 'admin' && !permissions.includes('manage_admins')) {
-      throw new ForbiddenError('You do not have permission to create an admin user');
-    }
-    const user = await this.service.createUser(body);
+  createUser = async (req: FastifyRequest<{ Body: CreateUserInput }>, reply: FastifyReply) => {
+    const user = await this.service.createUser(actorOf(req), req.body);
     return reply.send({ success: true, data: user });
   };
 
-  updateUser = async (req: FastifyRequest<{ Params: { id: string }; Body: UpdateUserDTO }>, reply: FastifyReply) => {
-    const body = req.body;
-    const permissions = req.user?.permissions || [];
-    if (body.role === 'admin' && !permissions.includes('manage_admins')) {
-      throw new ForbiddenError('You do not have permission to assign the admin role');
-    }
-    const user = await this.service.updateUser(req.params.id, body);
+  updateUser = async (req: FastifyRequest<{ Params: { id: string }; Body: UpdateUserInput }>, reply: FastifyReply) => {
+    const user = await this.service.updateUser(actorOf(req), req.params.id, req.body);
     return reply.send({ success: true, data: user });
   };
 
   deleteUser = async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-    await this.service.deleteUser(req.params.id);
-    return reply.send({ success: true, message: 'User deleted successfully' });
+    const data = await this.service.deleteUser(actorOf(req), req.params.id);
+    const message = data.result === 'deleted' ? 'User deleted' : 'User has history and was deactivated instead';
+    return reply.send({ success: true, message, data });
   };
 
   updateUserStatus = async (
@@ -116,6 +97,14 @@ export class AdminController {
 
   getAlertById = async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     const data = await this.service.getAlertById(req.params.id);
+    return reply.send({ success: true, data });
+  };
+
+  setAlertStatus = async (
+    req: FastifyRequest<{ Params: { id: string }; Body: { status: AdminSettableStatus; note?: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const data = await this.service.setAlertStatus(actorOf(req), req.params.id, req.body.status, req.body.note);
     return reply.send({ success: true, data });
   };
 

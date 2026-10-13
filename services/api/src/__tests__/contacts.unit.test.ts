@@ -143,31 +143,25 @@ describe('ContactsService', () => {
       expect(repo.deleteContact).not.toHaveBeenCalled();
     });
   });
-  describe('verifyContact', () => {
-    it('verifies a contact successfully', async () => {
-      repo.getContactById.mockResolvedValue(mockContact); // contact is not verified
-      repo.updateContact.mockResolvedValue({ ...mockContact, isVerified: true });
-
-      const result = await service.verifyContact('contact-1', 'user-123');
-
-      expect(repo.updateContact).toHaveBeenCalledWith('contact-1', 'user-123', { isVerified: true });
-      expect(result.isVerified).toBe(true);
-    });
-
-    it('returns contact without updating if already verified', async () => {
+  describe('updateContact verification', () => {
+    it('changing the number clears isVerified (the new person has not consented)', async () => {
       repo.getContactById.mockResolvedValue({ ...mockContact, isVerified: true });
+      repo.getContactsByUserId.mockResolvedValue([{ ...mockContact, isVerified: true }]);
+      repo.updateContact.mockResolvedValue(mockContact);
 
-      const result = await service.verifyContact('contact-1', 'user-123');
+      await service.updateContact('contact-1', 'user-123', { phone: '+8801811111111' });
 
-      expect(repo.updateContact).not.toHaveBeenCalled();
-      expect(result.isVerified).toBe(true);
+      expect(repo.updateContact).toHaveBeenCalledWith('contact-1', 'user-123', {
+        phone: '+8801811111111',
+        isVerified: false,
+      });
     });
 
-    it('throws NotFoundError if contact to verify does not exist', async () => {
-      repo.getContactById.mockResolvedValue(null);
-
-      await expect(service.verifyContact('non-existent', 'user-123')).rejects.toThrow(NotFoundError);
-      expect(repo.updateContact).not.toHaveBeenCalled();
+    it('a rename keeps the verification', async () => {
+      repo.getContactById.mockResolvedValue({ ...mockContact, isVerified: true });
+      repo.updateContact.mockResolvedValue(mockContact);
+      await service.updateContact('contact-1', 'user-123', { name: 'Abbu' });
+      expect(repo.updateContact).toHaveBeenCalledWith('contact-1', 'user-123', { name: 'Abbu' });
     });
   });
 });

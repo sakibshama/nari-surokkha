@@ -68,6 +68,14 @@ export function registerErrorHandler(fastify: FastifyInstance): void {
         return;
       }
 
+      // ─── Other client errors (fastify.httpErrors.*, plugins) ─
+      const status = (error as Partial<FastifyError>).statusCode;
+      if (typeof status === 'number' && status >= 400 && status < 500) {
+        request.log.warn({ statusCode: status, path: request.url }, error.message);
+        void reply.status(status).send(buildError(`HTTP_${status}`, error.message));
+        return;
+      }
+
       // ─── Unknown / Unexpected Error ───────────────────────
       // Log full error details server-side only
       request.log.error(

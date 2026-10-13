@@ -207,6 +207,21 @@ describe('NotificationsService', () => {
       });
     });
 
+    it('records a failed SMS exactly once (log + metric), also when the provider throws', async () => {
+      sms.sendSms = vi.fn().mockResolvedValue({ success: false, error: 'Network Error' });
+      await expect(service.notifyTrustedContact('alert-1', 'c1')).rejects.toThrow();
+      expect(db.notificationLog.update).toHaveBeenCalledTimes(1);
+
+      db.notificationLog.update.mockClear();
+      sms.sendSms = vi.fn().mockRejectedValue(new Error('socket hang up'));
+      await expect(service.notifyTrustedContact('alert-1', 'c1')).rejects.toThrow();
+      expect(db.notificationLog.update).toHaveBeenCalledTimes(1);
+      expect(db.notificationLog.update).toHaveBeenCalledWith({
+        where: { id: 'log-1' },
+        data: expect.objectContaining({ status: 'failed', lastError: 'socket hang up' }),
+      });
+    });
+
     // This is the bug the rewrite exists to fix: a retry must not re-send.
     it('does not re-send SMS that was already delivered for this alert', async () => {
       db.notificationLog.findFirst.mockResolvedValue({ id: 'previous-log' });

@@ -9,7 +9,7 @@ import IncidentMediaGallery from '../components/IncidentMediaGallery';
 import api from '../services/api';
 import { socketService } from '../services/socket';
 import toast from 'react-hot-toast';
-import { useT } from '../i18n';
+import { useT, tr, fmt } from '../i18n';
 
 interface Incident {
   id: string;
@@ -64,7 +64,7 @@ export default function Incidents() {
     try {
       const res = await api.get('/admin/incidents');
       setIncidents(res.data.data || []);
-    } catch { toast.error('Failed to load incidents'); }
+    } catch { toast.error(tr('Failed to load incidents')); }
     finally { setLoading(false); setRefreshing(false); }
   };
 
@@ -72,17 +72,21 @@ export default function Incidents() {
     fetchIncidents();
     const handleNew = (inc: Incident) => {
       setIncidents(p => [inc, ...p]);
-      toast.success(`New ${inc.type.replace(/_/g,' ')} report!`, { icon: '📍', duration: 5000 });
+      toast.success(fmt(tr('New {type} report!'), { type: tr(getMeta(inc.type).label) }), { icon: '📍', duration: 5000 });
     };
     // A reporter's photos/videos arrive just after the report itself.
     const handleMedia = (e: { incidentId: string }) => {
       setIncidents(p => p.map(i => i.id === e.incidentId ? { ...i, mediaCount: (i.mediaCount ?? 0) + 1 } : i));
     };
-    socketService.socket?.on('incident:created', handleNew);
-    socketService.socket?.on('incident:media', handleMedia);
+    // Connect first (as Dashboard does): on a cold load of this page the
+    // socket does not exist yet. Listeners go through the service registry so
+    // they are attached whenever the socket is (re)created.
+    socketService.connect();
+    socketService.on('incident:created', handleNew);
+    socketService.on('incident:media', handleMedia);
     return () => {
-      socketService.socket?.off('incident:created', handleNew);
-      socketService.socket?.off('incident:media', handleMedia);
+      socketService.off('incident:created', handleNew);
+      socketService.off('incident:media', handleMedia);
     };
   }, []);
 
@@ -90,11 +94,11 @@ export default function Incidents() {
     setUpdatingId(id);
     try {
       await api.patch(`/admin/incidents/${id}/status`, { status });
-      toast.success(status === 'verified' ? 'Incident verified ✓' : 'Incident rejected');
+      toast.success(status === 'verified' ? tr('Incident verified ✓') : tr('Incident rejected'));
       setIncidents(p => p.map(i => i.id === id ? { ...i, status } : i));
       if (selected?.id === id) setSelected(s => s ? { ...s, status } : null);
     } catch (e: any) {
-      toast.error(e.response?.data?.error?.message || 'Failed to update');
+      toast.error(e.response?.data?.error?.message || tr('Failed to update'));
     } finally { setUpdatingId(null); }
   };
 
@@ -129,13 +133,13 @@ export default function Incidents() {
             <h1 className="page-title" style={{ margin:0 }}>{t('Incident Reports')}</h1>
           </div>
           <p style={{ margin:0, color:'var(--text-muted)', fontSize:13 }}>
-            Crowdsourced safety reports · Verify or reject to update safety scores
+            {t('Crowdsourced safety reports · Verify or reject to update safety scores')}
           </p>
         </div>
         <button className="btn btn-ghost" onClick={() => fetchIncidents(true)} disabled={refreshing}
           style={{ display:'flex', alignItems:'center', gap:6, fontSize:13 }}>
           <RefreshCw size={14} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }} />
-          {refreshing ? 'Refreshing…' : 'Refresh'}
+          {refreshing ? t('Refreshing…') : t('Refresh')}
         </button>
       </div>
 
@@ -153,7 +157,7 @@ export default function Incidents() {
             </div>
             <div>
               <div style={{ fontSize:26, fontWeight:800, color:s.color, lineHeight:1 }}>{s.val}</div>
-              <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:3, fontWeight:500 }}>{s.label}</div>
+              <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:3, fontWeight:500 }}>{t(s.label)}</div>
             </div>
           </div>
         ))}
@@ -212,10 +216,10 @@ export default function Incidents() {
         <div className="card" style={{ padding:'60px 40px', textAlign:'center' }}>
           <AlertTriangle size={40} color="var(--text-muted)" style={{ marginBottom:12, opacity:0.4 }} />
           <h3 style={{ margin:'0 0 6px', color:'var(--text-sub)', fontWeight:600 }}>
-            {search || filterStatus!=='all' || filterType!=='all' ? 'No matching reports' : 'No Incidents Yet'}
+            {search || filterStatus!=='all' || filterType!=='all' ? t('No matching reports') : t('No Incidents Yet')}
           </h3>
           <p style={{ margin:0, color:'var(--text-muted)', fontSize:13 }}>
-            {search || filterStatus!=='all' || filterType!=='all' ? 'Try clearing your filters.' : 'Community reports will appear here.'}
+            {search || filterStatus!=='all' || filterType!=='all' ? t('Try clearing your filters.') : t('Community reports will appear here.')}
           </p>
         </div>
       ) : (

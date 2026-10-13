@@ -1,6 +1,6 @@
 # Load tests
 
-Every capacity figure in `PERFORMANCE_SCALABILITY_RATING_v2.md` is an estimate
+Every capacity figure in `docs/reports/PERFORMANCE_SCALABILITY_RATING_v2.md` is an estimate
 derived from reading code. These scripts replace the estimates with numbers.
 
 ## Why these three

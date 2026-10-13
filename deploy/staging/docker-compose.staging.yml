@@ -1,78 +1,141 @@
-version: '3.8'
+# ============================================================
+# Nari Surokkha — STAGING stack (single host, plain HTTP behind your own TLS
+# terminator or for internal testing only).
+#
+# Run from the REPOSITORY ROOT (the API image builds from the monorepo root):
+#   cp deploy/staging/.env.example deploy/staging/.env   # fill every value
+#   docker compose -f deploy/staging/docker-compose.staging.yml \
+#     --env-file deploy/staging/.env up -d --build
+#
+# NODE_ENV=staging is treated like production by the API for every safety
+# check (no wildcard CORS, phone OTP required by default, trustProxy=1).
+# One origin serves everything: /  -> admin portal, /api, /socket.io, /t, /c,
+# /health -> API (see nginx.staging.conf).
+# ============================================================
+
+x-logging: &default-logging
+  driver: json-file
+  options: { max-size: "20m", max-file: "3" }
+
+x-api-env: &api-env
+  NODE_ENV: staging
+  PORT: "3001"
+  API_BASE_URL: ${STAGING_URL:?STAGING_URL is required}
+  DATABASE_URL: postgresql://${DB_USER:?DB_USER is required}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_NAME:?DB_NAME is required}?schema=public
+  # No PgBouncer on staging, so migrations use the same database URL.
+  DIRECT_DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?schema=public
+  REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (>= 64 chars)}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required (>= 64 chars)}
+  CONFIG_ENCRYPTION_KEY: ${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY is required}
+  CORS_ORIGINS: ${STAGING_URL}
+  WS_CORS_ORIGINS: ${STAGING_URL}
+  STORAGE_PROVIDER: local
+  STORAGE_LOCAL_DIR: /app/uploads
+  EVIDENCE_URL_SECRET: ${EVIDENCE_URL_SECRET:-}
+  SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+  # required | optional. Default (unset) is `required` on staging.
+  PHONE_VERIFICATION: ${PHONE_VERIFICATION:-}
+  # One trusted hop: the staging nginx below.
+  TRUST_PROXY: "1"
+  TURN_HOST: ${TURN_HOST:-}
+  TURN_SECRET: ${TURN_SECRET:-}
+  OSRM_URL: ${OSRM_URL:-https://router.project-osrm.org}
+  METRICS_PORT: "9091"
+  LOG_LEVEL: info
 
 services:
-  # Database
   postgres:
-    image: postgis/postgis:15-3.3
-    container_name: nari_surokkha_db_staging
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
-    ports:
-      - "5432:5432"
+    # Not published. Reach it with: docker compose ... exec postgres psql -U ...
     volumes:
       - pgdata_staging:/var/lib/postgresql/data
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Redis
   redis:
     image: redis:7-alpine
-    container_name: nari_surokkha_redis_staging
-    command: redis-server --requirepass ${REDIS_PASSWORD}
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
     volumes:
       - redisdata_staging:/data
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # API Backend
+  # HTTP only. Applies migrations and the roles-only seed on start.
   api:
-    build: 
-      context: ../../services/api
-      dockerfile: Dockerfile
-    container_name: nari_surokkha_api_staging
-    environment:
-      - NODE_ENV=staging
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?schema=public
-      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - LOG_LEVEL=info
-      - PORT=3000
-      - FRONTEND_URL=http://localhost:8080
-    ports:
-      - "3000:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    build:
+      context: ../..
+      dockerfile: services/api/Dockerfile
+    image: nari-surokkha/api:staging
     restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *api-env
+      WORKER_MODE: "false"
+    volumes:
+      - uploads_staging:/app/uploads
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run prisma:seed && node dist/server.js"]
 
-  # Nginx Reverse Proxy
+  # BullMQ workers (notifications, escalation, dispatch, retention).
+  worker:
+    image: nari-surokkha/api:staging
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *api-env
+      WORKER_MODE: "true"
+    volumes:
+      - uploads_staging:/app/uploads
+    depends_on:
+      api: { condition: service_healthy }
+    command: ["node", "dist/worker.js"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9091/health >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  admin-portal:
+    build:
+      context: ../..
+      dockerfile: apps/admin-portal/Dockerfile
+      args:
+        VITE_API_URL: ${STAGING_URL}/api/v1
+        VITE_WS_URL: ${STAGING_URL}
+    restart: unless-stopped
+    logging: *default-logging
+
   nginx:
-    image: nginx:alpine
-    container_name: nari_surokkha_nginx_staging
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    logging: *default-logging
     ports:
-      - "80:80"
+      - "${STAGING_HTTP_PORT:-80}:80"
     volumes:
       - ./nginx.staging.conf:/etc/nginx/conf.d/default.conf:ro
-      # Static builds
-      - ../../apps/admin-portal/dist:/usr/share/nginx/html/admin:ro
-    depends_on:
-      - api
-    restart: unless-stopped
+    depends_on: [api, admin-portal]
 
 volumes:
   pgdata_staging:
   redisdata_staging:
+  uploads_staging:

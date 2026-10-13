@@ -65,20 +65,22 @@ export async function sendSosSmsFromDevice(req: DeviceSmsRequest): Promise<Devic
     return askServer(req.alertId, recipients, req.message);
   }
 
-  // 1. Silent send from the SIM.
-  if (await trySendDirectSms(recipients, req.message)) {
-    await logSms({ channel: 'quota-sim', status: 'auto', recipients, message: req.message, reason: REASON });
-    return 'sim';
+  // 1. Silent send from the SIM — counted only once the network accepted it.
+  const direct = await trySendDirectSms(recipients, req.message);
+  if (direct.sent.length) {
+    await logSms({ channel: 'quota-sim', status: 'auto', recipients: direct.sent, message: req.message, reason: REASON });
   }
+  if (direct.failed.length === 0) return 'sim';
+  const rest = direct.failed;
 
-  // 2. Composer — only when the user is looking at the app.
+  // 2. Composer for whoever was not texted — only when the user is looking at the app.
   const visible = AppState.currentState === 'active';
   if ((req.allowComposer ?? visible) && visible) {
     try {
       if (await SMS.isAvailableAsync()) {
-        const { result } = await SMS.sendSMSAsync(recipients, req.message);
+        const { result } = await SMS.sendSMSAsync(rest, req.message);
         if (result !== 'cancelled') {
-          await logSms({ channel: 'quota-sim', status: 'manual', recipients, message: req.message, reason: REASON });
+          await logSms({ channel: 'quota-sim', status: 'manual', recipients: rest, message: req.message, reason: REASON });
           return 'composer';
         }
       }
@@ -88,5 +90,6 @@ export async function sendSosSmsFromDevice(req: DeviceSmsRequest): Promise<Devic
   }
 
   // 3. The phone could not send it: the server sends it after all.
-  return askServer(req.alertId, recipients, req.message);
+  const viaServer = await askServer(req.alertId, rest, req.message);
+  return viaServer === 'failed' && direct.sent.length ? 'sim' : viaServer;
 }

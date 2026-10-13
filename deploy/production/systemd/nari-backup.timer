@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Nari Surokkha backup (02:15 server time)
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

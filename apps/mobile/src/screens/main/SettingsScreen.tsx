@@ -22,7 +22,9 @@ import { Screen, Card, ListRow, RowDivider, SectionLabel, Txt, Button, AppBar, F
 import ThemeModeControl from '../../components/ThemeModeControl';
 import LanguageToggle from '../../components/LanguageToggle';
 import api, { describeApiTarget, initApiTarget, probe, setApiBaseUrl } from '../../services/api';
-import { useAuthStore } from '../../store/authStore';
+import { signOut } from '../../services/signOut';
+import { registerDeviceTokenWithServer, unregisterPush } from '../../services/pushNotifications';
+import { refreshLocationTracking } from '../../services/backgroundTasks';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useTheme } from '../../theme';
 import { useT } from '../../i18n';
@@ -34,13 +36,18 @@ import { MainStackParamList } from '../../navigation/MainStack';
 export default function SettingsScreen() {
   const { colors } = useTheme();
   const t = useT();
-  const { logout } = useAuthStore();
   const navigation = useNavigation<NativeStackNavigationProp<MainStackParamList>>();
-  const { mlGyroEnabled, mlDataSharingEnabled, setMlGyroEnabled, setMlDataSharingEnabled } = useSettingsStore();
-
-  // TODO: these two are still local-only — nothing downstream reads them yet.
-  const [notifications, setNotifications] = useState(true);
-  const [locationSharing, setLocationSharing] = useState(true);
+  const {
+    mlGyroEnabled,
+    mlDataSharingEnabled,
+    pushEnabled,
+    backgroundLocationEnabled,
+    setMlGyroEnabled,
+    setMlDataSharingEnabled,
+    setPushEnabled,
+    setBackgroundLocationEnabled,
+  } = useSettingsStore();
+  const [pushBusy, setPushBusy] = useState(false);
   const [checking, setChecking] = useState(false);
   const [target, setTarget] = useState(describeApiTarget());
   const [editing, setEditing] = useState(false);
@@ -106,6 +113,33 @@ export default function SettingsScreen() {
     }
   };
 
+  /** Really (un)register this device for push, not just flip a flag. */
+  const togglePush = async (on: boolean) => {
+    setPushBusy(true);
+    try {
+      if (on) {
+        const ok = await registerDeviceTokenWithServer();
+        if (!ok) {
+          showAlert(t('Notifications are off'), t('Allow notifications for Nari Surokkha in your phone settings, then try again.'));
+          return;
+        }
+      } else {
+        await unregisterPush();
+      }
+      setPushEnabled(on);
+    } catch {
+      showAlert(t('Error'), t('Could not update notifications. Check your connection.'));
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  /** Off → location is tracked only while the app is open. Applies to a running SOS too. */
+  const toggleBackgroundLocation = (on: boolean) => {
+    setBackgroundLocationEnabled(on);
+    void refreshLocationTracking();
+  };
+
   const themedSwitch = (value: boolean, onChange: (v: boolean) => void) => (
     <Switch
       value={value}
@@ -119,7 +153,7 @@ export default function SettingsScreen() {
   const confirmLogout = () => {
     showAlert(t('Log out?'), t('You will stop receiving alerts on this device until you sign in again.'), [
       { text: t('Cancel'), style: 'cancel' },
-      { text: t('Log out'), style: 'destructive', onPress: logout },
+      { text: t('Log out'), style: 'destructive', onPress: () => void signOut() },
     ]);
   };
 
@@ -158,14 +192,18 @@ export default function SettingsScreen() {
           title={t('Push notifications')}
           subtitle={t('Dispatch updates and responder replies')}
           icon={<Bell size={19} color={colors.accent} />}
-          right={themedSwitch(notifications, setNotifications)}
+          right={pushBusy ? <ActivityIndicator color={colors.accent} /> : themedSwitch(pushEnabled, (v) => void togglePush(v))}
         />
         <RowDivider />
         <ListRow
           title={t('Background location')}
-          subtitle={t('Shared only while an SOS is active')}
+          subtitle={
+            backgroundLocationEnabled
+              ? t('During an SOS or safe route, also while the app is closed')
+              : t('Only while the app is open')
+          }
           icon={<Shield size={19} color={colors.accent} />}
-          right={themedSwitch(locationSharing, setLocationSharing)}
+          right={themedSwitch(backgroundLocationEnabled, toggleBackgroundLocation)}
         />
       </Card>
 
@@ -197,17 +235,20 @@ export default function SettingsScreen() {
       {/* ── Connection ─────────────────────────────────────────────── */}
       <SectionLabel>{t('Connection')}</SectionLabel>
       <Card padded={false} delay={200}>
-        <ListRow
-          title={t('Server address')}
-          subtitle={target}
-          icon={<Server size={19} color={colors.accent} />}
-          onPress={() => {
-            setDraft(target);
-            setEditing((v) => !v);
-          }}
-        />
+        {/* Pointing the app at another server is a developer tool only. */}
+        {__DEV__ && (
+          <ListRow
+            title={t('Server address')}
+            subtitle={target}
+            icon={<Server size={19} color={colors.accent} />}
+            onPress={() => {
+              setDraft(target);
+              setEditing((v) => !v);
+            }}
+          />
+        )}
 
-        {editing && (
+        {__DEV__ && editing && (
           <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
             <Field
               value={draft}
@@ -244,7 +285,7 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        <RowDivider />
+        {__DEV__ && <RowDivider />}
         <ListRow
           title={t('Check server connection')}
           subtitle={t('Confirm an SOS can reach the server')}
@@ -252,13 +293,17 @@ export default function SettingsScreen() {
           onPress={checking ? undefined : checkConnection}
           right={checking ? <ActivityIndicator color={colors.accent} /> : undefined}
         />
-        <RowDivider />
-        <ListRow
-          title={t('Detect server automatically')}
-          subtitle={t('Try this phone, your computer and the emulator')}
-          icon={<Wand2 size={19} color={colors.accent} />}
-          onPress={checking ? undefined : autoDetect}
-        />
+        {__DEV__ && (
+          <>
+            <RowDivider />
+            <ListRow
+              title={t('Detect server automatically')}
+              subtitle={t('Try this phone, your computer and the emulator')}
+              icon={<Wand2 size={19} color={colors.accent} />}
+              onPress={checking ? undefined : autoDetect}
+            />
+          </>
+        )}
       </Card>
 
       {/* ── Account ────────────────────────────────────────────────── */}
@@ -267,7 +312,7 @@ export default function SettingsScreen() {
         <ListRow
           title={t('Change password')}
           icon={<Lock size={19} color={colors.accent} />}
-          onPress={() => showAlert(t('Change password'), t('This opens the password form once it is wired up.'))}
+          onPress={() => navigation.navigate('ChangePassword')}
         />
       </Card>
 

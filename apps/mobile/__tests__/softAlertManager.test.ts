@@ -224,3 +224,38 @@ test('quota available → no phone SMS', async () => {
   await m.confirmNow();
   assert.ok(!calls.includes('fallback-sms'));
 });
+
+test('route deviation: the server-created soft alert is adopted, not created again', async () => {
+  const { m, clock, calls } = setup();
+  const r = m.trigger('route', { serverAlertId: 'route-1' });
+  assert.equal(r.accepted, true);
+  await flush();
+  assert.ok(!calls.some((c) => c.startsWith('create')), 'no second soft alert on the server');
+  await m.cancel(); // "I'm okay"
+  assert.ok(calls.includes('cancel:route-1'));
+  await clock.advance(20_000);
+  assert.ok(!calls.some((c) => c.startsWith('confirm')));
+});
+
+test('route deviation: unanswered → the adopted alert is confirmed', async () => {
+  const { m, clock, calls } = setup();
+  m.trigger('route', { serverAlertId: 'route-2' });
+  await clock.advance(15_500);
+  assert.ok(calls.includes('confirm:route-2'));
+  assert.ok(calls.includes('activated:route-2:false'));
+});
+
+test('route deviation while another alert counts down or an SOS is live → cancelled on the server', async () => {
+  const s = setup();
+  s.m.trigger('shout');
+  await flush();
+  assert.deepEqual(s.m.trigger('route', { serverAlertId: 'route-3' }), { accepted: false, reason: 'active' });
+  await flush();
+  assert.ok(s.calls.includes('cancel:route-3'));
+
+  const t = setup();
+  t.setSos(true);
+  assert.equal(t.m.trigger('route', { serverAlertId: 'route-4' }).accepted, false);
+  await flush();
+  assert.ok(t.calls.includes('cancel:route-4'));
+});

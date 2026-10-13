@@ -15,6 +15,7 @@ import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import api from '../services/api';
 import { useLangStore, useT } from '../i18n';
+import ConfirmDialog from '../components/ConfirmDialog';
 import './Settings.css';
 
 // ─── Types & helpers ──────────────────────────────────────────────────────────
@@ -187,6 +188,7 @@ export default function Settings() {
   const [mapsKey, setMapsKey] = useState('');
   const [mapsOrig, setMapsOrig] = useState('');
   const [savingMaps, setSavingMaps] = useState(false);
+  const [confirmRemoveMapsKey, setConfirmRemoveMapsKey] = useState(false);
 
   // SMS gateway
   const [sms, setSms] = useState<SmsConfigPublic>(DEFAULT_SMS);
@@ -276,17 +278,30 @@ export default function Settings() {
   // ── Actions ──
   const saveProfile = async (e: FormEvent) => {
     e.preventDefault();
-    if (!profile.fullName.trim()) return toast.error('Enter your full name');
+    if (!profile.fullName.trim()) return toast.error(t('Enter your full name'));
     setSavingProfile(true);
     try {
-      await api.put('/profile', { fullName: profile.fullName.trim(), email: profile.email.trim() || undefined });
-      const p = { ...profile, fullName: profile.fullName.trim(), email: profile.email.trim() };
+      const body: Record<string, string> = { fullName: profile.fullName.trim() };
+      // Contract 12: email is persisted (validated, unique → 409).
+      if (profile.email.trim() !== profileOrig.email) body.email = profile.email.trim();
+      const res = await api.put('/profile', body);
+      const saved = res.data?.data;
+      // Show what the server actually stored, not what we sent.
+      const p = {
+        ...profile,
+        fullName: saved?.profile?.fullName ?? saved?.fullName ?? profile.fullName.trim(),
+        email: saved && 'email' in saved ? (saved.email ?? '') : profile.email.trim(),
+      };
       setProfile(p);
       setProfileOrig(p);
-      if (user) useAuthStore.setState({ user: { ...user, fullName: p.fullName } });
-      toast.success('Profile updated');
-    } catch (err) {
-      toast.error(apiError(err, 'Failed to update profile'));
+      if (user) useAuthStore.getState().setUser({ fullName: p.fullName });
+      toast.success(t('Profile updated'));
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        toast.error(err.response?.data?.error?.message || t('This email address is already used by another account.'));
+      } else {
+        toast.error(apiError(err, t('Failed to update profile')));
+      }
     } finally {
       setSavingProfile(false);
     }
@@ -771,7 +786,7 @@ export default function Settings() {
                 <>
                   <FootNote dirty={dirty.maps} clean={mapsOrig ? t('Using Google Maps') : t('Using OpenStreetMap (free)')} />
                   {mapsOrig && (
-                    <button type="button" className="btn btn-danger" disabled={savingMaps} onClick={() => { if (window.confirm('Remove the Google Maps key and switch to OpenStreetMap?')) void saveMaps(''); }}>
+                    <button type="button" className="btn btn-danger" disabled={savingMaps} onClick={() => setConfirmRemoveMapsKey(true)}>
                       <Trash2 size={15} /> {t('Remove key')}
                     </button>
                   )}
@@ -807,6 +822,16 @@ export default function Settings() {
 
   return (
     <div className="animate-in">
+      <ConfirmDialog
+        open={confirmRemoveMapsKey}
+        danger
+        title={t('Remove the Google Maps key?')}
+        message={t('Maps will switch to OpenStreetMap.')}
+        confirmLabel={t('Remove')}
+        busy={savingMaps}
+        onCancel={() => setConfirmRemoveMapsKey(false)}
+        onConfirm={() => { setConfirmRemoveMapsKey(false); void saveMaps(''); }}
+      />
       <div className="page-header">
         <h1 className="page-title">{t('Settings')}</h1>
         <p className="page-subtitle">{t('Manage your account, appearance and the services the platform uses.')}</p>

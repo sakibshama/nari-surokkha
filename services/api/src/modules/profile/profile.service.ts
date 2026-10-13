@@ -3,8 +3,18 @@
  */
 
 import { ProfileRepository, UserWithProfile } from './profile.repository';
-import { NotFoundError } from '@/utils/errors';
-import { UserProfile } from '@prisma/client';
+import { ConflictError, NotFoundError } from '@/utils/errors';
+import { Prisma, UserProfile } from '@prisma/client';
+
+export type ProfileUpdate = {
+  email?: string | null;
+  fullName?: string;
+  bloodGroup?: string;
+  preferredLanguage?: string;
+  emergencyNote?: string;
+  nationalId?: string;
+  profilePhotoKey?: string;
+};
 
 export class ProfileService {
   constructor(private readonly repo: ProfileRepository) {}
@@ -17,23 +27,32 @@ export class ProfileService {
     return user;
   }
 
-  async updateProfile(
-    userId: string,
-    data: {
-      fullName?: string;
-      bloodGroup?: string;
-      preferredLanguage?: string;
-      emergencyNote?: string;
-      nationalId?: string;
-      profilePhotoKey?: string;
-    },
-  ): Promise<UserProfile> {
-    // Check if user exists first to throw 404 if not found
-    await this.getProfile(userId);
+  /** Profile fields plus the account email (unique; '' clears it). */
+  async updateProfile(userId: string, data: ProfileUpdate): Promise<UserProfile & { email: string | null }> {
+    const { email: rawEmail, ...profileData } = data;
+    const user = await this.getProfile(userId);
 
-    // If a national ID is provided, user should be re-verified manually
-    // For now we just update the profile
-    return this.repo.updateProfile(userId, data);
+    let email = user.email;
+    if (rawEmail !== undefined) {
+      email = rawEmail?.trim().toLowerCase() || null;
+      if (email !== user.email) {
+        if (email && (await this.repo.isEmailTakenByOther(email, userId))) {
+          throw new ConflictError('This email is already in use by another account.');
+        }
+        try {
+          await this.repo.updateEmail(userId, email);
+        } catch (err) {
+          // Lost a race with another account claiming the same address.
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+            throw new ConflictError('This email is already in use by another account.');
+          }
+          throw err;
+        }
+      }
+    }
+
+    const profile = await this.repo.updateProfile(userId, profileData);
+    return { ...profile, email };
   }
 
   async deactivateAccount(userId: string): Promise<void> {

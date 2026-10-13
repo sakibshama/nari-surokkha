@@ -30,7 +30,7 @@ export class AlertsController {
   updateLocation = async (
     req: FastifyRequest<{
       Params: { id: string };
-      Body: { latitude: number; longitude: number; accuracy?: number; timestamp?: string };
+      Body: { latitude: number; longitude: number; accuracy?: number; timestamp?: string | number | null };
     }>,
     reply: FastifyReply,
   ) => {
@@ -43,29 +43,6 @@ export class AlertsController {
     return reply.status(200).send({
       success: true,
       message: 'Location updated successfully',
-    });
-  };
-
-  generateTrackingToken = async (
-    req: FastifyRequest<{
-      Params: { id: string };
-      Body: { trustedContactId?: string };
-    }>,
-    reply: FastifyReply,
-  ) => {
-    const { token, expiresAt } = this.service.generateTrackingToken(
-      req.user!.id,
-      req.params.id,
-      req.body.trustedContactId
-    );
-
-    return reply.status(200).send({
-      success: true,
-      message: 'Tracking token generated successfully',
-      data: {
-        token,
-        expiresAt: expiresAt.toISOString(),
-      },
     });
   };
 
@@ -113,6 +90,18 @@ export class AlertsController {
     return reply.status(200).send({
       success: true,
       message: 'Soft alert confirmed',
+      data: alert,
+    });
+  };
+
+  resolveAlert = async (
+    req: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const alert = await this.service.resolveOwnAlert(req.user!.id, req.params.id);
+    return reply.status(200).send({
+      success: true,
+      message: 'Alert resolved',
       data: alert,
     });
   };

@@ -3,11 +3,8 @@ import { EvidenceRepository } from './evidence.repository';
 import { EvidenceType } from '@prisma/client';
 import type { Readable } from 'stream';
 import { emitToAlert } from '@/utils/alert-rooms';
+import { canAccessAlert } from '@/utils/alert-access';
 
-/** Roles allowed to view any user's evidence. */
-function isAdminRole(role: string): boolean {
-  return role === 'admin' || role === 'superadmin';
-}
 
 export class EvidenceService {
   constructor(
@@ -81,8 +78,7 @@ export class EvidenceService {
       throw this.fastify.httpErrors.notFound('Alert not found');
     }
 
-    // Owners see their own; admins can see any.
-    if (!isAdminRole(requestUser.role) && alert.userId !== requestUser.id) {
+    if (!(await canAccessAlert(this.fastify.prisma, alertId, requestUser))) {
       throw this.fastify.httpErrors.forbidden('Not authorized to view this alert');
     }
 
@@ -137,10 +133,7 @@ export class EvidenceService {
     if (!evidence) {
       throw this.fastify.httpErrors.notFound('Evidence not found');
     }
-    const alert = (evidence as unknown as { alert: { userId: string } }).alert;
-    if (requestUser.role === 'citizen' && alert.userId !== requestUser.id) {
-      throw this.fastify.httpErrors.forbidden('Not authorized to access this evidence');
-    }
+    await this.assertCanAccess(evidence.alertId, requestUser);
 
     let buffer: Buffer;
     try {
@@ -160,12 +153,7 @@ export class EvidenceService {
       throw this.fastify.httpErrors.notFound('Evidence not found');
     }
 
-    // Access Control: Owner or Admin
-    // Note: evidence.alert is populated from repository
-    const alert = (evidence as any).alert;
-    if (!isAdminRole(requestUser.role) && alert.userId !== requestUser.id) {
-      throw this.fastify.httpErrors.forbidden('Not authorized to access this evidence');
-    }
+    await this.assertCanAccess(evidence.alertId, requestUser);
 
     // Generate URL
     const expiresIn = 900; // 15 mins
@@ -176,6 +164,13 @@ export class EvidenceService {
 
     return { url, expiresIn };
   }
+  /** Owner, admin, or a responder with an accepted dispatch for the alert. */
+  private async assertCanAccess(alertId: string, requestUser: { id: string; role: string }): Promise<void> {
+    if (!(await canAccessAlert(this.fastify.prisma, alertId, requestUser))) {
+      throw this.fastify.httpErrors.forbidden('Not authorized to access this evidence');
+    }
+  }
+
   /**
    * Roll back an upload that turned out to be invalid (e.g. truncated).
    * Removes both the database row and the stored object, so a partial file

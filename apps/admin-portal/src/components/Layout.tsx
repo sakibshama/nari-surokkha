@@ -3,17 +3,21 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserCheck,
   Activity, Settings, LogOut, Menu, X,
-  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, Languages, CreditCard
+  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, Languages, CreditCard, WifiOff
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import { useT, useLangStore } from '../i18n';
-import { socketService } from '../services/socket';
+import { socketService, signOut, useSocketStatus } from '../services/socket';
 import api from '../services/api';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import GlobalAlertModal from './GlobalAlertModal';
 import FlagRoundel from './FlagRoundel';
 import AppLogo from './AppLogo';
+import { tr } from '../i18n';
+
+// Contract 7: "active" = created, confirmed, notified_contacts, in_progress.
+const ACTIVE_STATUSES = ['created', 'confirmed', 'notified_contacts', 'in_progress'];
 
 type NavItemDef = { label: string; icon: any; path: string; permission?: string };
 
@@ -35,7 +39,8 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuthStore();
+  const { user, hasPermission } = useAuthStore();
+  const socketStatus = useSocketStatus((s) => s.status);
   const { mode, toggleTheme } = useThemeStore();
   const t = useT();
   const { lang, toggleLang } = useLangStore();
@@ -52,11 +57,11 @@ export default function Layout() {
   const fetchNotifications = async () => {
     try {
       const res = await api.get('/admin/alerts', { params: { limit: 5, _t: Date.now() }, headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
-      const activeAlerts = res.data.data.filter((a: any) => a.status === 'created' || a.status === 'confirmed');
+      const activeAlerts = res.data.data.filter((a: any) => ACTIVE_STATUSES.includes(a.status));
       setNotifications(activeAlerts);
       setUnreadCount(activeAlerts.length);
     } catch (err) {
-      console.error('Failed to fetch notifications', err);
+      if (import.meta.env.DEV) console.error('Failed to fetch notifications', err);
     }
   };
 
@@ -65,27 +70,29 @@ export default function Layout() {
     socketService.connect();
     
     const handleNewAlert = (alertData: any) => {
-      console.log('🚨 Received alert:created via WebSocket!', alertData);
-      toast.error('EMERGENCY SOS DETECTED!', { duration: 5000, position: 'top-center' });
+      if (import.meta.env.DEV) console.log('Received alert:created via WebSocket', alertData);
+      toast.error(tr('EMERGENCY SOS DETECTED!'), { duration: 5000, position: 'top-center' });
       setIncomingAlert(alertData);
       setNotifications(prev => [alertData, ...prev]);
       setUnreadCount(prev => prev + 1);
     };
+    // Drop alerts from the bell once they are resolved/closed elsewhere.
+    const handleStatus = (e: { alertId: string; status: string }) => {
+      if (ACTIVE_STATUSES.includes(e?.status)) return;
+      setNotifications(prev => prev.filter(a => (a.id || a.alertId) !== e?.alertId));
+    };
 
-    if (socketService.socket) {
-      socketService.socket.on('alert:created', handleNewAlert);
-    }
+    socketService.on('alert:created', handleNewAlert);
+    socketService.on('alert_status_update', handleStatus);
 
     return () => {
-      if (socketService.socket) {
-        socketService.socket.off('alert:created', handleNewAlert);
-      }
+      socketService.off('alert:created', handleNewAlert);
+      socketService.off('alert_status_update', handleStatus);
     };
   }, []);
 
-  const handleLogout = () => {
-    logout();
-    socketService.disconnect();
+  const handleLogout = async () => {
+    await signOut();
     navigate('/login');
   };
 
@@ -129,11 +136,11 @@ export default function Layout() {
       {/* Nav */}
       <nav className="sidebar-nav">
         <div className="sidebar-section-label">{t('Main')}</div>
-        {/* Show all items if permissions not loaded yet, else filter by permission */}
-        {NAV_MAIN.filter(item => !item.permission || !user?.permissions || user.permissions.includes(item.permission)).map(item => <NavItem key={item.path} item={item} />)}
+        {/* Items are shown only when the user holds the required permission */}
+        {NAV_MAIN.filter(item => !item.permission || hasPermission(item.permission)).map(item => <NavItem key={item.path} item={item} />)}
 
         <div className="sidebar-section-label" style={{ marginTop: 8 }}>{t('System')}</div>
-        {NAV_SYSTEM.filter(item => !item.permission || !user?.permissions || user.permissions.includes(item.permission)).map(item => <NavItem key={item.path} item={item} />)}
+        {NAV_SYSTEM.filter(item => !item.permission || hasPermission(item.permission)).map(item => <NavItem key={item.path} item={item} />)}
       </nav>
 
       {/* User footer */}
@@ -165,7 +172,6 @@ export default function Layout() {
 
   return (
     <div className="portal-shell">
-      <Toaster />
       <GlobalAlertModal alert={incomingAlert} onDismiss={() => setIncomingAlert(null)} />
       {/* ── Sidebar Desktop ── */}
       <aside className="sidebar" style={{ display: 'flex' }}>
@@ -209,7 +215,16 @@ export default function Layout() {
             fontSize: 11.5, fontWeight: 700, color: 'var(--gov-green)', letterSpacing: '0.3px',
           }} className="gov-topbar-chip">
             <FlagRoundel size={14} />
-            National Women Safety Service
+            {t('National Women Safety Service')}
+          </span>
+          <span
+            title={socketStatus === 'connected' ? t('Realtime connection is live') : t('Realtime connection is down — SOS alerts may be delayed')}
+            className={`badge ${socketStatus === 'connected' ? 'success' : socketStatus === 'error' ? 'danger' : 'warning'}`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            {socketStatus === 'connected'
+              ? <><span className="badge-dot" style={{ background: 'currentColor' }} /> {t('Live')}</>
+              : <><WifiOff size={12} /> {socketStatus === 'error' ? t('Offline') : t('Reconnecting…')}</>}
           </span>
           <div className="topbar-actions">
             <button className="topbar-btn" onClick={toggleLang} title={t('Language')} aria-label={t('Language')}>

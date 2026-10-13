@@ -18,11 +18,21 @@
       },
       "ios": {
         "resourceClass": "m1-medium"
+      },
+      "env": {
+        "APP_ENV": "production"
       }
     },
     "production": {
       "ios": {
         "resourceClass": "m1-medium"
+      },
+      "env": {
+        "APP_ENV": "production"
+      },
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
       }
     }
   },

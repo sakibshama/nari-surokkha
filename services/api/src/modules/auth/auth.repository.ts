@@ -151,6 +151,11 @@ export class AuthRepository {
 
   // ─── Device Tokens ────────────────────────────────────────────
 
+  async deactivateDeviceToken(userId: string, token: string): Promise<number> {
+    const r = await this.db.deviceToken.updateMany({ where: { userId, token }, data: { isActive: false } });
+    return r.count;
+  }
+
   async upsertDeviceToken(data: {
     userId: string;
     token: string;

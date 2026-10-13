@@ -43,7 +43,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       # Install ALL workspaces from the root lockfile (links @nari-surokkha/shared).
@@ -56,6 +56,9 @@ jobs:
 
       - name: Generate Prisma client
         working-directory: services/api
+        env:
+          DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
+          DIRECT_DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
         run: npx prisma generate
 
       - name: Type check
@@ -71,6 +74,7 @@ jobs:
         working-directory: services/api
         env:
           DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
+          DIRECT_DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
         run: npx prisma migrate deploy
 
       # Coverage thresholds live in vitest.config.ts. They were 70/70/60 and
@@ -83,6 +87,7 @@ jobs:
         working-directory: services/api
         env:
           DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
+          DIRECT_DATABASE_URL: postgresql://nari_user:test_password@localhost:5432/nari_test
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test_jwt_secret_at_least_64_chars_long_xxxxxxxxxxxxxxxxxxxxxxxxxx
           JWT_REFRESH_SECRET: test_refresh_secret_at_least_64_chars_long_xxxxxxxxxxxxxxxx
@@ -91,15 +96,18 @@ jobs:
         run: npm run test:coverage
 
   # ─── Admin Portal ───────────────────────────────────────────
+  # One job (it used to be two: this one and a "Portals" matrix that built the
+  # same app again). Type-check uses `tsc -b`: the root tsconfig.json has
+  # `files: []`, so `tsc -p .` would check nothing.
   admin-portal-checks:
-    name: Admin Portal — Lint, Build (type-check)
+    name: Admin Portal — Lint, Type-Check, Build, Bundle Budget
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
@@ -108,21 +116,72 @@ jobs:
       - name: Lint
         working-directory: apps/admin-portal
         run: npm run lint
-      # `build` runs `tsc -b` first, so this also type-checks the portal.
+      - name: Type check
+        working-directory: apps/admin-portal
+        run: npx tsc -b
       - name: Build
         working-directory: apps/admin-portal
-        run: npm run build
+        env:
+          VITE_API_URL: https://api.example.com/api/v1
+          VITE_WS_URL: wss://api.example.com
+        run: npx vite build
+
+      # Code splitting is easy to add and easy to lose, and the obvious check
+      # does not catch losing it. Measuring the ENTRY CHUNK alone passes even
+      # when Vite emits <link rel="modulepreload"> for a lazily-imported
+      # library -- which is exactly what happened here: naming recharts in
+      # manualChunks hoisted it into the entry's graph, so 380KB of charting
+      # was preloaded on every page load while the entry chunk still read
+      # 104KB and looked fine.
+      #
+      # So this budgets what the browser ACTUALLY fetches before the user
+      # interacts: the entry script, every modulepreload, and the stylesheet.
+      - name: First-paint bundle budget
+        working-directory: apps/admin-portal
+        run: |
+          python3 - <<'PY'
+          import re, os, sys
+          html = open('dist/index.html').read()
+          sizes = {f: os.path.getsize(f'dist/assets/{f}') for f in os.listdir('dist/assets')}
+          eager = set(re.findall(r'(?:src|href)="/assets/([^"]+)"', html))
+          first_paint = sum(sizes.get(f, 0) for f in eager)
+          deferred = sum(sizes.values()) - first_paint
+          budget = 600 * 1024
+
+          for f in sorted(eager, key=lambda x: -sizes.get(x, 0)):
+              print(f"  {sizes.get(f,0)/1024:8.1f} KB  {f}")
+          print(f"  first paint : {first_paint/1024:.1f} KB (budget {budget/1024:.0f} KB)")
+          print(f"  deferred    : {deferred/1024:.1f} KB")
+
+          fail = False
+          if first_paint > budget:
+              print(f"::error::First-paint bundle {first_paint/1024:.0f}KB exceeds {budget/1024:.0f}KB. "
+                    "A lazily-used library has most likely been added to manualChunks, "
+                    "which hoists it into the entry graph and gets it preloaded.")
+              fail = True
+          if len(sizes) < 8:
+              print(f"::error::Only {len(sizes)} build assets -- route-level code splitting appears to have been lost.")
+              fail = True
+          if deferred < first_paint * 0.5:
+              print(f"::error::Only {deferred/1024:.0f}KB is deferred vs {first_paint/1024:.0f}KB eager -- "
+                    "lazy routes are not actually deferring their dependencies.")
+              fail = True
+          sys.exit(1 if fail else 0)
+          PY
 
   # ─── Mobile App ─────────────────────────────────────────────
+  # Type-check AND the node:test suite (SOS escalation logic, detection
+  # thresholds, offline queue…). The two real-model tests skip themselves
+  # when the large audio fixtures are absent, as they are in CI.
   mobile-checks:
-    name: Mobile — Type-Check
+    name: Mobile — Type-Check, Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
@@ -130,7 +189,10 @@ jobs:
         run: npm run build --workspace=packages/shared
       - name: Type check
         working-directory: apps/mobile
-        run: npm run type-check
+        run: npx tsc --noEmit -p .
+      - name: Test
+        working-directory: apps/mobile
+        run: npm test
 
   # ─── Shared Package ─────────────────────────────────────────
   shared-checks:
@@ -141,37 +203,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Lint
+        run: npm run lint --workspace=packages/shared
       - name: Build
         run: npm run build --workspace=packages/shared
-
-  # ─── ML Service ─────────────────────────────────────────────
-  ml-service-checks:
-    name: ML Service — Lint, Test
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: services/ml-service
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pytest ruff
-      - name: Lint
-        run: ruff check .
-      # Real inference guardrails — fail if the service ever regresses to the
-      # old random mock (models must load, probs sum to 1, fall → emergency).
-      - name: Test
-        run: pytest -q --tb=short
 
   # ─── Migrations ─────────────────────────────────────────────
   # The migrations are hand-written SQL with PostGIS geometry columns, sync
@@ -258,71 +297,6 @@ jobs:
           [ "$KEPT" = "10" ] || { echo "::error::Retention deleted the trail of an OPEN alert (kept $KEPT of 10)"; exit 1; }
           echo "✅ open-case evidence preserved"
 
-  # ─── Portals ────────────────────────────────────────────────
-  portal-checks:
-    name: Portals — Build and Bundle Budget
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        portal: [admin-portal]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20', cache: 'npm' }
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-      - name: Build shared package
-        run: npm run build --workspace=packages/shared
-      - name: Build
-        working-directory: apps/${{ matrix.portal }}
-        env:
-          VITE_API_URL: https://api.example.com/api/v1
-          VITE_WS_URL: wss://api.example.com
-        run: npm run build
-
-      # Code splitting is easy to add and easy to lose, and the obvious check
-      # does not catch losing it. Measuring the ENTRY CHUNK alone passes even
-      # when Vite emits <link rel="modulepreload"> for a lazily-imported
-      # library -- which is exactly what happened here: naming recharts in
-      # manualChunks hoisted it into the entry's graph, so 380KB of charting
-      # was preloaded on every page load while the entry chunk still read
-      # 104KB and looked fine.
-      #
-      # So this budgets what the browser ACTUALLY fetches before the user
-      # interacts: the entry script, every modulepreload, and the stylesheet.
-      - name: First-paint bundle budget
-        working-directory: apps/${{ matrix.portal }}
-        run: |
-          python3 - <<'PY'
-          import re, os, sys
-          html = open('dist/index.html').read()
-          sizes = {f: os.path.getsize(f'dist/assets/{f}') for f in os.listdir('dist/assets')}
-          eager = set(re.findall(r'(?:src|href)="/assets/([^"]+)"', html))
-          first_paint = sum(sizes.get(f, 0) for f in eager)
-          deferred = sum(sizes.values()) - first_paint
-          budget = 600 * 1024
-
-          for f in sorted(eager, key=lambda x: -sizes.get(x, 0)):
-              print(f"  {sizes.get(f,0)/1024:8.1f} KB  {f}")
-          print(f"  first paint : {first_paint/1024:.1f} KB (budget {budget/1024:.0f} KB)")
-          print(f"  deferred    : {deferred/1024:.1f} KB")
-
-          fail = False
-          if first_paint > budget:
-              print(f"::error::First-paint bundle {first_paint/1024:.0f}KB exceeds {budget/1024:.0f}KB. "
-                    "A lazily-used library has most likely been added to manualChunks, "
-                    "which hoists it into the entry graph and gets it preloaded.")
-              fail = True
-          if len(sizes) < 8:
-              print(f"::error::Only {len(sizes)} build assets -- route-level code splitting appears to have been lost.")
-              fail = True
-          if deferred < first_paint * 0.5:
-              print(f"::error::Only {deferred/1024:.0f}KB is deferred vs {first_paint/1024:.0f}KB eager -- "
-                    "lazy routes are not actually deferring their dependencies.")
-              fail = True
-          sys.exit(1 if fail else 0)
-          PY
-
   # ─── Docker ─────────────────────────────────────────────────
   # CI type-checked and tested the source but never proved the images build.
   # A broken Dockerfile was therefore only discovered at deploy time.
@@ -340,14 +314,40 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Build ML service image
+      - name: Build admin portal image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: services/ml-service/Dockerfile
+          file: apps/admin-portal/Dockerfile
           push: false
+          build-args: |
+            VITE_API_URL=https://api.example.com/api/v1
+            VITE_WS_URL=https://api.example.com
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ─── Compose / config validation ────────────────────────────
+  # Catches broken interpolation, a missing env var in an example file, or a
+  # YAML slip in the deploy configs before they reach a server.
+  config-checks:
+    name: Deploy Configs — Compose, Shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose files
+        run: |
+          set -e
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml --profile app --profile osrm config -q
+          cp .env.production.example .env.production
+          docker compose -f docker-compose.prod.yml --env-file .env.production \
+            --profile monitoring --profile osrm config -q
+          docker compose -f deploy/staging/docker-compose.staging.yml \
+            --env-file deploy/staging/.env.example config -q
+      - name: Shell scripts
+        run: |
+          shellcheck deploy/production/scripts/*.sh deploy/scripts/*.sh \
+            infra/monitoring/alertmanager-entrypoint.sh scripts/*.sh
 
   # ─── Load test scripts ──────────────────────────────────────
   # Does not run a load test (that needs a deployed target). It verifies the

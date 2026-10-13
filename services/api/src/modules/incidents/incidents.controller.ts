@@ -12,15 +12,11 @@ export class IncidentsController {
     }>,
     reply: FastifyReply,
   ) => {
-    // Location Fuzzing: Truncate to 3 decimal places (~111 meters) to protect reporter privacy
-    // while still maintaining enough accuracy for the safety heat map.
-    const fuzzedLat = Math.round(req.body.latitude * 1000) / 1000;
-    const fuzzedLng = Math.round(req.body.longitude * 1000) / 1000;
-
+    // The service fuzzes the location (once).
     const incident = await this.service.submitIncident(
       req.body.type,
-      fuzzedLat,
-      fuzzedLng,
+      req.body.latitude,
+      req.body.longitude,
       req.body.description
     );
 

@@ -56,6 +56,14 @@ export const updateProfileSchema = {
       preferredLanguage: { type: 'string', enum: ['bn', 'en'] },
       emergencyNote: { type: 'string', maxLength: 500 },
       nationalId: { type: 'string', maxLength: 20 },
+      // Account email; '' or null clears it. Unique (409 on conflict).
+      email: {
+        anyOf: [
+          { type: 'string', format: 'email', maxLength: 255 },
+          { type: 'string', maxLength: 0 },
+          { type: 'null' },
+        ],
+      },
     },
     additionalProperties: false,
   },
@@ -73,6 +81,7 @@ export const updateProfileSchema = {
             preferredLanguage: { type: 'string' },
             emergencyNote: { type: 'string', nullable: true },
             nationalId: { type: 'string', nullable: true },
+            email: { type: 'string', nullable: true },
           },
         },
       },

@@ -119,11 +119,11 @@ export default function ProfileSetupScreen() {
   };
 
   const toggleAvail = async (v: boolean) => {
-    const newAvail = v ? 'available' : 'offline';
+    const newAvail = v ? 'online' : 'offline';
     // Going online needs a real GPS fix — dispatch routes by responder location.
-    let latitude = 0;
-    let longitude = 0;
-    if (newAvail === 'available') {
+    // Going offline sends no coordinates at all (never a fake 0,0).
+    const body: { availability: 'online' | 'offline'; latitude?: number; longitude?: number } = { availability: newAvail };
+    if (newAvail === 'online') {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
@@ -134,18 +134,19 @@ export default function ProfileSetupScreen() {
           return;
         }
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        latitude = loc.coords.latitude;
-        longitude = loc.coords.longitude;
+        body.latitude = loc.coords.latitude;
+        body.longitude = loc.coords.longitude;
       } catch {
         showAlert(t('Location error'), t('Could not get your location. Please try again.'));
         return;
       }
     }
+    const previous = responderData;
     setResponderData({ ...responderData, availability: newAvail });
     try {
-      await api.patch('/responders/location', { latitude, longitude, availability: newAvail });
+      await api.patch('/responders/location', body);
     } catch {
-      setResponderData({ ...responderData, availability: v ? 'offline' : 'available' });
+      setResponderData(previous);
       showAlert(t('Error'), t('Could not update availability'));
     }
   };

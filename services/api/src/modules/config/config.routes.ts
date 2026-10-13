@@ -15,41 +15,9 @@
 
 import { FastifyInstance } from 'fastify';
 import { requireRoles } from '@/middleware/rbac';
-import { env } from '@/config/env';
+import { buildIceServers } from './ice-servers';
 
 const REDIS_KEY = 'config:googleMapsApiKey';
-
-/** Build the WebRTC ICE server list from env (STUN always, TURN when set). */
-async function buildIceServers() {
-  const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
-    { urls: env.STUN_URL },
-  ];
-  if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN) {
-    try {
-      const auth = Buffer.from(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`).toString('base64');
-      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Tokens.json`, {
-        method: 'POST',
-        headers: { 'Authorization': `Basic ${auth}` }
-      });
-      const data = await res.json() as any;
-      if (data && data.ice_servers) {
-        return data.ice_servers;
-      }
-    } catch (e) {
-      console.error('Twilio TURN fetch failed', e);
-    }
-  } else if (env.TURN_HOST && env.TURN_PASSWORD) {
-    iceServers.push({
-      urls: [
-        `turn:${env.TURN_HOST}:${env.TURN_PORT}?transport=udp`,
-        `turn:${env.TURN_HOST}:${env.TURN_PORT}?transport=tcp`,
-      ],
-      username: env.TURN_USERNAME,
-      credential: env.TURN_PASSWORD,
-    });
-  }
-  return iceServers;
-}
 
 export function configRoutes(
   fastify: FastifyInstance,
@@ -68,13 +36,12 @@ export function configRoutes(
 
   // ─── WebRTC ICE servers (STUN/TURN) ─────────────────────────
   // Any authenticated client (mobile app + portals) fetches this before
-  // starting a stream, so the TURN credential is centralized here and can never
-  // drift out of sync with the coturn container the way a hardcoded value does.
+  // starting a stream. TURN credentials are per user and expire (see ice-servers.ts).
   fastify.get(
     '/ice-servers',
     { onRequest: [fastify.authenticate] },
-    async (_req, reply) => {
-      const iceServers = await buildIceServers();
+    async (req, reply) => {
+      const iceServers = await buildIceServers(req.user!.id, req.log);
       return reply.send({ success: true, data: { iceServers } });
     },
   );

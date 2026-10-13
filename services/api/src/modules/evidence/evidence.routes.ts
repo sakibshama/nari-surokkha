@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify';
 import path from 'path';
 import fs from 'fs';
 import { getLocalUploadDir } from '@/utils/storage-path';
+import { verifyStorageSignature } from '@/utils/signed-url';
+import { buildError } from '@/utils/response';
 import { EvidenceRepository } from './evidence.repository';
 import { EvidenceService } from './evidence.service';
 import { EvidenceController } from './evidence.controller';
@@ -65,7 +67,7 @@ export async function evidenceRoutes(fastify: FastifyInstance) {
         summary: "List the current user's personal evidence library",
       },
     },
-    controller.listMyEvidence as any,
+    controller.listMyEvidence,
   );
 
   fastify.get(
@@ -112,9 +114,13 @@ export async function evidenceRoutes(fastify: FastifyInstance) {
     controller.getRaw as any,
   );
 
-  // MOCK S3 route for serving local files in development
-  fastify.get('/mock-s3/*', async (request, reply) => {
-    const fileKey = decodeURIComponent((request.params as any)['*']);
+  // Local-storage file server. Public (it is the target of "pre-signed" URLs),
+  // so every request must carry a valid, unexpired HMAC signature (B6).
+  fastify.get<{ Params: { '*': string }; Querystring: { expires?: string; sig?: string } }>('/mock-s3/*', async (request, reply) => {
+    const fileKey = decodeURIComponent(request.params['*']);
+    if (!verifyStorageSignature(fileKey, request.query.expires, request.query.sig)) {
+      return reply.code(403).send(buildError('HTTP_403', 'Link is missing, expired or invalid'));
+    }
     const uploadDir = getLocalUploadDir();
     // Resolve and confine to uploadDir — reject any path-traversal attempt
     // (e.g. '../../etc/passwd') that would escape the uploads directory.

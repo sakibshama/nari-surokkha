@@ -1,8 +1,18 @@
 # Alertmanager routing.
 #
-# Set ALERT_WEBHOOK_URL (Slack/Discord/Teams incoming webhook) in
-# .env.production. Critical alerts repeat every 30 minutes until resolved —
-# an unacknowledged SOS outage should keep nagging.
+# Delivery: a Slack-compatible incoming webhook, set as ALERT_WEBHOOK_URL in
+# .env.production. Works with:
+#   Slack    https://hooks.slack.com/services/T000/B000/XXXX
+#   Discord  https://discord.com/api/webhooks/<id>/<token>/slack   (note /slack)
+#   Mattermost / Rocket.Chat incoming webhooks (Slack-compatible)
+#
+# Alertmanager does NOT expand environment variables in this file. The
+# container's entrypoint (alertmanager-entrypoint.sh) writes the URL to
+# /alertmanager/.webhook_url, which every receiver reads via api_url_file.
+# Validate with:  amtool check-config infra/monitoring/alertmanager.yml
+#
+# Critical alerts repeat every 30 minutes until resolved — an unacknowledged
+# SOS outage should keep nagging.
 global:
   resolve_timeout: 5m
 
@@ -19,14 +29,22 @@ route:
 
 receivers:
   - name: default
-    webhook_configs:
-      - url: '${ALERT_WEBHOOK_URL}'
+    slack_configs:
+      - api_url_file: /alertmanager/.webhook_url
         send_resolved: true
+        title: '{{ if eq .Status "firing" }}[FIRING]{{ else }}[RESOLVED]{{ end }} {{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})'
+        text: >-
+          {{ range .Alerts }}• {{ .Annotations.summary }}{{ if .Annotations.description }} — {{ .Annotations.description }}{{ end }}
+          {{ end }}
 
   - name: critical
-    webhook_configs:
-      - url: '${ALERT_WEBHOOK_URL}'
+    slack_configs:
+      - api_url_file: /alertmanager/.webhook_url
         send_resolved: true
+        title: '{{ if eq .Status "firing" }}:rotating_light: CRITICAL{{ else }}RESOLVED{{ end }}: {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}• {{ .Annotations.summary }}{{ if .Annotations.description }} — {{ .Annotations.description }}{{ end }}
+          {{ end }}
 
 inhibit_rules:
   # If the API is down, do not also page about its latency.

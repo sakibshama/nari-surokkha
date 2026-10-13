@@ -4,10 +4,14 @@
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { ContactsService } from './contacts.service';
-import { sendSuccess, sendCreated } from '@/utils/response';
+import { sendSuccess, sendCreated, buildError } from '@/utils/response';
+import { ContactConsentService } from './contact-consent';
 
 export class ContactsController {
-  constructor(private readonly service: ContactsService) {}
+  constructor(
+    private readonly service: ContactsService,
+    private readonly consent: ContactConsentService,
+  ) {}
 
   getContacts = async (
     req: FastifyRequest,
@@ -62,15 +66,20 @@ export class ContactsController {
     });
   };
 
-  verifyContact = async (
+  requestVerification = async (
     req: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply,
-  ) => {
-    const contact = await this.service.verifyContact(req.params.id, req.user!.id);
-    return reply.status(200).send({
-      success: true,
-      message: 'Contact verified successfully',
-      data: contact,
-    });
+  ): Promise<void> => {
+    const result = await this.consent.send(req.user!.id, req.params.id);
+    sendSuccess(reply, result, 'Consent request sent to the contact by SMS');
+  };
+
+  verifyContactGone = async (_req: FastifyRequest, reply: FastifyReply) => {
+    return reply.status(410).send(
+      buildError(
+        'HTTP_410',
+        'Contacts can no longer be verified directly. Use POST /contacts/:id/verification: the contact confirms by SMS.',
+      ),
+    );
   };
 }

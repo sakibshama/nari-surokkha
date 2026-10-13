@@ -1,17 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Users as UsersIcon, Shield, ShieldOff, Search, Plus, Trash2, Edit, X,
-  ChevronDown, Crown, UserCircle, Lock, Check, AlertCircle, RefreshCw,
-  Phone, Mail, Calendar, Hash, Eye, EyeOff, KeyRound
+  Crown, UserCircle, Lock, Check, AlertCircle, RefreshCw,
+  Phone, Mail, Hash, Eye, EyeOff, KeyRound, UserCog, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import api from '../services/api';
+import api, { apiErrorMessage } from '../services/api';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/authStore';
-import { useT } from '../i18n';
+import { useT, fmt } from '../i18n';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 interface UserProfile {
   fullName: string;
-  nationalId: string;
+  nationalId: string | null;
   isVerified: boolean;
   verifiedAt: string | null;
 }
@@ -20,23 +21,27 @@ interface User {
   id: string;
   phone: string;
   email: string | null;
-  role: string;
+  role: string | { id?: string; key: string; name?: string } | null;
   status: string;
   permissions: string[];
   createdAt: string;
-  profile?: UserProfile;
+  profile?: UserProfile | null;
 }
+
+interface RoleOption { id: string; key: string; name: string; isSystem?: boolean }
 
 const ROLE_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   admin:     { label: 'Admin',     color: '#a78bfa', bg: 'rgba(139,92,246,0.15)', icon: <Crown size={12} /> },
   responder: { label: 'Responder', color: '#34d399', bg: 'rgba(52,211,153,0.15)', icon: <UserCircle size={12} /> },
   citizen:   { label: 'Citizen',   color: '#94a3b8', bg: 'rgba(148,163,184,0.15)', icon: <UsersIcon size={12} /> },
 };
+const CUSTOM_ROLE_META = { color: '#38bdf8', bg: 'rgba(56,189,248,0.14)', icon: <UserCog size={12} /> };
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   active:   { label: 'Active',   color: '#34d399', bg: 'rgba(52,211,153,0.12)' },
   inactive: { label: 'Inactive', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
   suspended:{ label: 'Suspended',color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' },
+  pending_verification: { label: 'Pending', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' },
 };
 
 const ALL_PERMISSIONS = [
@@ -45,86 +50,153 @@ const ALL_PERMISSIONS = [
   { id: 'view_audit_logs', label: 'View Audit Logs', desc: 'Access security audit trail', icon: '📋' },
 ];
 
+const PAGE_SIZE = 20;
+const MIN_PASSWORD = 8;
+
 const EMPTY_FORM = {
   phone: '', email: '', fullName: '', nationalId: '',
   role: 'citizen', password: '', permissions: [] as string[],
 };
+type FormState = typeof EMPTY_FORM;
+
+const roleKeyOf = (role: User['role']): string =>
+  (typeof role === 'object' && role !== null ? role.key : role) || 'citizen';
+
+/** 0–4 password strength score (length, mixed case, digit, symbol). */
+function passwordScore(pw: string): number {
+  if (!pw) return 0;
+  let score = pw.length >= MIN_PASSWORD ? 1 : 0;
+  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+  if (/\d/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  if (pw.length < MIN_PASSWORD) score = 0;
+  return score;
+}
+
+const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every(x => b.includes(x));
 
 export default function Users() {
   const t = useT();
   const [users, setUsers] = useState<User[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [roles, setRoles] = useState<RoleOption[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [formData, setFormData] = useState<FormState>(EMPTY_FORM);
+  const [originalForm, setOriginalForm] = useState<FormState>(EMPTY_FORM);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'details' | 'permissions'>('details');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const { user: currentUser } = useAuthStore();
-  const canManageAdmins = !currentUser?.permissions || currentUser.permissions.includes('manage_admins');
+  const { user: currentUser, hasPermission } = useAuthStore();
+  const canManageAdmins = hasPermission('manage_admins');
+
+  const errorText = useCallback((err: any, fallback: string) => {
+    if (err?.response?.status === 403) {
+      const msg = err.response?.data?.error?.message;
+      return msg ? `${t('Not allowed')}: ${msg}` : t('You do not have permission to do this.');
+    }
+    return apiErrorMessage(err, fallback);
+  }, [t]);
+
+  // Debounce the search box so typing doesn't fire a request per keystroke.
+  useEffect(() => {
+    const h = setTimeout(() => { setDebouncedSearch(search.trim()); setPage(0); }, 300);
+    return () => clearTimeout(h);
+  }, [search]);
+
+  // Role choices come from the roles module, so custom roles can be assigned.
+  useEffect(() => {
+    api.get('/admin/roles')
+      .then(res => setRoles(Array.isArray(res.data?.data) ? res.data.data : []))
+      .catch(() => setRoles([]));
+  }, []);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const params: any = {};
-      if (search) params.search = search;
+      const params: Record<string, string | number> = { limit: PAGE_SIZE, offset: page * PAGE_SIZE };
+      if (debouncedSearch) params.search = debouncedSearch;
       if (roleFilter) params.role = roleFilter;
       const res = await api.get('/admin/users', { params });
-      const data = res.data.data ?? res.data.users ?? [];
+      const data = res.data.data ?? [];
       setUsers(Array.isArray(data) ? data : []);
-    } catch {
-      toast.error('Failed to load users');
+      setTotal(typeof res.data.total === 'number' ? res.data.total : (Array.isArray(data) ? data.length : 0));
+    } catch (err) {
+      toast.error(errorText(err, t('Failed to load users')));
     } finally {
       setLoading(false);
     }
-  }, [search, roleFilter]);
+  }, [page, debouncedSearch, roleFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Delete "${name}"? This action is irreversible.`)) return;
+  const roleMeta = (key: string) => {
+    const known = ROLE_META[key];
+    if (known) return { ...known, label: t(known.label) };
+    const r = roles.find(x => x.key === key);
+    return { ...CUSTOM_ROLE_META, label: r?.name || key };
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api.delete(`/admin/users/${id}`);
-      toast.success('User deleted');
+      const res = await api.delete(`/admin/users/${deleteTarget.id}`);
+      const result = res.data?.data?.result;
+      if (result === 'deactivated') {
+        toast.success(t('This user has alerts, payments or audit history, so the account was deactivated instead of deleted.'), { duration: 6000 });
+      } else {
+        toast.success(t('User deleted'));
+      }
+      setDeleteTarget(null);
       fetchUsers();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error?.message || 'Failed to delete user');
+    } catch (err) {
+      toast.error(errorText(err, t('Failed to delete user')));
+    } finally {
+      setDeleting(false);
     }
   };
 
   const handleToggleVerify = async (id: string, isVerified: boolean) => {
     try {
       await api.patch(`/admin/users/${id}/status`, { isVerified });
-      toast.success(isVerified ? 'User verified ✓' : 'Verification removed');
+      toast.success(isVerified ? t('User verified ✓') : t('Verification removed'));
       fetchUsers();
-    } catch {
-      toast.error('Failed to update status');
+    } catch (err) {
+      toast.error(errorText(err, t('Failed to update status')));
     }
   };
 
   const openAdd = () => {
     setEditingUser(null);
     setFormData(EMPTY_FORM);
+    setOriginalForm(EMPTY_FORM);
     setActiveTab('details');
     setShowPassword(false);
     setIsModalOpen(true);
   };
 
   const openEdit = (u: User) => {
-    setEditingUser(u);
-    setFormData({
+    const f: FormState = {
       phone: u.phone,
       email: u.email || '',
       fullName: u.profile?.fullName || '',
       nationalId: u.profile?.nationalId || '',
-      role: typeof u.role === 'object' && u.role !== null ? (u.role as any).key : u.role,
+      role: roleKeyOf(u.role),
       password: '',
       permissions: u.permissions || [],
-    });
+    };
+    setEditingUser(u);
+    setFormData(f);
+    setOriginalForm(f);
     setActiveTab('details');
     setShowPassword(false);
     setIsModalOpen(true);
@@ -132,21 +204,49 @@ export default function Users() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if ((!editingUser || formData.password) && formData.password.length < MIN_PASSWORD) {
+      toast.error(fmt(t('The password must be at least {n} characters.'), { n: MIN_PASSWORD }));
+      return;
+    }
     setSubmitting(true);
     try {
-      const payload = { ...formData };
-      if (!payload.password) delete (payload as any).password;
       if (editingUser) {
+        // Send ONLY changed fields: the API bumps the token version (logging
+        // the user out) only when role/permissions/password/status change.
+        const o = originalForm, f = formData;
+        const payload: Record<string, unknown> = {};
+        if (f.phone.trim() !== o.phone) payload.phone = f.phone.trim();
+        if (f.email.trim() !== o.email) payload.email = f.email.trim();
+        if (f.fullName.trim() !== o.fullName) payload.fullName = f.fullName.trim();
+        if (f.nationalId.trim() !== o.nationalId) payload.nationalId = f.nationalId.trim();
+        if (f.role !== o.role) payload.role = f.role;
+        if (f.role === 'admin' && canManageAdmins && !sameSet(f.permissions, o.permissions)) payload.permissions = f.permissions;
+        if (f.role !== 'admin' && o.role === 'admin' && o.permissions.length) payload.permissions = [];
+        if (f.password) payload.password = f.password;
+        if (Object.keys(payload).length === 0) {
+          toast(t('No changes to save'));
+          setIsModalOpen(false);
+          return;
+        }
         await api.put(`/admin/users/${editingUser.id}`, payload);
-        toast.success('User updated successfully ✓');
+        toast.success(t('User updated successfully ✓'));
       } else {
+        const payload: Record<string, unknown> = {
+          phone: formData.phone.trim(),
+          fullName: formData.fullName.trim(),
+          password: formData.password,
+          role: formData.role,
+        };
+        if (formData.email.trim()) payload.email = formData.email.trim();
+        if (formData.nationalId.trim()) payload.nationalId = formData.nationalId.trim();
+        if (formData.role === 'admin' && canManageAdmins) payload.permissions = formData.permissions;
         await api.post('/admin/users', payload);
-        toast.success('User created successfully ✓');
+        toast.success(t('User created successfully ✓'));
       }
       setIsModalOpen(false);
       fetchUsers();
     } catch (err: any) {
-      toast.error(err.response?.data?.error?.message || err.response?.data?.message || 'Operation failed');
+      toast.error(errorText(err, t('Operation failed')));
     } finally {
       setSubmitting(false);
     }
@@ -161,21 +261,32 @@ export default function Users() {
     }));
   };
 
-  const selectAll = () => setFormData(f => ({ ...f, permissions: ALL_PERMISSIONS.map(p => p.id) }));
+  // An admin may only grant permissions they hold themselves (B1).
+  const grantable = ALL_PERMISSIONS.filter(p => currentUser?.permissions?.includes(p.id));
+  const selectAll = () => setFormData(f => ({ ...f, permissions: Array.from(new Set([...f.permissions, ...grantable.map(p => p.id)])) }));
   const clearAll = () => setFormData(f => ({ ...f, permissions: [] }));
 
+  // Page-level counts (the API returns `total` for the whole result set).
   const stats = {
-    total: users.length,
+    total,
     active: users.filter(u => u.status === 'active').length,
-    admins: users.filter(u => (typeof u.role === 'object' && u.role !== null ? (u.role as any).key : u.role) === 'admin').length,
+    admins: users.filter(u => roleKeyOf(u.role) === 'admin').length,
     verified: users.filter(u => u.profile?.isVerified).length,
   };
 
-  const roleColors: Record<string, string> = {
-    admin: '#a78bfa', responder: '#34d399', citizen: '#94a3b8'
-  };
-
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const filtered = users;
+  const isSelf = (u: User) => u.id === currentUser?.id;
+  const pwScore = passwordScore(formData.password);
+  const pwMeta = [
+    { label: t('Too short'), color: '#ef4444' },
+    { label: t('Weak'), color: '#ef4444' },
+    { label: t('Fair'), color: '#f59e0b' },
+    { label: t('Good'), color: '#3b82f6' },
+    { label: t('Strong'), color: '#10b981' },
+  ][pwScore];
+  const allRoles: RoleOption[] = roles.length ? roles : Object.keys(ROLE_META).map(k => ({ id: k, key: k, name: ROLE_META[k].label }));
+  const roleChoices = allRoles.filter(r => (r.key !== 'admin' || canManageAdmins) && r.key !== 'superadmin');
 
   return (
     <div className="animate-in" style={{ padding: 0 }}>
@@ -223,7 +334,7 @@ export default function Users() {
           <Search size={15} color="var(--text-muted)" />
           <input
             type="text"
-            placeholder="Search by name, phone or email…"
+            placeholder={t('Search by name, phone or email…')}
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{ background: 'none', border: 'none', outline: 'none', color: 'var(--text)', fontSize: 14, width: '100%' }}
@@ -233,17 +344,17 @@ export default function Users() {
 
         <select
           value={roleFilter}
-          onChange={e => setRoleFilter(e.target.value)}
+          onChange={e => { setRoleFilter(e.target.value); setPage(0); }}
           style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', padding: '8px 14px', fontSize: 14, outline: 'none', cursor: 'pointer' }}
         >
-          <option value="">All Roles</option>
-          <option value="admin">Admin</option>
-          <option value="responder">Responder</option>
-          <option value="citizen">Citizen</option>
+          <option value="">{t('All Roles')}</option>
+          {allRoles.map(r => (
+            <option key={r.key} value={r.key}>{ROLE_META[r.key] ? t(ROLE_META[r.key].label) : r.name}</option>
+          ))}
         </select>
 
         <div style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-          {filtered.length} {filtered.length === 1 ? 'result' : 'results'}
+          {fmt(t('{n} results'), { n: total })}
         </div>
       </div>
 
@@ -274,10 +385,10 @@ export default function Users() {
               </thead>
               <tbody>
                 {filtered.map((u, i) => {
-                  const roleKey = typeof u.role === 'object' && u.role !== null ? (u.role as any).key : u.role;
-                  const rm = ROLE_META[roleKey as string] || ROLE_META.citizen;
+                  const roleKey = roleKeyOf(u.role);
+                  const rm = roleMeta(roleKey);
                   const sm = STATUS_META[u.status] || STATUS_META.active;
-                  const isRestricted = roleKey === 'admin' && !canManageAdmins;
+                  const isRestricted = (roleKey === 'admin' && !canManageAdmins) || isSelf(u);
                   return (
                     <tr
                       key={u.id}
@@ -305,7 +416,7 @@ export default function Users() {
                             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
                               {u.profile?.fullName || '—'}
                             </div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{u.email || 'No email'}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{u.email || t('No email')}</div>
                           </div>
                         </div>
                       </td>
@@ -327,7 +438,7 @@ export default function Users() {
                         </span>
                         {roleKey === 'admin' && (u.permissions || []).length > 0 && (
                           <div style={{ marginTop: 4, fontSize: 10, color: 'var(--text-muted)' }}>
-                            {u.permissions.length} permission{u.permissions.length !== 1 ? 's' : ''}
+                            {fmt(t('{n} permission(s)'), { n: u.permissions.length })}
                           </div>
                         )}
                       </td>
@@ -341,11 +452,11 @@ export default function Users() {
                             background: sm.bg, color: sm.color, fontSize: 12, fontWeight: 600,
                           }}>
                             <span style={{ width: 6, height: 6, borderRadius: '50%', background: sm.color, display: 'inline-block' }} />
-                            {sm.label}
+                            {t(sm.label)}
                           </span>
                           {u.profile?.isVerified && (
                             <span style={{ fontSize: 10, color: '#34d399', display: 'flex', alignItems: 'center', gap: 3 }}>
-                              <Check size={9} /> Verified
+                              <Check size={9} /> {t('Verified')}
                             </span>
                           )}
                         </div>
@@ -362,14 +473,14 @@ export default function Users() {
                       <td style={{ padding: '14px 20px' }}>
                         {isRestricted ? (
                           <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Lock size={11} /> Restricted
+                            <Lock size={11} /> {isSelf(u) ? t('You') : t('Restricted')}
                           </span>
                         ) : (
                           <div style={{ display: 'flex', gap: 6 }}>
                             {u.profile?.isVerified ? (
                               <button
                                 onClick={() => handleToggleVerify(u.id, false)}
-                                title="Remove Verification"
+                                title={t('Remove Verification')}
                                 style={{ padding: '6px 8px', borderRadius: 8, background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', cursor: 'pointer', color: '#f59e0b', display: 'flex', alignItems: 'center' }}
                               >
                                 <ShieldOff size={13} />
@@ -377,7 +488,7 @@ export default function Users() {
                             ) : (
                               <button
                                 onClick={() => handleToggleVerify(u.id, true)}
-                                title="Verify User"
+                                title={t('Verify User')}
                                 style={{ padding: '6px 8px', borderRadius: 8, background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.3)', cursor: 'pointer', color: '#34d399', display: 'flex', alignItems: 'center' }}
                               >
                                 <Shield size={13} />
@@ -385,14 +496,14 @@ export default function Users() {
                             )}
                             <button
                               onClick={() => openEdit(u)}
-                              title="Edit User"
+                              title={t('Edit User')}
                               style={{ padding: '6px 8px', borderRadius: 8, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)', cursor: 'pointer', color: '#3b82f6', display: 'flex', alignItems: 'center' }}
                             >
                               <Edit size={13} />
                             </button>
                             <button
-                              onClick={() => handleDelete(u.id, u.profile?.fullName || u.phone)}
-                              title="Delete User"
+                              onClick={() => setDeleteTarget({ id: u.id, name: u.profile?.fullName || u.phone })}
+                              title={t('Delete User')}
                               style={{ padding: '6px 8px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center' }}
                             >
                               <Trash2 size={13} />
@@ -407,7 +518,32 @@ export default function Users() {
             </table>
           </div>
         )}
+        {!loading && total > PAGE_SIZE && (
+          <div className="pager">
+            <span>{fmt(t('Showing {from}–{to} of {total}'), { from: page * PAGE_SIZE + 1, to: Math.min(total, (page + 1) * PAGE_SIZE), total })}</span>
+            <div className="pager-buttons">
+              <button className="btn btn-ghost btn-sm" disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>
+                <ChevronLeft size={14} /> {t('Previous')}
+              </button>
+              <span>{fmt(t('Page {page} of {pages}'), { page: page + 1, pages: pageCount })}</span>
+              <button className="btn btn-ghost btn-sm" disabled={page + 1 >= pageCount} onClick={() => setPage(p => p + 1)}>
+                {t('Next')} <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        danger
+        title={fmt(t('Delete “{name}”?'), { name: deleteTarget?.name ?? '' })}
+        message={t('A user with no history is deleted permanently. A user with alerts, payments or audit history is deactivated instead and signed out everywhere.')}
+        confirmLabel={t('Delete')}
+        busy={deleting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => { void confirmDelete(); }}
+      />
 
       {/* ─── Add/Edit Modal ─── */}
       {isModalOpen && (
@@ -424,10 +560,10 @@ export default function Users() {
                     </div>
                     <div>
                       <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: 'var(--text)' }}>
-                        {editingUser ? 'Edit User' : 'Add New User'}
+                        {editingUser ? t('Edit User') : t('Add New User')}
                       </h2>
                       <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
-                        {editingUser ? `Editing: ${editingUser.profile?.fullName || editingUser.phone}` : 'Fill in the details below to create a user.'}
+                        {editingUser ? fmt(t('Editing: {name}'), { name: editingUser.profile?.fullName || editingUser.phone }) : t('Fill in the details below to create a user.')}
                       </p>
                     </div>
                   </div>
@@ -440,11 +576,12 @@ export default function Users() {
               {/* Tabs */}
               <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)' }}>
                 {[
-                  { id: 'details', label: 'User Details', icon: <UserCircle size={14} /> },
-                  ...(formData.role === 'admin' && canManageAdmins ? [{ id: 'permissions', label: 'Permissions', icon: <KeyRound size={14} /> }] : []),
+                  { id: 'details', label: t('User Details'), icon: <UserCircle size={14} /> },
+                  ...(formData.role === 'admin' && canManageAdmins ? [{ id: 'permissions', label: t('Permissions'), icon: <KeyRound size={14} /> }] : []),
                 ].map(tab => (
                   <button
                     key={tab.id}
+                    type="button"
                     onClick={() => setActiveTab(tab.id as any)}
                     style={{
                       padding: '10px 18px',
@@ -543,7 +680,7 @@ export default function Users() {
                     <div>
                       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('Role')}</label>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                        {Object.entries(ROLE_META).filter(([key]) => key !== 'admin' || canManageAdmins).map(([key, meta]) => (
+                        {roleChoices.map(({ key }) => { const meta = roleMeta(key); return (
                           <label
                             key={key}
                             style={{
@@ -569,24 +706,25 @@ export default function Users() {
                               <Check size={14} color={meta.color} style={{ marginLeft: 'auto' }} />
                             )}
                           </label>
-                        ))}
+                        ); })}
                       </div>
                     </div>
 
                     {/* Password */}
                     <div>
                       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-sub)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        {editingUser ? 'New Password (optional)' : 'Password'}
+                        {editingUser ? t('New Password (optional)') : t('Password')}
                       </label>
                       <div style={{ position: 'relative' }}>
                         <KeyRound size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                         <input
                           type={showPassword ? 'text' : 'password'}
                           required={!editingUser}
-                          minLength={6}
+                          minLength={MIN_PASSWORD}
+                          autoComplete="new-password"
                           value={formData.password}
                           onChange={e => setFormData({ ...formData, password: e.target.value })}
-                          placeholder={editingUser ? 'Leave blank to keep unchanged' : 'Min 6 characters'}
+                          placeholder={editingUser ? t('Leave blank to keep unchanged') : fmt(t('Min {n} characters'), { n: MIN_PASSWORD })}
                           style={{ width: '100%', padding: '9px 40px 9px 34px', background: 'var(--bg-card-alt)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
                         />
                         <button
@@ -597,13 +735,28 @@ export default function Users() {
                           {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                         </button>
                       </div>
+                      {formData.password && (
+                        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ display: 'flex', gap: 4, flex: 1 }}>
+                            {[1, 2, 3, 4].map(i => (
+                              <span key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= pwScore ? pwMeta.color : 'var(--border)' }} />
+                            ))}
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: pwMeta.color, minWidth: 64, textAlign: 'right' }}>{pwMeta.label}</span>
+                        </div>
+                      )}
+                      <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-muted)' }}>
+                        {editingUser
+                          ? t('Setting a new password signs this user out of all devices.')
+                          : fmt(t('At least {n} characters. Mix upper and lower case, numbers and symbols for a strong password.'), { n: MIN_PASSWORD })}
+                      </div>
                     </div>
 
                     {/* Permissions hint for admin */}
                     {formData.role === 'admin' && canManageAdmins && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, fontSize: 13, color: '#60a5fa' }}>
                         <AlertCircle size={14} />
-                        <span>Switch to the <strong>Permissions</strong> tab to configure what this admin can access.</span>
+                        <span>{t('Switch to the Permissions tab to configure what this admin can access.')}</span>
                       </div>
                     )}
                   </div>
@@ -613,9 +766,9 @@ export default function Users() {
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                       <div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Admin Permissions</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{t('Admin Permissions')}</div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                          Grant specific capabilities to this administrator.
+                          {t('You can grant only permissions you hold yourself.')}
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
@@ -627,13 +780,14 @@ export default function Users() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {ALL_PERMISSIONS.map(perm => {
                         const active = formData.permissions.includes(perm.id);
+                        const locked = !grantable.some(g => g.id === perm.id);
                         return (
                           <label
                             key={perm.id}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
                               border: `1px solid ${active ? 'rgba(59,130,246,0.4)' : 'var(--border)'}`,
-                              borderRadius: 12, cursor: 'pointer',
+                              borderRadius: 12, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.55 : 1,
                               background: active ? 'rgba(59,130,246,0.07)' : 'var(--bg-card-alt)',
                               transition: 'all 0.15s',
                             }}
@@ -647,8 +801,8 @@ export default function Users() {
                               {perm.icon}
                             </div>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 14, fontWeight: 600, color: active ? '#60a5fa' : 'var(--text)' }}>{perm.label}</div>
-                              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{perm.desc}</div>
+                              <div style={{ fontSize: 14, fontWeight: 600, color: active ? '#60a5fa' : 'var(--text)' }}>{t(perm.label)}</div>
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{t(perm.desc)}</div>
                             </div>
                             <div style={{
                               width: 22, height: 22, borderRadius: 6, flexShrink: 0,
@@ -659,7 +813,7 @@ export default function Users() {
                             }}>
                               {active && <Check size={12} color="#fff" strokeWidth={3} />}
                             </div>
-                            <input type="checkbox" checked={active} onChange={() => togglePermission(perm.id)} style={{ display: 'none' }} />
+                            <input type="checkbox" checked={active} disabled={locked} onChange={() => togglePermission(perm.id)} style={{ display: 'none' }} />
                           </label>
                         );
                       })}
@@ -671,7 +825,7 @@ export default function Users() {
               {/* Modal Footer */}
               <div style={{ padding: '16px 28px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 10, background: 'var(--bg-card)' }}>
                 <button type="button" className="btn btn-ghost" onClick={() => setIsModalOpen(false)} disabled={submitting}>
-                  Cancel
+                  {t('Cancel')}
                 </button>
                 <button
                   type="submit"
@@ -686,9 +840,9 @@ export default function Users() {
                   }}
                 >
                   {submitting ? (
-                    <><RefreshCw size={14} className="spin" /> Saving…</>
+                    <><RefreshCw size={14} className="spin" /> {t('Saving…')}</>
                   ) : (
-                    <><Check size={14} /> {editingUser ? 'Save Changes' : 'Create User'}</>
+                    <><Check size={14} /> {editingUser ? t('Save Changes') : t('Create User')}</>
                   )}
                 </button>
               </div>

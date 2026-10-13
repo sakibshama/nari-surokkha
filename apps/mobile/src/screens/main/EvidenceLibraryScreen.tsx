@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-  Image as ImageIcon, Video, Music, FileText, Download, Clock, Inbox, X, Maximize2, AlertCircle,
+  Image as ImageIcon, Video, Music, FileText, Download, Clock, Inbox, X, Maximize2, AlertCircle, Trash2,
 } from 'lucide-react-native';
 import { Theme, useTheme, useThemedStyles } from '../../theme';
 import { useLanguage, useT, type TFunction } from '../../i18n';
@@ -199,6 +199,26 @@ export default function EvidenceLibraryScreen() {
     }
   };
 
+  const deleteItem = (item: EvidenceItem) => {
+    showAlert(t('Delete evidence?'), t('This permanently removes the file from the server. It cannot be undone.'), [
+      { text: t('Cancel'), style: 'cancel' },
+      {
+        text: t('Delete'),
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.delete(`/evidence/${item.id}`);
+            setItems((prev) => prev.filter((x) => x.id !== item.id));
+            if (viewer?.id === item.id) setViewer(null);
+          } catch (e) {
+            const msg = (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+            showAlert(t('Delete failed'), msg || t('Please try again in a moment.'));
+          }
+        },
+      },
+    ]);
+  };
+
   const openItem = (item: EvidenceItem) => {
     if (isImageItem(item)) setViewer(item);
     else downloadItem(item);
@@ -279,6 +299,14 @@ export default function EvidenceLibraryScreen() {
                     onPress={() => downloadItem(it)}
                   >
                     <Download color={colors.accentText} size={18} />
+                  </PressableScale>
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={t('Delete')}
+                    style={[styles.dlBtn, { backgroundColor: colors.dangerSoft }]}
+                    onPress={() => deleteItem(it)}
+                  >
+                    <Trash2 color={colors.dangerText} size={18} />
                   </PressableScale>
                 </PressableScale>
               </Animated.View>

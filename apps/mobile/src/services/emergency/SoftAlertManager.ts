@@ -144,15 +144,28 @@ export class SoftAlertManager {
    * Raise a soft alert. `manual` alerts (the user's own silent-alert button)
    * ignore the cooldown — the user is asking for it.
    */
-  trigger(source: AlertSource, opts: { confidence?: number; manual?: boolean } = {}): TriggerResult {
+  trigger(
+    source: AlertSource,
+    opts: { confidence?: number; manual?: boolean; serverAlertId?: string } = {},
+  ): TriggerResult {
     const now = this.deps.now();
-    const manual = opts.manual ?? source === 'manual';
+    // A soft alert the server already created (route deviation) is never
+    // held back by the cooldown: the server escalates it on its own.
+    const manual = opts.manual ?? (source === 'manual' || !!opts.serverAlertId);
+    // Not shown to the user → cancel it on the server, or it escalates by itself.
+    const dropServerAlert = () => {
+      if (opts.serverAlertId) void this.deps.api.cancelSoftAlert(opts.serverAlertId).catch(() => {});
+    };
 
-    if (this.deps.isSosActive()) return this.suppress(source, 'sos_active', now);
+    if (this.deps.isSosActive()) {
+      dropServerAlert();
+      return this.suppress(source, 'sos_active', now);
+    }
 
     if (this.current && (this.current.phase === 'counting' || this.current.phase === 'sending')) {
       this.current.duplicates++;
       this.deps.history.update(this.current.id, { duplicates: this.current.duplicates });
+      dropServerAlert();
       return { accepted: false, reason: 'active' };
     }
     if (!manual && now < this.cooldownUntil) return this.suppress(source, 'cooldown', now);
@@ -178,7 +191,17 @@ export class SoftAlertManager {
       background: alert.background,
     });
     this.deps.feedback.start(alert);
-    this.creation = this.createOnServer(alert);
+    if (opts.serverAlertId) {
+      alert.serverAlertId = opts.serverAlertId;
+      this.deps.history.update(alert.id, { alertId: opts.serverAlertId });
+      this.creation = Promise.resolve(opts.serverAlertId);
+      // Location for the offline fallback, should confirming fail.
+      void this.deps.getLocation().then((c) => {
+        this.coords = c;
+      }, () => {});
+    } else {
+      this.creation = this.createOnServer(alert);
+    }
     this.timer = this.deps.setTimer(() => void this.confirm(alert.id, 'auto'), SOFT_ALERT_SECONDS * 1000);
     this.publish();
     return { accepted: true, alert };

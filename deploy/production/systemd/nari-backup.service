@@ -1,0 +1,22 @@
+# Encrypted off-site backup (deploy/production/scripts/backup.sh).
+# Install:
+#   sudo cp deploy/production/systemd/nari-backup.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now nari-backup.timer
+#   systemctl list-timers nari-backup.timer      # next run
+#   journalctl -u nari-backup.service            # logs
+[Unit]
+Description=Nari Surokkha encrypted off-site backup
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+Environment=APP_DIR=/opt/nari-surokkha
+WorkingDirectory=/opt/nari-surokkha
+ExecStart=/usr/bin/env bash /opt/nari-surokkha/deploy/production/scripts/backup.sh
+# A non-zero exit marks the unit failed. Pair with BACKUP_HEALTHCHECK_URL (a
+# dead-man's switch) so a backup that silently stops running is noticed too.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=3h

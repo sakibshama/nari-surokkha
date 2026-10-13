@@ -92,7 +92,7 @@ export async function sslcommerzValidate(
     format: 'json',
     v: '1',
   });
-  const res = await fetchImpl(`${SSLCOMMERZ_HOST[mode]}/validator/api/validationserverAPI.php?${qs}`, {
+  const res = await fetchImpl(`${SSLCOMMERZ_HOST[mode]}/validator/api/validationserverAPI.php?${qs.toString()}`, {
     signal: AbortSignal.timeout(15_000),
   });
   const v = (await res.json().catch(() => null)) as Record<string, string> | null;

@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { getWsBaseUrl } from './api';
+import { getWsBaseUrl, refreshSession } from './api';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
@@ -48,12 +48,38 @@ class SocketService {
     }
   }
 
-  async connect() {
-    if (this.socket?.connected) return;
+  private connected = false;
+  private connectionListeners = new Set<(connected: boolean) => void>();
+  private reauthing = false;
 
-    // The WebSocket server now requires a valid access token on the handshake.
-    const token = await getToken();
-    if (!token) {
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  /** Observe the realtime link (the SOS screen shows it). Returns an unsubscribe. */
+  onConnectionChange(cb: (connected: boolean) => void): () => void {
+    this.connectionListeners.add(cb);
+    cb(this.connected);
+    return () => {
+      this.connectionListeners.delete(cb);
+    };
+  }
+
+  private setConnected(v: boolean) {
+    if (this.connected === v) return;
+    this.connected = v;
+    this.connectionListeners.forEach((cb) => cb(v));
+  }
+
+  async connect() {
+    // One app-wide socket. socket.io reconnects it by itself; never replace it.
+    if (this.socket) {
+      if (!this.socket.connected) this.socket.connect();
+      return;
+    }
+
+    // The WebSocket server requires a valid access token on the handshake.
+    if (!(await getToken())) {
       if (__DEV__) console.warn('Socket connect skipped: not authenticated yet');
       return;
     }
@@ -61,7 +87,11 @@ class SocketService {
     this.socket = io(getWsBaseUrl(), {
       transports: ['websocket'],
       autoConnect: true,
-      auth: { token },
+      // A function, so every (re)connect presents the CURRENT token rather
+      // than the one from login (access tokens live 15 minutes).
+      auth: (cb) => {
+        void getToken().then((token) => cb({ token }));
+      },
     });
 
     // Attach any handlers registered before the socket existed (WebRTC + the
@@ -71,11 +101,12 @@ class SocketService {
 
     this.socket.on('connect', () => {
       if (__DEV__) console.log('Mobile app connected to WebSocket:', this.socket?.id);
+      this.setConnected(true);
       const userId = useAuthStore.getState().user?.id;
       if (userId) {
         this.socket?.emit('join:user', userId);
       }
-      // Re-join alert room if there was a context set before connect
+      // Re-join the alert room after every reconnect.
       if (this.currentAlertId) {
         this.socket?.emit('join:alert', this.currentAlertId);
       }
@@ -83,27 +114,53 @@ class SocketService {
 
     this.socket.on('disconnect', () => {
       if (__DEV__) console.log('Mobile app disconnected from WebSocket');
+      this.setConnected(false);
     });
 
     this.socket.on('connect_error', (err) => {
       if (__DEV__) console.warn('WebSocket connect error:', err.message);
+      this.setConnected(false);
+      // A rejected handshake is not retried by socket.io: refresh the token,
+      // then reconnect (the auth callback reads the new one).
+      if (/unauthori[sz]ed|token/i.test(err.message) && !this.reauthing) {
+        this.reauthing = true;
+        void refreshSession()
+          .then((token) => {
+            if (token && this.socket && !this.socket.connected) this.socket.connect();
+          })
+          .finally(() => {
+            setTimeout(() => {
+              this.reauthing = false;
+            }, 10_000);
+          });
+      }
     });
   }
 
+  /** Close the app-wide socket. Only on logout. */
   disconnect() {
     if (this.socket) {
+      this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
-      this.currentAlertId = null;
     }
+    this.currentAlertId = null;
+    this.setConnected(false);
   }
 
   setAlertContext(alertId: string | null) {
+    const previous = this.currentAlertId;
+    if (previous && previous !== alertId) this.socket?.emit('leave:alert', previous);
     this.currentAlertId = alertId;
     // Join the alert-specific room so signals are routed correctly
     if (alertId && this.socket?.connected) {
       this.socket.emit('join:alert', alertId);
     }
+  }
+
+  /** Stop listening to one alert's room, keeping the socket itself open. */
+  leaveAlert(alertId: string) {
+    if (this.currentAlertId === alertId) this.setAlertContext(null);
   }
 
   sendLocationUpdate(latitude: number, longitude: number, accuracy?: number) {

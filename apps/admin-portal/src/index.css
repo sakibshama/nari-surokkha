@@ -533,3 +533,12 @@ select.field-input optgroup {
 /* Spinner used by Loader2 icons on busy buttons. */
 .spin { animation: ns-spin 0.9s linear infinite; }
 @keyframes ns-spin { to { transform: rotate(360deg); } }
+
+/* Pagination controls */
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 20px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-muted); }
+.pager-buttons { display: flex; align-items: center; gap: 8px; }
+
+/* Filter tabs */
+.filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.filter-tab { padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border); background: transparent; color: var(--text-muted); font-family: inherit; }
+.filter-tab.active { border-color: var(--gov-green); background: var(--primary-dim); color: var(--gov-green); }

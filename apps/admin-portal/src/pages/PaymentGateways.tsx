@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
-import { useT } from '../i18n';
+import { useT, fmt } from '../i18n';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 type GatewayType = 'sslcommerz' | 'stripe';
 type Mode = 'sandbox' | 'live';
@@ -80,6 +81,7 @@ function GatewayCard({
   g, currencies, onSaved, onDeleted, initiallyOpen = false,
 }: { g: Gateway; currencies: string[]; onSaved: (g: Gateway) => void; onDeleted: (id: string) => void; initiallyOpen?: boolean }) {
   const t = useT();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [open, setOpen] = useState(initiallyOpen || (!g.enabled && !(g.sslcommerz?.storePasswordSet || g.stripe?.secretKeySet)));
   const [form, setForm] = useState({
     displayName: g.displayName,
@@ -136,7 +138,7 @@ function GatewayCard({
   };
 
   const remove = async () => {
-    if (!window.confirm(`Delete "${g.displayName}"? The app will stop offering it immediately. Past payments are kept.`)) return;
+    setConfirmDelete(false);
     setBusy('delete');
     try {
       await api.delete(`/payments/admin/gateways/${g.id}`);
@@ -286,12 +288,21 @@ function GatewayCard({
               {busy === 'test' ? <Loader2 size={16} className="spin" /> : <PlugZap size={16} />} {t('Test connection')}
             </button>
             <div style={{ flex: 1 }} />
-            <button type="button" className="btn btn-danger" disabled={!!busy} onClick={remove}>
+            <button type="button" className="btn btn-danger" disabled={!!busy} onClick={() => setConfirmDelete(true)}>
               {busy === 'delete' ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />} {t('Delete')}
             </button>
           </div>
         </form>
       )}
+      <ConfirmDialog
+        open={confirmDelete}
+        danger
+        title={fmt(t('Delete “{name}”?'), { name: g.displayName })}
+        message={t('The app will stop offering it immediately. Past payments are kept.')}
+        confirmLabel={t('Delete')}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => { void remove(); }}
+      />
     </div>
   );
 }

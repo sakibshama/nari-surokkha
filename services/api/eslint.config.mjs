@@ -13,10 +13,13 @@ export default tseslint.config(
     },
     rules: {
       // Correctness rules stay as hard errors — these catch real bugs.
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' }],
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/explicit-function-return-type': 'warn',
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+      // Fastify plugins and route modules are `async` by convention even when
+      // they register synchronously; flagging every one of them adds noise, not safety.
+      '@typescript-eslint/require-await': 'off',
 
       // `any` and its unsafe-usage family are tracked as WARNINGS, not errors.
       // Rationale: there is a known `any` debt to burn down incrementally; a

@@ -10,13 +10,15 @@
 import argon2 from 'argon2';
 import jwt from 'jsonwebtoken';
 import { AuthRepository, UserWithRole } from './auth.repository';
-import { env } from '@/config/env';
+import { env, PHONE_VERIFICATION_REQUIRED } from '@/config/env';
 import {
   UnauthorizedError,
   ConflictError,
   ForbiddenError,
   TooManyRequestsError,
+  ValidationError,
 } from '@/utils/errors';
+import { PhoneOtpService } from './phone-otp.service';
 import { ERROR_CODES, MAX_LOGIN_ATTEMPTS } from '@nari-surokkha/shared';
 import type { FastifyInstance } from 'fastify';
 import type { JwtAccessPayload, JwtRefreshPayload } from '@/types/index';
@@ -65,24 +67,24 @@ export interface AuthTokens {
   expiresIn: number;    // seconds
 }
 
+export interface AuthUser {
+  id: string;
+  phone: string;
+  role: string;
+  permissions: string[];
+}
+
 export interface RegisterResult {
-  user: {
-    id: string;
-    phone: string;
-    role: string;
-    permissions: string[];
-  };
+  user: AuthUser;
   tokens: AuthTokens;
 }
 
-export interface LoginResult {
-  user: {
-    id: string;
-    phone: string;
-    role: string;
-    permissions: string[];
-  };
-  tokens: AuthTokens;
+export type LoginResult = RegisterResult;
+
+export type RefreshResult = AuthTokens & { user: AuthUser };
+
+function toAuthUser(user: UserWithRole): AuthUser {
+  return { id: user.id, phone: user.phone, role: user.role?.key ?? 'citizen', permissions: user.permissions ?? [] };
 }
 
 // ─── Auth Service ─────────────────────────────────────────────
@@ -110,6 +112,7 @@ export class AuthService {
     password: string;
     fullName: string;
     preferredLanguage?: string;
+    otpToken?: string;
     ipAddress?: string;
     deviceInfo?: string;
   }): Promise<RegisterResult> {
@@ -120,6 +123,15 @@ export class AuthService {
         'A user with this phone number already exists.',
         ERROR_CODES.USER_ALREADY_EXISTS,
       );
+    }
+
+    // B4: prove the caller owns the number. A token that is present is always
+    // checked; its absence is only tolerated when verification is optional.
+    if (data.otpToken) {
+      if (!this.fastify) throw new UnauthorizedError('Phone verification is unavailable.');
+      await new PhoneOtpService(this.fastify).consume(data.otpToken, data.phone);
+    } else if (PHONE_VERIFICATION_REQUIRED) {
+      throw new ValidationError('Verify your phone number first (otpToken is required).');
     }
 
     // Hash password with argon2id
@@ -144,10 +156,7 @@ export class AuthService {
       deviceInfo: data.deviceInfo,
     });
 
-    return {
-      user: { id: user.id, phone: user.phone, role: user.role?.key ?? 'citizen', permissions: user.permissions ?? [] },
-      tokens,
-    };
+    return { user: toAuthUser(user), tokens };
   }
 
   // ─── Login ─────────────────────────────────────────────────
@@ -208,15 +217,12 @@ export class AuthService {
       deviceInfo: data.deviceInfo,
     });
 
-    return {
-      user: { id: user.id, phone: user.phone, role: user.role?.key ?? 'citizen', permissions: user.permissions ?? [] },
-      tokens,
-    };
+    return { user: toAuthUser(user), tokens };
   }
 
   // ─── Refresh Token ─────────────────────────────────────────
 
-  async refresh(refreshToken: string): Promise<AuthTokens> {
+  async refresh(refreshToken: string): Promise<RefreshResult> {
     // 1. Verify JWT signature and expiry
     let payload: JwtRefreshPayload;
     try {
@@ -269,7 +275,8 @@ export class AuthService {
       deviceInfo: session.deviceInfo ?? undefined,
     });
 
-    return tokens;
+    // The user travels with the tokens so clients pick up permission changes.
+    return { ...tokens, user: toAuthUser(user) };
   }
 
   // ─── Logout ────────────────────────────────────────────────
@@ -352,6 +359,11 @@ export class AuthService {
     platform: 'android' | 'ios',
   ): Promise<void> {
     await this.repo.upsertDeviceToken({ userId, token, platform });
+  }
+
+  /** Stop pushing to this device (sign-out, or the user turned push off). */
+  async unregisterDeviceToken(userId: string, token: string): Promise<void> {
+    await this.repo.deactivateDeviceToken(userId, token);
   }
 
   // ─── Private Helpers ───────────────────────────────────────

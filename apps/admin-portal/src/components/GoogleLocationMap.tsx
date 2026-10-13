@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GoogleMap, useJsApiLoader, MarkerF, CircleF, DirectionsRenderer, PolylineF } from '@react-google-maps/api';
 import { Navigation } from 'lucide-react';
+import { useT, fmt } from '../i18n';
 
 // Stable reference so the loader doesn't reload on every render.
 const LIBRARIES: ('places')[] = ['places'];
@@ -33,8 +34,10 @@ const centerBox: React.CSSProperties = { position: 'absolute', inset: 0, display
 const routePanel: React.CSSProperties = { position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5, background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(37,99,235,0.35)', borderRadius: 12, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 6px 18px rgba(0,0,0,0.18)' };
 
 export default function GoogleLocationMap({
-  center, responders = [], victimLabel = 'SOS Victim', apiKey,
+  center, responders = [], victimLabel, apiKey,
 }: LocationMapProps & { apiKey: string }) {
+  const t = useT();
+  const nearestLabel = t('Nearest responder');
   const { isLoaded, loadError } = useJsApiLoader({ id: 'nari-gmaps', googleMapsApiKey: apiKey, libraries: LIBRARIES });
   const mapRef = useRef<google.maps.Map | null>(null);
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
@@ -52,10 +55,10 @@ export default function GoogleLocationMap({
       const p = validLatLng(r.latitude, r.longitude);
       if (!p) continue;
       const km = haversineKm(victim, p);
-      if (!best || km < best.km) best = { pos: p, name: r.user?.profile?.fullName || 'Nearest responder', km };
+      if (!best || km < best.km) best = { pos: p, name: r.user?.profile?.fullName || nearestLabel, km };
     }
     return best;
-  }, [responders, victim]);
+  }, [responders, victim, nearestLabel]);
 
   // Road route + ETA from nearest responder → victim (Google Directions API).
   useEffect(() => {
@@ -91,10 +94,10 @@ export default function GoogleLocationMap({
   const onLoad = useCallback((map: google.maps.Map) => { mapRef.current = map; }, []);
   const onUnmount = useCallback(() => { mapRef.current = null; }, []);
 
-  if (loadError) return <div style={centerBox}>Google Maps failed to load. Check the API key, enabled APIs, and billing in Google Cloud.</div>;
-  if (!isLoaded) return <div style={centerBox}>Loading Google Maps…</div>;
+  if (loadError) return <div style={centerBox}>{t('Google Maps failed to load. Check the API key, enabled APIs, and billing in Google Cloud.')}</div>;
+  if (!isLoaded) return <div style={centerBox}>{t('Loading Google Maps…')}</div>;
   if (!Number.isFinite(victim.lat) || !Number.isFinite(victim.lng) || (victim.lat === 0 && victim.lng === 0)) {
-    return <div style={centerBox}>No valid location for this alert yet.</div>;
+    return <div style={centerBox}>{t('No valid location for this alert yet.')}</div>;
   }
 
   const mapOptions: google.maps.MapOptions = {
@@ -112,13 +115,13 @@ export default function GoogleLocationMap({
         center={victim} zoom={16} options={mapOptions} onLoad={onLoad} onUnmount={onUnmount}
       >
         {/* Victim */}
-        <MarkerF position={victim} title={victimLabel} zIndex={999}
+        <MarkerF position={victim} title={victimLabel || t('SOS Victim')} zIndex={999}
           icon={{ path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: '#ef4444', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 3 }} />
         <CircleF center={victim} radius={200} options={{ strokeColor: '#ef4444', strokeWeight: 2, fillColor: '#ef4444', fillOpacity: 0.12 }} />
 
         {/* Responders */}
         {responderPts.map(({ r, p }) => p ? (
-          <MarkerF key={r.id} position={p} title={`Responder: ${r.user?.profile?.fullName || 'Volunteer'}`}
+          <MarkerF key={r.id} position={p} title={`${t('Responder')}: ${r.user?.profile?.fullName || t('Volunteer')}`}
             icon={{ path: google.maps.SymbolPath.CIRCLE, scale: 6, fillColor: '#10b981', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }} />
         ) : null)}
 
@@ -134,9 +137,9 @@ export default function GoogleLocationMap({
         <div style={routePanel}>
           <Navigation size={16} color="#2563eb" />
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-            <span style={{ fontSize: 12, color: '#2563eb' }}>{routeInfo.name} → victim</span>
+            <span style={{ fontSize: 12, color: '#2563eb' }}>{routeInfo.name} → {t('victim')}</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>
-              {routeInfo.km.toFixed(1)} km · ~{Math.max(1, Math.round(routeInfo.min))} min drive
+              {fmt(t('{km} km · ~{min} min drive'), { km: routeInfo.km.toFixed(1), min: Math.max(1, Math.round(routeInfo.min)) })}
             </span>
           </div>
         </div>

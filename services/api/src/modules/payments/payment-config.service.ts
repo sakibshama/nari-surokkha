@@ -55,7 +55,8 @@ function sanitizePlan(p: Partial<Plan>, idx: number): Plan {
   if (!/^[a-z0-9_-]{2,40}$/i.test(id)) throw new PaymentConfigError(`Plan id "${id}" must be 2–40 letters, digits, _ or -.`);
   const prices: Partial<Record<Currency, number>> = {};
   for (const c of SUPPORTED_CURRENCIES) {
-    const v = (p.prices as Record<string, unknown> | undefined)?.[c];
+    // Admin input: prices may arrive as strings or blanks.
+    const v: unknown = p.prices?.[c];
     if (v === undefined || v === null || v === '') continue;
     const n = Number(v);
     if (!Number.isFinite(n) || n <= 0 || n > 1_000_000) throw new PaymentConfigError(`Plan "${id}": ${c} price must be a positive number.`);
@@ -321,6 +322,12 @@ export class PaymentConfigService {
     const s = await this.readStored();
     if (!s.gateways.some((g) => g.id === id)) throw new PaymentConfigError('Gateway not found');
     await this.write({ ...s, gateways: s.gateways.filter((g) => g.id !== id) }, userId);
+    // Nothing can confirm these any more (no credentials to verify with), so
+    // close them rather than leave them pending forever.
+    await this.db.payment.updateMany({
+      where: { gatewayId: id, status: 'pending' },
+      data: { status: 'failed', failureReason: 'Payment gateway was removed by an administrator' },
+    });
   }
 
   async updatePlans(plans: Partial<Plan>[], userId?: string): Promise<Plan[]> {

@@ -43,8 +43,9 @@ import fs from 'fs';
 import path from 'path';
 import { Readable, Transform, pipeline } from 'stream';
 import { promisify } from 'util';
-import { env } from '@/config/env';
+import { env, IS_PRODUCTION } from '@/config/env';
 import { getLocalUploadDir, ensureUploadDirWritable } from '@/utils/storage-path';
+import { signStorageKey } from '@/utils/signed-url';
 
 const pipelineAsync = promisify(pipeline);
 
@@ -122,7 +123,7 @@ async function storagePluginInit(fastify: FastifyInstance) {
       { bucket, endpoint: env.S3_ENDPOINT ?? 'aws', encryption: sseMode },
       '✅ Evidence storage: object storage (multi-host capable)',
     );
-    if (sseMode === 'none' && env.NODE_ENV === 'production') {
+    if (sseMode === 'none' && IS_PRODUCTION) {
       fastify.log.warn(
         'Evidence uploads send NO server-side-encryption header. Attach a KMS to MinIO ' +
           '(or enable bucket-default encryption) and set S3_SSE=AES256 / S3_KMS_KEY_ID.',
@@ -132,7 +133,7 @@ async function storagePluginInit(fastify: FastifyInstance) {
     const check = ensureUploadDirWritable();
     if (!check.ok) {
       const msg = `Evidence storage directory is not writable: ${check.dir} (${check.error}). Set STORAGE_LOCAL_DIR to a writable path.`;
-      if (env.NODE_ENV === 'production') {
+      if (IS_PRODUCTION) {
         fastify.log.error(msg);
         throw new Error(msg); // never boot unable to store evidence
       }
@@ -140,7 +141,7 @@ async function storagePluginInit(fastify: FastifyInstance) {
     } else {
       fastify.log.info(`[LOCAL STORAGE] Evidence directory ready and writable: ${check.dir}`);
     }
-    if (env.NODE_ENV === 'production') {
+    if (IS_PRODUCTION) {
       fastify.log.warn(
         'Evidence is on local disk. This works, but it pins the API to one host and ' +
           'provides no encryption at rest — set STORAGE_PROVIDER + bucket credentials to fix both.',
@@ -182,7 +183,7 @@ async function storagePluginInit(fastify: FastifyInstance) {
         const upload = new Upload({
           client: s3Client,
           params: {
-            Bucket: bucket!,
+            Bucket: bucket,
             Key: fileKey,
             Body: measured,
             ContentType: mimeType,
@@ -221,19 +222,20 @@ async function storagePluginInit(fastify: FastifyInstance) {
     // phones/other-origin browsers. Ignored for real S3 (URLs are absolute).
     async getPresignedUrl(fileKey: string, expiresIn = 900, publicBaseUrl?: string) {
       if (useObjectStorage && s3Client) {
-        const command = new GetObjectCommand({ Bucket: bucket!, Key: fileKey });
+        const command = new GetObjectCommand({ Bucket: bucket, Key: fileKey });
         return await getSignedUrl(s3Client, command, { expiresIn });
       }
       const base = (publicBaseUrl || env.API_BASE_URL).replace(/\/$/, '');
       // Encode each path SEGMENT but keep the slashes as real separators —
       // encoding them (%2F) breaks Fastify's wildcard route matching.
       const encodedKey = fileKey.split('/').map(encodeURIComponent).join('/');
-      return `${base}/api/v1/evidence/mock-s3/${encodedKey}?expires=${Date.now() + expiresIn * 1000}`;
+      const expires = Date.now() + expiresIn * 1000;
+      return `${base}/api/v1/evidence/mock-s3/${encodedKey}?expires=${expires}&sig=${signStorageKey(fileKey, expires)}`;
     },
 
     async getFileStream(fileKey: string): Promise<Readable> {
       if (useObjectStorage && s3Client) {
-        const res = await s3Client.send(new GetObjectCommand({ Bucket: bucket!, Key: fileKey }));
+        const res = await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: fileKey }));
         return res.Body as Readable;
       }
       const filePath = safeLocalPath(getLocalUploadDir(), fileKey);
@@ -254,7 +256,7 @@ async function storagePluginInit(fastify: FastifyInstance) {
 
     async deleteFile(fileKey: string): Promise<void> {
       if (useObjectStorage && s3Client) {
-        await s3Client.send(new DeleteObjectCommand({ Bucket: bucket!, Key: fileKey }));
+        await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: fileKey }));
         return;
       }
       const filePath = safeLocalPath(getLocalUploadDir(), fileKey);
@@ -271,7 +273,7 @@ async function storagePluginInit(fastify: FastifyInstance) {
           const batch = fileKeys.slice(i, i + 1000);
           const res = await s3Client.send(
             new DeleteObjectsCommand({
-              Bucket: bucket!,
+              Bucket: bucket,
               Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
             }),
           );
@@ -300,14 +302,14 @@ async function storagePluginInit(fastify: FastifyInstance) {
   // during the first emergency.
   if (useObjectStorage && s3Client) {
     try {
-      await s3Client.send(new HeadObjectCommand({ Bucket: bucket!, Key: '__healthcheck__' }));
+      await s3Client.send(new HeadObjectCommand({ Bucket: bucket, Key: '__healthcheck__' }));
     } catch (err: any) {
       // 404/NotFound is the expected and healthy answer — the probe key does
       // not exist. Anything else (403, network, bad bucket) is a real problem.
       const status = err?.$metadata?.httpStatusCode;
       if (status && status !== 404 && status !== 403) {
         fastify.log.error({ err, bucket }, 'Evidence bucket unreachable');
-        if (env.NODE_ENV === 'production') throw err;
+        if (IS_PRODUCTION) throw err;
       }
     }
   }

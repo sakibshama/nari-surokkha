@@ -68,3 +68,12 @@ export function isSamePhone(a: string, b: string): boolean {
   if (na && nb) return na === nb;
   return cleanPhone(a) === cleanPhone(b);
 }
+
+/**
+ * One canonical form per subscriber: E.164 (+8801XXXXXXXXX) for Bangladeshi
+ * mobiles, the cleaned input otherwise. Used wherever a number is a key
+ * (OTP state, verification tokens).
+ */
+export function normalizePhone(raw: string): string {
+  return phoneVariants(raw)[0] ?? cleanPhone(raw);
+}

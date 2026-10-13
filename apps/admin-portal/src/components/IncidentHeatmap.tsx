@@ -10,6 +10,7 @@ import L from 'leaflet';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Flame, MapPin, Layers } from 'lucide-react';
+import { useT, fmt, tr } from '../i18n';
 
 export interface HeatPoint {
   latitude: number;
@@ -46,7 +47,7 @@ const TYPE_COLOR: Record<string, string> = {
   poor_lighting: '#8b5cf6',
   other: '#64748b',
 };
-const typeLabel = (t?: string) => (t ? t.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'Incident');
+const typeLabel = (t?: string) => tr(t ? t.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'Incident');
 
 // Blue → green → yellow → orange → red
 const GRADIENT: [number, string][] = [[0.0, 'rgba(37,99,235,0)'], [0.25, '#2563eb'], [0.45, '#10b981'], [0.65, '#facc15'], [0.82, '#f97316'], [1.0, '#dc2626']];
@@ -206,6 +207,7 @@ export default function IncidentHeatmap({ points, dark, height = 440 }: { points
   const [base, setBase] = useState<Base>(dark ? 'dark' : 'streets');
   const [provider, setProvider] = useState('');
   const [tilesDown, setTilesDown] = useState(false);
+  const t = useT();
   useEffect(() => { setBase((b) => (b === 'dark' || b === 'streets' ? (dark ? 'dark' : 'streets') : b)); }, [dark]);
 
   const total = useMemo(() => points.reduce((n, p) => n + (p.weight ?? 1), 0), [points]);
@@ -220,23 +222,23 @@ export default function IncidentHeatmap({ points, dark, height = 440 }: { points
     <div>
       <style>{`.ns-tiles-dim{filter:brightness(.62) invert(1) contrast(.9) hue-rotate(180deg) saturate(.35)}`}</style>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '0 24px 14px' }}>
-        <div role="group" aria-label="Map view" style={{ display: 'flex', gap: 2, padding: 3, borderRadius: 10, background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
-          <button type="button" style={seg(mode === 'heat')} onClick={() => setMode('heat')}><Flame size={13} style={{ verticalAlign: -2 }} /> Heatmap</button>
-          <button type="button" style={seg(mode === 'points')} onClick={() => setMode('points')}><MapPin size={13} style={{ verticalAlign: -2 }} /> Points</button>
-          <button type="button" style={seg(mode === 'both')} onClick={() => setMode('both')}>Both</button>
+        <div role="group" aria-label={t('Map view')} style={{ display: 'flex', gap: 2, padding: 3, borderRadius: 10, background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
+          <button type="button" style={seg(mode === 'heat')} onClick={() => setMode('heat')}><Flame size={13} style={{ verticalAlign: -2 }} /> {t('Heatmap')}</button>
+          <button type="button" style={seg(mode === 'points')} onClick={() => setMode('points')}><MapPin size={13} style={{ verticalAlign: -2 }} /> {t('Points')}</button>
+          <button type="button" style={seg(mode === 'both')} onClick={() => setMode('both')}>{t('Both')}</button>
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-sub)' }}>
           <Layers size={14} />
           <select className="field-input" style={{ padding: '6px 34px 6px 10px', fontSize: 12, width: 'auto' }} value={base} onChange={(e) => setBase(e.target.value as Base)}>
-            <option value="streets">Streets</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-            <option value="satellite">Satellite</option>
+            <option value="streets">{t('Streets')}</option>
+            <option value="light">{t('Light')}</option>
+            <option value="dark">{t('Dark')}</option>
+            <option value="satellite">{t('Satellite')}</option>
           </select>
         </label>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          {total} report{total === 1 ? '' : 's'} · {points.length} area{points.length === 1 ? '' : 's'} · free map, no API key
+          {fmt(t('{reports} reports · {areas} areas · free map, no API key'), { reports: total, areas: points.length })}
         </span>
       </div>
 
@@ -255,7 +257,7 @@ export default function IncidentHeatmap({ points, dark, height = 440 }: { points
                 <Popup>
                   <strong>{typeLabel(p.type)}</strong>
                   <br />
-                  {p.weight ?? 1} report{(p.weight ?? 1) === 1 ? '' : 's'} in this area (~250 m)
+                  {fmt(t('{n} report(s) in this area (~250 m)'), { n: p.weight ?? 1 })}
                 </Popup>
               </CircleMarker>
             ))}
@@ -265,37 +267,37 @@ export default function IncidentHeatmap({ points, dark, height = 440 }: { points
         {/* Legend */}
         {mode !== 'points' && points.length > 0 && (
           <div style={{ position: 'absolute', left: 12, bottom: 22, zIndex: 500, padding: '8px 10px', borderRadius: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-card)', fontSize: 11, color: 'var(--text-sub)' }}>
-            <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--text)' }}>Incident density</div>
+            <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--text)' }}>{t('Incident density')}</div>
             <div style={{ width: 150, height: 8, borderRadius: 4, background: 'linear-gradient(90deg,#2563eb,#10b981,#facc15,#f97316,#dc2626)' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}><span>Low</span><span>High</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}><span>{t('Low')}</span><span>{t('High')}</span></div>
           </div>
         )}
 
         {points.length === 0 && (
           <div style={{ position: 'absolute', inset: 0, zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
             <div style={{ padding: '10px 16px', borderRadius: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', fontSize: 13, color: 'var(--text-sub)', boxShadow: 'var(--shadow-card)' }}>
-              No incident reports in this period yet.
+              {t('No incident reports in this period yet.')}
             </div>
           </div>
         )}
 
         {tilesDown && (
           <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 600, padding: '8px 14px', borderRadius: 10, background: 'var(--bg-card)', border: '1px solid rgba(245,158,11,.4)', fontSize: 12, color: 'var(--text-sub)' }}>
-            The map tiles could not be loaded — check this computer's internet connection. The heat layer is still shown.
+            {t("The map tiles could not be loaded — check this computer's internet connection. The heat layer is still shown.")}
           </div>
         )}
       </div>
 
       {hotspots.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '12px 24px 18px', fontSize: 12, color: 'var(--text-sub)' }}>
-          <strong style={{ color: 'var(--text)' }}>Top hotspots:</strong>
+          <strong style={{ color: 'var(--text)' }}>{t('Top hotspots:')}</strong>
           {hotspots.map((h, i) => (
             <a key={i} href={`https://www.openstreetmap.org/?mlat=${h.latitude}&mlon=${h.longitude}#map=16/${h.latitude}/${h.longitude}`} target="_blank" rel="noopener noreferrer"
               style={{ padding: '3px 10px', borderRadius: 999, border: '1px solid var(--border)', color: 'var(--text-sub)', textDecoration: 'none' }}>
-              {typeLabel(h.type)} · {h.weight ?? 1} near {h.latitude.toFixed(3)}, {h.longitude.toFixed(3)}
+              {typeLabel(h.type)} · {fmt(t('{n} near {coords}'), { n: h.weight ?? 1, coords: `${h.latitude.toFixed(3)}, ${h.longitude.toFixed(3)}` })}
             </a>
           ))}
-          <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>Map: {provider}</span>
+          <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>{t('Map')}: {provider}</span>
         </div>
       )}
     </div>

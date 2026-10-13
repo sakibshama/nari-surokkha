@@ -18,6 +18,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { trySendDirectSms } from './directSms';
 import { logSms } from './smsHistory';
 import { tStatic } from '../i18n';
+import { buildSosText } from './sosText';
+import { recordOfflineSos } from './offlineEscalation';
 
 const CONTACTS_CACHE_KEY = '@trusted_contacts';
 
@@ -39,6 +41,8 @@ export interface OfflineSosOptions {
   userName?: string;
   /** Include the 999 gateway shortcode alongside contacts. */
   includeGateway?: boolean;
+  /** Remember this SOS so it is sent online when the connection returns (default true). */
+  recordForEscalation?: boolean;
 }
 
 async function resolveCoords(explicit?: Coords): Promise<Coords | null> {
@@ -64,22 +68,7 @@ export async function getCachedContactPhones(): Promise<string[]> {
 }
 
 export function buildSosMessage(userName: string | undefined, coords: Coords | null): string {
-  const who = userName && userName.trim() ? userName.trim() : '';
-  if (coords) {
-    const link = `https://maps.google.com/?q=${coords.latitude},${coords.longitude}`;
-    return tStatic(
-      who
-        ? 'SOS EMERGENCY! {who} is in danger and offline. Location: {link} (lat {lat}, lng {lng}). Please send help / call 999.'
-        : 'SOS EMERGENCY! I am in danger and offline. Location: {link} (lat {lat}, lng {lng}). Please send help / call 999.',
-      { who, link, lat: coords.latitude.toFixed(5), lng: coords.longitude.toFixed(5) },
-    );
-  }
-  return tStatic(
-    who
-      ? 'SOS EMERGENCY! {who} is in danger and offline. Location unavailable. Please try to reach me and call 999.'
-      : 'SOS EMERGENCY! I am in danger and offline. Location unavailable. Please try to reach me and call 999.',
-    { who },
-  );
+  return buildSosText(tStatic, userName, coords);
 }
 
 /**
@@ -98,32 +87,43 @@ export async function sendOfflineSosSms(
     ...contactPhones,
   ];
 
+  // Remember it, so the full online SOS goes out once the internet is back.
+  if (options.recordForEscalation !== false) await recordOfflineSos(coords);
+
   if (recipients.length === 0) {
     await logSms({ channel: 'offline-sim', recipients, message, status: 'failed', reason: 'No trusted contacts saved.' });
     return { opened: false, reason: tStatic('No trusted contacts saved for offline SMS.') };
   }
 
   // 1. Preferred: silent auto-send via the SIM (Android + SEND_SMS granted).
-  //    No composer, no manual tap — the text goes out by itself.
-  const autoSent = await trySendDirectSms(recipients, message);
-  if (autoSent) {
-    await logSms({ channel: 'offline-sim', recipients, message, status: 'auto' });
-    return { opened: true, auto: true };
+  //    Only counts as sent once the network accepted every SMS part.
+  const direct = await trySendDirectSms(recipients, message);
+  if (direct.sent.length) {
+    await logSms({ channel: 'offline-sim', recipients: direct.sent, message, status: 'auto' });
   }
+  if (direct.failed.length === 0) return { opened: true, auto: true };
 
-  // 2. Fallback: native composer (iOS, permission denied, or Expo Go).
-  const available = await SMS.isAvailableAsync();
+  // 2. Fallback for whoever was not texted: the native composer.
+  const rest = direct.failed;
+  const available = await SMS.isAvailableAsync().catch(() => false);
   if (!available) {
-    await logSms({ channel: 'offline-sim', recipients, message, status: 'failed', reason: 'SMS not available on device.' });
-    return { opened: false, reason: tStatic('SMS is not available on this device.') };
+    const reason = direct.error || 'SMS not available on device.';
+    await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'failed', reason });
+    return direct.sent.length
+      ? { opened: true, auto: true }
+      : { opened: false, reason: tStatic('SMS is not available on this device.') };
   }
   try {
-    await SMS.sendSMSAsync(recipients, message);
-    await logSms({ channel: 'offline-sim', recipients, message, status: 'manual' });
+    const { result } = await SMS.sendSMSAsync(rest, message);
+    if (result === 'cancelled') {
+      await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'failed', reason: 'Cancelled in Messages.' });
+      return direct.sent.length ? { opened: true, auto: true } : { opened: false, reason: tStatic('The SMS was not sent.') };
+    }
+    await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'manual' });
     return { opened: true, auto: false };
   } catch (err) {
     const reason = (err as Error)?.message || 'Failed to open SMS composer.';
-    await logSms({ channel: 'offline-sim', recipients, message, status: 'failed', reason });
-    return { opened: false, reason };
+    await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'failed', reason });
+    return direct.sent.length ? { opened: true, auto: true } : { opened: false, reason };
   }
 }

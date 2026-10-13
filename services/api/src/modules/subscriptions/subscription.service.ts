@@ -42,7 +42,7 @@ export class SubscriptionService {
 
   resultUrl(status: ResultStatus, transactionId?: string) {
     const q = new URLSearchParams({ status, ...(transactionId ? { trx: transactionId } : {}) });
-    return `${this.base}/result?${q}`;
+    return `${this.base}/result?${q.toString()}`;
   }
 
   getOptions() {
@@ -126,11 +126,16 @@ export class SubscriptionService {
     if (!plan) {
       this.fastify.log.error({ transactionId, planId }, 'Paid for a plan that no longer exists — crediting 30 days / 0 SMS; check manually');
     }
-    const { credited } = await this.repo.completePayment(
+    const { credited, paid } = await this.repo.completePayment(
       transactionId,
       { gatewayTrxId: v.gatewayTrxId, method: v.method },
       plan ?? { id: planId ?? 'unknown', smsQuota: 0, durationDays: 30 },
     );
+    if (!paid) {
+      // Never tell the user "success" unless the row really is successful.
+      this.fastify.log.error({ transactionId }, 'Gateway confirmed a payment that could not be credited; check manually');
+      return 'failed';
+    }
     this.fastify.log.info({ transactionId, credited }, 'Payment verified');
     return 'success';
   }
@@ -151,7 +156,7 @@ export class SubscriptionService {
       transactionId,
       amount: Number(payment.amount),
       currency: payment.currency,
-    }).catch((e) => ({ ok: false, reason: (e as Error).message }) as VerifiedPayment);
+    }).catch((e) => ({ ok: false, reason: (e as Error).message }));
     if (!v.ok) {
       this.fastify.log.warn({ transactionId, reason: v.reason }, 'SSLCommerz payment did not validate');
       // A transient validator error must not fail a payment the IPN may still confirm.

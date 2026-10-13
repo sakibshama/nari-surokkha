@@ -8,13 +8,17 @@
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService } from './auth.service';
+import { PhoneOtpService } from './phone-otp.service';
 import { sendCreated, sendSuccess } from '@/utils/response';
-import { env } from '@/config/env';
+import { IS_PRODUCTION } from '@/config/env';
 
-const COOKIE_SECURE = env.NODE_ENV === 'production';
+const COOKIE_SECURE = IS_PRODUCTION;
 
 export class AuthController {
-  constructor(private readonly service: AuthService) {}
+  constructor(
+    private readonly service: AuthService,
+    private readonly otp: PhoneOtpService,
+  ) {}
 
   register = async (
     req: FastifyRequest<{
@@ -105,9 +109,9 @@ export class AuthController {
       return;
     }
 
-    const tokens = await this.service.refresh(refreshToken);
+    const result = await this.service.refresh(refreshToken);
 
-    reply.setCookie('refreshToken', tokens.refreshToken, {
+    reply.setCookie('refreshToken', result.refreshToken, {
       path: '/',
       httpOnly: true,
       secure: COOKIE_SECURE,
@@ -115,7 +119,7 @@ export class AuthController {
       maxAge: 30 * 24 * 60 * 60, // 30 days
     });
 
-    reply.setCookie('accessToken', tokens.accessToken, {
+    reply.setCookie('accessToken', result.accessToken, {
       path: '/',
       httpOnly: true,
       secure: COOKIE_SECURE,
@@ -123,7 +127,18 @@ export class AuthController {
       maxAge: 15 * 60, // 15 minutes
     });
 
-    sendSuccess(reply, tokens, 'Token refreshed');
+    sendSuccess(reply, result, 'Token refreshed');
+  };
+
+  requestOtp = async (req: FastifyRequest<{ Body: { phone: string } }>, reply: FastifyReply): Promise<void> => {
+    sendSuccess(reply, await this.otp.request(req.body.phone), 'Verification code sent');
+  };
+
+  verifyOtp = async (
+    req: FastifyRequest<{ Body: { phone: string; code: string } }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    sendSuccess(reply, await this.otp.verify(req.body.phone, req.body.code), 'Phone verified');
   };
 
   logout = async (
@@ -167,6 +182,14 @@ export class AuthController {
       req.body.newPassword,
     );
     sendSuccess(reply, null, 'Password changed successfully. Please log in again.');
+  };
+
+  unregisterDeviceToken = async (
+    req: FastifyRequest<{ Body: { token: string } }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    await this.service.unregisterDeviceToken(req.user!.id, req.body.token);
+    void reply.send({ success: true });
   };
 
   registerDeviceToken = async (

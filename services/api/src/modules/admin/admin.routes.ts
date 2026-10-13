@@ -3,6 +3,21 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminRepository } from './admin.repository';
 import { requireRoles, requirePermissions } from '@/middleware/rbac';
+import type { CreateUserInput, UpdateUserInput } from './admin.service';
+import type { AdminSettableStatus } from '@/modules/alerts/alert-status';
+
+type IdParams = { id: string };
+type ListUsersRoute = { Querystring: { role?: string; search?: string; limit?: number; offset?: number } };
+import {
+  adminListUsersSchema,
+  adminCreateUserSchema,
+  adminUpdateUserSchema,
+  adminDeleteUserSchema,
+  adminUpdateUserStatusSchema,
+  adminVerifyResponderSchema,
+  adminAlertStatusSchema,
+  adminHealthSchema,
+} from './admin.schemas';
 
 export function adminRoutes(
   fastify: FastifyInstance,
@@ -17,34 +32,41 @@ export function adminRoutes(
   fastify.addHook('onRequest', fastify.authenticate);
   fastify.addHook('onRequest', requireRoles(['admin'])); // Strictly Admin only
 
+  const manageUsers = { preHandler: [requirePermissions(['manage_users'])] };
+
   // Users
-  fastify.get('/users', { preHandler: [requirePermissions(['manage_users'])] }, controller.listUsers as any);
-  fastify.post('/users', { preHandler: [requirePermissions(['manage_users'])] }, controller.createUser as any);
-  fastify.put('/users/:id', { preHandler: [requirePermissions(['manage_users'])] }, controller.updateUser as any);
-  fastify.delete('/users/:id', { preHandler: [requirePermissions(['manage_users'])] }, controller.deleteUser as any);
-  fastify.patch('/users/:id/status', { preHandler: [requirePermissions(['manage_users'])] }, controller.updateUserStatus as any);
+  fastify.get<ListUsersRoute>('/users', { ...manageUsers, schema: adminListUsersSchema }, controller.listUsers);
+  fastify.post<{ Body: CreateUserInput }>('/users', { ...manageUsers, schema: adminCreateUserSchema }, controller.createUser);
+  fastify.put<{ Params: IdParams; Body: UpdateUserInput }>('/users/:id', { ...manageUsers, schema: adminUpdateUserSchema }, controller.updateUser);
+  fastify.delete<{ Params: IdParams }>('/users/:id', { ...manageUsers, schema: adminDeleteUserSchema }, controller.deleteUser);
+  fastify.patch<{ Params: IdParams; Body: { isVerified: boolean } }>('/users/:id/status', { ...manageUsers, schema: adminUpdateUserStatusSchema }, controller.updateUserStatus);
 
   // Responders
-  fastify.get('/responders', { preHandler: [requirePermissions(['manage_users'])] }, controller.listResponders as any);
-  fastify.patch('/responders/:id/verify', { preHandler: [requirePermissions(['manage_users'])] }, controller.verifyResponder as any);
-  fastify.delete('/responders/:id', { preHandler: [requirePermissions(['manage_users'])] }, controller.deleteResponder as any);
+  fastify.get('/responders', manageUsers, controller.listResponders as any);
+  fastify.patch<{ Params: IdParams; Body: { isVerified: boolean } }>('/responders/:id/verify', { ...manageUsers, schema: adminVerifyResponderSchema }, controller.verifyResponder);
+  fastify.delete('/responders/:id', manageUsers, controller.deleteResponder as any);
 
   // Audit Logs
   fastify.get('/audit-logs', { preHandler: [requirePermissions(['view_audit_logs'])] }, controller.listAuditLogs as any);
   
   // Health
-  fastify.get('/health', controller.getHealth as any);
+  fastify.get('/health', { schema: adminHealthSchema }, controller.getHealth);
 
   // Alerts
   fastify.get('/alerts', controller.listAlerts as any);
   fastify.get('/alerts/:id', controller.getAlertById as any);
+  fastify.patch<{ Params: IdParams; Body: { status: AdminSettableStatus; note?: string } }>(
+    '/alerts/:id/status',
+    { schema: adminAlertStatusSchema },
+    controller.setAlertStatus,
+  );
 
   // Incidents
   fastify.get('/incidents', controller.listIncidents as any);
   fastify.patch('/incidents/:id/status', controller.updateIncidentStatus as any);
   
   // Analytics
-  fastify.get('/analytics', controller.getAnalytics as any);
+  fastify.get('/analytics', controller.getAnalytics);
 
   done();
 }

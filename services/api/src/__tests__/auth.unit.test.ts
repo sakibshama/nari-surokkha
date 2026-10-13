@@ -90,6 +90,14 @@ describe('AuthService', () => {
       expect(result.tokens.refreshToken).toBe('mock-token');
     });
 
+    it('rejects an invalid otpToken even when verification is optional', async () => {
+      repo.findUserByPhone.mockResolvedValue(null);
+      await expect(
+        service.register({ phone: '+8801912345678', password: 'Password123', fullName: 'T', otpToken: 'forged' }),
+      ).rejects.toThrow(/verification/i);
+      expect(repo.createUser).not.toHaveBeenCalled();
+    });
+
     it('throws ConflictError if phone already exists', async () => {
       repo.findUserByPhone.mockResolvedValue(mockUser);
 
@@ -158,6 +166,13 @@ describe('AuthService', () => {
       expect(repo.revokeSession).toHaveBeenCalledWith('sess-old');
       expect(repo.createSession).toHaveBeenCalled();
       expect(tokens.accessToken).toBe('new-token');
+      // Clients refresh their permissions from this (contract 2).
+      expect(tokens.user).toEqual({
+        id: mockUser.id,
+        phone: mockUser.phone,
+        role: mockUser.role?.key ?? 'citizen',
+        permissions: mockUser.permissions ?? [],
+      });
     });
 
     it('throws UnauthorizedError if session revoked', async () => {

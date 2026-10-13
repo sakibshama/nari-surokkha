@@ -1,0 +1,70 @@
+# Override: continuous WAL archiving with WAL-G (point-in-time recovery).
+#
+#   docker compose -f docker-compose.prod.yml \
+#     -f deploy/production/walg/docker-compose.walg.yml \
+#     --env-file .env.production up -d --build postgres
+#
+# Requires the WALG_* / AWS_* variables in .env.production (see
+# docs/operations/backup-and-restore.md). Changing archive_mode needs a
+# Postgres restart, which the command above performs.
+services:
+  postgres:
+    image: ${REGISTRY:-nari-surokkha}/postgres-walg:16-3.4
+    build:
+      # Relative paths in an override resolve from the project directory
+      # (the directory of the FIRST -f file, i.e. the repository root).
+      context: deploy/production/walg
+      dockerfile: Dockerfile
+    environment:
+      WALG_S3_PREFIX: ${WALG_S3_PREFIX:?WALG_S3_PREFIX is required, e.g. s3://nari-backups/wal}
+      AWS_ACCESS_KEY_ID: ${WALG_AWS_ACCESS_KEY_ID:?WALG_AWS_ACCESS_KEY_ID is required}
+      AWS_SECRET_ACCESS_KEY: ${WALG_AWS_SECRET_ACCESS_KEY:?WALG_AWS_SECRET_ACCESS_KEY is required}
+      AWS_ENDPOINT: ${WALG_S3_ENDPOINT:-}
+      AWS_REGION: ${WALG_S3_REGION:-auto}
+      AWS_S3_FORCE_PATH_STYLE: "true"
+      WALG_COMPRESSION_METHOD: lz4
+      # OpenPGP public key only: the server can encrypt WAL and base backups
+      # but cannot decrypt them. The private key is needed only on restore.
+      WALG_PGP_KEY_PATH: /etc/wal-g/backup-public.asc
+      # wal-g talks to the local server for backup-push.
+      PGHOST: /var/run/postgresql
+      PGUSER: ${POSTGRES_USER:-nari_user}
+      PGDATABASE: ${POSTGRES_DB:-nari_surokkha}
+    volumes:
+      - ${WALG_PGP_PUBLIC_KEY_FILE:-./deploy/production/walg/backup-public.asc}:/etc/wal-g/backup-public.asc:ro
+    # Same tuning as docker-compose.prod.yml, plus archiving. A `command` in
+    # an override REPLACES the base one, so every flag is repeated here.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-2GB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-6GB}
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - work_mem=${PG_WORK_MEM:-16MB}
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-200}
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - wal_compression=on
+      - -c
+      - track_io_timing=on
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      # ── WAL archiving ──
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=wal-g wal-push %p
+      # Ship a (possibly partial) segment at least every 60 s: RPO <= ~1 min.
+      - -c
+      - archive_timeout=60
+      - -c
+      - max_wal_senders=3

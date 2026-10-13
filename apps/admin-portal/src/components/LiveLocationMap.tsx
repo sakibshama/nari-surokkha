@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Circle, Polyline, useMap, Tooltip, Lay
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Maximize2, Minimize2, LocateFixed, Plus, Minus, Navigation, Store } from 'lucide-react';
+import { useT, fmt, tr } from '../i18n';
 
 const victimIcon = L.divIcon({
   className: 'custom-pulse-marker',
@@ -62,8 +63,10 @@ function MapBridge({ center, isFullscreen, onMap }: { center: [number, number]; 
 }
 
 export default function LiveLocationMap({
-  center, responders = [], victimLabel = 'SOS Victim',
+  center, responders = [], victimLabel,
 }: { center: [number, number]; responders?: Responder[]; victimLabel?: string }) {
+  const t = useT();
+  const nearestLabel = t('Nearest responder');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [route, setRoute] = useState<RouteInfo | null>(null);
   const [pois, setPois] = useState<Poi[]>([]);
@@ -77,10 +80,10 @@ export default function LiveLocationMap({
       const p = validPoint(r.latitude, r.longitude);
       if (!p) continue;
       const km = haversineKm(center, p);
-      if (!best || km < best.km) best = { pos: p, name: r.user?.profile?.fullName || 'Nearest responder', km };
+      if (!best || km < best.km) best = { pos: p, name: r.user?.profile?.fullName || nearestLabel, km };
     }
     return best;
-  }, [responders, center]);
+  }, [responders, center, nearestLabel]);
 
   useEffect(() => {
     if (!nearest) { setRoute(null); return; }
@@ -118,7 +121,8 @@ export default function LiveLocationMap({
           const kind = el.tags?.amenity || (el.tags?.shop ? 'shop' : '');
           const meta = POI_KINDS[kind] || (el.tags?.shop ? { emoji: '🏪', label: `Shop${el.tags.shop !== 'yes' ? ' · ' + el.tags.shop : ''}` } : null);
           if (!meta) continue;
-          list.push({ id: String(el.id), pos: [el.lat, el.lon], emoji: meta.emoji, label: el.tags?.name ? `${meta.label}: ${el.tags.name}` : meta.label });
+          const label = tr(meta.label);
+          list.push({ id: String(el.id), pos: [el.lat, el.lon], emoji: meta.emoji, label: el.tags?.name ? `${label}: ${el.tags.name}` : label });
           if (list.length >= 70) break;
         }
         setPois(list);
@@ -168,11 +172,11 @@ export default function LiveLocationMap({
         <MapBridge center={center} isFullscreen={isFullscreen} onMap={(m) => { mapRef.current = m; }} />
 
         <LayersControl position="topright">
-          <LayersControl.BaseLayer checked name="Street (detailed)">
+          <LayersControl.BaseLayer checked name={t('Street (detailed)')}>
             <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
               attribution='&copy; OpenStreetMap &copy; CARTO' maxNativeZoom={20} maxZoom={20} detectRetina />
           </LayersControl.BaseLayer>
-          <LayersControl.BaseLayer name="Satellite">
+          <LayersControl.BaseLayer name={t('Satellite')}>
             <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
               attribution='&copy; Esri World Imagery' maxNativeZoom={19} maxZoom={20} detectRetina />
           </LayersControl.BaseLayer>
@@ -190,7 +194,7 @@ export default function LiveLocationMap({
         )}
 
         <Marker position={center} icon={victimIcon}>
-          <Tooltip direction="top" offset={[0, -12]} permanent>{victimLabel}</Tooltip>
+          <Tooltip direction="top" offset={[0, -12]} permanent>{victimLabel || t('SOS Victim')}</Tooltip>
         </Marker>
         <Circle center={center} radius={200} pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.12, weight: 2 }} />
 
@@ -198,7 +202,7 @@ export default function LiveLocationMap({
           const p = validPoint(r.latitude, r.longitude);
           return p ? (
             <Marker key={r.id} position={p} icon={responderIcon}>
-              <Tooltip direction="top" offset={[0, -12]}>Responder: {r.user?.profile?.fullName || 'Volunteer'}</Tooltip>
+              <Tooltip direction="top" offset={[0, -12]}>{t('Responder')}: {r.user?.profile?.fullName || t('Volunteer')}</Tooltip>
             </Marker>
           ) : null;
         })}
@@ -211,7 +215,7 @@ export default function LiveLocationMap({
       </MapContainer>
 
       {route && (
-        <div onClick={fitRoute} title="Click to fit route in view" style={{
+        <div onClick={fitRoute} title={t('Click to fit route in view')} style={{
           position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
           background: 'rgba(17,24,39,0.9)', backdropFilter: 'blur(6px)', color: '#e5e7eb',
           border: '1px solid rgba(59,130,246,0.4)', borderRadius: 12, padding: '8px 14px',
@@ -219,28 +223,28 @@ export default function LiveLocationMap({
         }}>
           <Navigation size={16} color="#60a5fa" />
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-            <span style={{ fontSize: 12, color: '#93c5fd' }}>{route.fromName} → victim</span>
+            <span style={{ fontSize: 12, color: '#93c5fd' }}>{route.fromName} → {t('victim')}</span>
             <span style={{ fontSize: 14, fontWeight: 700 }}>
-              {route.km.toFixed(1)} km · ~{Math.max(1, Math.round(route.min))} min drive
+              {fmt(t('{km} km · ~{min} min drive'), { km: route.km.toFixed(1), min: Math.max(1, Math.round(route.min)) })}
             </span>
           </div>
         </div>
       )}
 
       <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 1000 }}>
-        <button className="llm-btn" style={btn} title={isFullscreen ? 'Exit full screen' : 'Full screen'} onClick={() => setIsFullscreen((v) => !v)}>
+        <button className="llm-btn" style={btn} title={isFullscreen ? t('Exit full screen') : t('Full screen')} onClick={() => setIsFullscreen((v) => !v)}>
           {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
         </button>
-        <button className="llm-btn" style={btn} title="Recenter on victim" onClick={recenter}><LocateFixed size={18} /></button>
+        <button className="llm-btn" style={btn} title={t('Recenter on victim')} onClick={recenter}><LocateFixed size={18} /></button>
         <button className="llm-btn" style={{ ...btn, background: showPois ? 'rgba(59,130,246,0.85)' : 'rgba(17,24,39,0.85)' }}
-          title={showPois ? 'Hide nearby places' : 'Show nearby places'} onClick={() => setShowPois((v) => !v)}>
+          title={showPois ? t('Hide nearby places') : t('Show nearby places')} onClick={() => setShowPois((v) => !v)}>
           <Store size={18} />
         </button>
       </div>
 
       <div style={{ position: 'absolute', bottom: 24, right: 12, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 1000 }}>
-        <button className="llm-btn" style={btn} title="Zoom in" onClick={zoomIn}><Plus size={18} /></button>
-        <button className="llm-btn" style={btn} title="Zoom out" onClick={zoomOut}><Minus size={18} /></button>
+        <button className="llm-btn" style={btn} title={t('Zoom in')} onClick={zoomIn}><Plus size={18} /></button>
+        <button className="llm-btn" style={btn} title={t('Zoom out')} onClick={zoomOut}><Minus size={18} /></button>
       </div>
 
       <div style={{
@@ -249,9 +253,9 @@ export default function LiveLocationMap({
         borderRadius: 10, padding: '10px 12px', fontSize: 12, display: 'flex', flexDirection: 'column', gap: 6,
         boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
       }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444' }} /> SOS victim</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981' }} /> Responder ({responders.length})</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>🏥🛒🍴 Nearby places ({showPois ? pois.length : 'off'})</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444' }} /> {t('SOS victim')}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981' }} /> {t('Responder')} ({responders.length})</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>🏥🛒🍴 {t('Nearby places')} ({showPois ? pois.length : t('off')})</span>
       </div>
     </div>
   );

@@ -18,7 +18,7 @@ import { radius, spacing, type } from '../../theme/tokens';
 import type { Palette } from '../../theme/tokens';
 import api from '../../services/api';
 import { useLocationStore } from '../../store/locationStore';
-import { startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../services/backgroundTasks';
+import { startLocationTracking, stopLocationTracking } from '../../services/backgroundTasks';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'SafeRoute'>;
 
@@ -150,8 +150,10 @@ export default function SafeRouteScreen(_props: Props) {
     setTracking(true);
     setActiveRoute(routeData.id);
     try {
-      await startBackgroundLocationUpdates();
+      const mode = await startLocationTracking('route');
+      if (mode === 'none') throw new Error('Location permission denied');
     } catch (e) {
+      await stopLocationTracking('route');
       if (__DEV__) console.error(e);
       showAlert(t('Error'), t('Failed to start tracking'));
       setTracking(false);
@@ -160,13 +162,14 @@ export default function SafeRouteScreen(_props: Props) {
   };
 
   const stopTracking = async () => {
-    await stopBackgroundLocationUpdates();
+    await stopLocationTracking('route');
     setTracking(false);
     setActiveRoute(null);
     setRouteData(null);
   };
 
-  useEffect(() => () => { stopBackgroundLocationUpdates(); setActiveRoute(null); }, []);
+  // Only the route's own claim is released; an active SOS keeps tracking.
+  useEffect(() => () => { void stopLocationTracking('route'); setActiveRoute(null); }, []);
 
   const si = routeData ? scoreInfo(routeData.safetyScore, colors) : null;
   const START = colors.success;

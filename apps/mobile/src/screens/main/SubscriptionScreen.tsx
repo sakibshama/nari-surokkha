@@ -8,6 +8,8 @@
  * link), the payment is polled until the server has verified it with the
  * gateway.
  */
+import { useRoute, type RouteProp } from '@react-navigation/native';
+import type { MainStackParamList } from '../../navigation/MainStack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { AlertCircle, CheckCircle2, CreditCard, Globe, MessageSquare, RefreshCw, Smartphone, Wallet } from 'lucide-react-native';
@@ -53,6 +55,7 @@ function money(amount: number, currency: string, num: (n: number | string) => st
 }
 
 export default function SubscriptionScreen() {
+  const route = useRoute<RouteProp<MainStackParamList, 'Subscription'>>();
   const { colors } = useTheme();
   const t = useT();
   const { num, isBangla } = useLanguage();
@@ -151,6 +154,12 @@ export default function SubscriptionScreen() {
       stopPolling();
     };
   }, [poll]);
+
+  // Opened from the payment deep link (also on a cold start): confirm it.
+  const trxParam = route.params?.trx;
+  useEffect(() => {
+    if (trxParam) poll(trxParam);
+  }, [trxParam, poll]);
 
   const pay = async () => {
     if (!planId || !gatewayId) return;

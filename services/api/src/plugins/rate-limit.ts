@@ -13,7 +13,7 @@ import { FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import jwt from 'jsonwebtoken';
 import type { FastifyRequest } from 'fastify';
-import { env } from '@/config/env';
+import { env, IS_PRODUCTION } from '@/config/env';
 import { TooManyRequestsError } from '@/utils/errors';
 import type { JwtAccessPayload } from '@/types/index';
 
@@ -33,7 +33,7 @@ import type { JwtAccessPayload } from '@/types/index';
  * Unauthenticated requests (login, register, webhooks) stay on IP, which is
  * the correct grouping for credential-stuffing defence.
  */
-function resolveRateLimitKey(request: FastifyRequest): string {
+export function resolveRateLimitKey(request: FastifyRequest): string {
   const header = request.headers.authorization;
   let token: string | undefined;
 
@@ -55,10 +55,9 @@ function resolveRateLimitKey(request: FastifyRequest): string {
     }
   }
 
-  const forwarded = (request.headers['x-forwarded-for'] as string | undefined)
-    ?.split(',')[0]
-    ?.trim();
-  return `ip:${forwarded || request.ip}`;
+  // request.ip already honours Fastify's `trustProxy` (TRUST_PROXY). Reading
+  // X-Forwarded-For here directly would let any client pick its own bucket.
+  return `ip:${request.ip}`;
 }
 
 async function rateLimitPlugin(fastify: FastifyInstance): Promise<void> {
@@ -72,14 +71,14 @@ async function rateLimitPlugin(fastify: FastifyInstance): Promise<void> {
     keyGenerator: resolveRateLimitKey,
     // Don't expose rate limit headers in production to avoid info leakage
     addHeadersOnExceeding: {
-      'x-ratelimit-limit': env.NODE_ENV !== 'production',
-      'x-ratelimit-remaining': env.NODE_ENV !== 'production',
-      'x-ratelimit-reset': env.NODE_ENV !== 'production',
+      'x-ratelimit-limit': !IS_PRODUCTION,
+      'x-ratelimit-remaining': !IS_PRODUCTION,
+      'x-ratelimit-reset': !IS_PRODUCTION,
     },
     addHeaders: {
-      'x-ratelimit-limit': env.NODE_ENV !== 'production',
-      'x-ratelimit-remaining': env.NODE_ENV !== 'production',
-      'x-ratelimit-reset': env.NODE_ENV !== 'production',
+      'x-ratelimit-limit': !IS_PRODUCTION,
+      'x-ratelimit-remaining': !IS_PRODUCTION,
+      'x-ratelimit-reset': !IS_PRODUCTION,
       'retry-after': true,
     },
     errorResponseBuilder: (_request, context) => {

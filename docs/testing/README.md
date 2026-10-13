@@ -6,7 +6,7 @@ This directory contains test plans, checklists, and testing guidelines.
 
 | Level | Tool | When |
 |-------|------|------|
-| Unit Tests | Vitest (API), Jest (Mobile) | Every module |
+| Unit Tests | Vitest (API), `node:test` + tsx (Mobile: `cd apps/mobile && npm test`) | Every module; all run in CI |
 | Integration Tests | Vitest + real DB | Every API module |
 | Component Tests | React Testing Library | Admin Portal |
 | E2E Manual | Checklist below | Before each release |

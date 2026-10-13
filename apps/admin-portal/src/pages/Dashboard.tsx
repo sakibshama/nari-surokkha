@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import {
   Users, ShieldAlert, CheckCircle, Clock, MapPin, ArrowRight,
   WifiOff, RefreshCw, Siren, Radio, AlertTriangle,
-  Eye, PhoneCall, Activity, ShieldCheck
+  Eye, PhoneCall, Activity, FileWarning
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
-import { socketService } from '../services/socket';
-import { useT } from '../i18n';
+import { socketService, useSocketStatus } from '../services/socket';
+import { useT, tr } from '../i18n';
 import AppLogo from '../components/AppLogo';
 
 interface HealthData {
@@ -35,6 +35,7 @@ interface Alert {
 const STATUS_META: Record<string, { label: string; color: string; bg: string; pulse: boolean }> = {
   created:     { label: 'NEW',         color: '#ef4444', bg: 'rgba(239,68,68,0.15)',  pulse: true  },
   confirmed:   { label: 'CONFIRMED',   color: '#f97316', bg: 'rgba(249,115,22,0.15)', pulse: true  },
+  notified_contacts: { label: 'CONTACTS NOTIFIED', color: '#f97316', bg: 'rgba(249,115,22,0.15)', pulse: true },
   in_progress: { label: 'RESPONDING',  color: '#f59e0b', bg: 'rgba(245,158,11,0.15)', pulse: true  },
   resolved:    { label: 'RESOLVED',    color: '#10b981', bg: 'rgba(16,185,129,0.15)', pulse: false },
   dismissed:   { label: 'DISMISSED',   color: '#64748b', bg: 'rgba(100,116,139,0.15)',pulse: false },
@@ -75,7 +76,8 @@ export default function Dashboard() {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [activeAlertsList, setActiveAlertsList] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
+  const isConnected = useSocketStatus((s) => s.status === 'connected');
+  const [pendingIncidents, setPendingIncidents] = useState<number | null>(null);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [, setTick] = useState(0);
 
@@ -86,16 +88,25 @@ export default function Dashboard() {
         api.get('/admin/alerts', { params: { limit: 20, _t: Date.now() }, headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } }),
       ]);
       setHealth(healthRes.data.data);
-      const activeStatuses = ['created', 'confirmed', 'in_progress'];
+      // Contract 7: active = created, confirmed, notified_contacts, in_progress.
+      const activeStatuses = ['created', 'confirmed', 'notified_contacts', 'in_progress'];
       const active = (alertsRes.data.data || []).filter((a: Alert) => activeStatuses.includes(a.status));
       // Sort by urgency: newest first
       active.sort((a: Alert, b: Alert) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setActiveAlertsList(active);
       setLastRefresh(new Date());
     } catch (err) {
-      console.error('Dashboard fetch error:', err);
+      if (import.meta.env.DEV) console.error('Dashboard fetch error:', err);
     } finally {
       setLoading(false);
+    }
+    // Real metric replacing the old hard-coded "safety score": incident
+    // reports still waiting for review (the list endpoint caps at 50).
+    try {
+      const res = await api.get('/admin/incidents', { params: { status: 'pending' } });
+      setPendingIncidents(Array.isArray(res.data?.data) ? res.data.data.length : null);
+    } catch {
+      setPendingIncidents(null);
     }
   }, []);
 
@@ -109,27 +120,26 @@ export default function Dashboard() {
     fetchData();
     socketService.connect();
 
-    const checkConn = () => setIsConnected(!!socketService.socket?.connected);
-    const interval = setInterval(checkConn, 2000);
-    checkConn();
-
-    if (socketService.socket) {
-      socketService.socket.on('alert:created', () => { fetchData(); toast.error('🚨 New SOS Alert!', { duration: 4000, position: 'top-right' }); });
-      socketService.socket.on('alert_status_update', fetchData);
-      socketService.socket.on('alert:location_update', (data: any) => {
-        setActiveAlertsList(prev => prev.map(a => 
-          a.id === data.alertId ? { ...a, latitude: data.latitude, longitude: data.longitude } : a
-        ));
-      });
-    }
+    const onCreated = () => { fetchData(); toast.error(tr('🚨 New SOS Alert!'), { duration: 4000, position: 'top-right' }); };
+    const onStatus = () => { fetchData(); };
+    const onLocation = (data: any) => {
+      setActiveAlertsList(prev => prev.map(a =>
+        a.id === data.alertId ? { ...a, latitude: data.latitude, longitude: data.longitude } : a
+      ));
+    };
+    const onIncident = () => { setPendingIncidents(n => (n === null ? n : n + 1)); };
+    socketService.on('alert:created', onCreated);
+    socketService.on('alert_status_update', onStatus);
+    socketService.on('alert:location_update', onLocation);
+    socketService.on('incident:created', onIncident);
 
     return () => {
-      clearInterval(interval);
-      if (socketService.socket) {
-        socketService.socket.off('alert:created');
-        socketService.socket.off('alert_status_update');
-        socketService.socket.off('alert:location_update');
-      }
+      // Always pass the handler: off(event) without it would also remove
+      // Layout's global SOS siren listener.
+      socketService.off('alert:created', onCreated);
+      socketService.off('alert_status_update', onStatus);
+      socketService.off('alert:location_update', onLocation);
+      socketService.off('incident:created', onIncident);
     };
   }, [fetchData]);
 
@@ -137,8 +147,8 @@ export default function Dashboard() {
     { label: 'Active Emergencies', value: health?.activeAlerts ?? '—', icon: ShieldAlert, color: '#e11d3a', bg: 'rgba(225,29,58,0.12)', trend: 'urgent' },
     { label: 'Registered Users',   value: health?.totalUsers ?? '—',   icon: Users,       color: '#2563eb', bg: 'rgba(37,99,235,0.12)', trend: null },
     { label: 'Verified Responders',value: health?.verifiedResponders ?? '—', icon: CheckCircle, color: '#006a4e', bg: 'rgba(0,106,78,0.12)', trend: 'good' },
-    { label: 'Pending Reviews',    value: health?.pendingResponders ?? '—',  icon: Clock,       color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', trend: 'warn' },
-    { label: 'Avg Safety Score',   value: '84/100',  icon: ShieldCheck, color: '#00875f', bg: 'rgba(0,135,95,0.12)', trend: 'good' },
+    { label: 'Pending Responders', value: health?.pendingResponders ?? '—',  icon: Clock,       color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', trend: 'warn' },
+    { label: 'Incident Reports to Review', value: pendingIncidents ?? '—', icon: FileWarning, color: '#7c3aed', bg: 'rgba(124,58,237,0.12)', trend: null },
   ];
 
   return (

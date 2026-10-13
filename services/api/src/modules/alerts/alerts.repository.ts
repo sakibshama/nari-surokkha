@@ -2,7 +2,7 @@
  * Alerts Repository — Database Access Layer
  */
 
-import { PrismaClient, EmergencyAlert, AuditAction } from '@prisma/client';
+import { PrismaClient, Prisma, EmergencyAlert, AuditAction } from '@prisma/client';
 
 export class AlertsRepository {
   constructor(private readonly db: PrismaClient) {}
@@ -68,11 +68,28 @@ export class AlertsRepository {
     });
   }
 
-  async updateAlert(alertId: string, data: any): Promise<EmergencyAlert> {
+  async updateAlert(alertId: string, data: Prisma.EmergencyAlertUpdateInput): Promise<EmergencyAlert> {
     return this.db.emergencyAlert.update({
       where: { id: alertId },
       data,
     });
+  }
+
+  /**
+   * Apply `data` only while the alert is still a pending soft alert (status
+   * 'created'), atomically. Returns the updated alert, or null when another
+   * transition (cancel / confirm / auto-escalation) got there first.
+   */
+  async updateIfSoftAlertPending(
+    alertId: string,
+    data: Prisma.EmergencyAlertUpdateManyMutationInput,
+  ): Promise<EmergencyAlert | null> {
+    const { count } = await this.db.emergencyAlert.updateMany({
+      where: { id: alertId, status: 'created' },
+      data,
+    });
+    if (count === 0) return null;
+    return this.db.emergencyAlert.findUnique({ where: { id: alertId } });
   }
 
   async addLocationUpdate(

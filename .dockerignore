@@ -27,3 +27,10 @@ type-check-report.txt
 
 # Mobile app is not built in these images
 apps/mobile
+
+# Not part of any image built from the repo root
+services/ml-service
+services/ml-training
+docs
+load
+patches

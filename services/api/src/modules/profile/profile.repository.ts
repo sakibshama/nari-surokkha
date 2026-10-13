@@ -33,6 +33,15 @@ export class ProfileRepository {
     });
   }
 
+  async isEmailTakenByOther(email: string, userId: string): Promise<boolean> {
+    const owner = await this.db.user.findUnique({ where: { email }, select: { id: true } });
+    return !!owner && owner.id !== userId;
+  }
+
+  async updateEmail(userId: string, email: string | null): Promise<void> {
+    await this.db.user.update({ where: { id: userId }, data: { email } });
+  }
+
   async markAsVerified(userId: string): Promise<UserProfile> {
     return this.db.userProfile.update({
       where: { userId },

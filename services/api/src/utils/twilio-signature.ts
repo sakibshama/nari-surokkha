@@ -23,7 +23,8 @@ export function computeTwilioSignature(
   const sortedKeys = Object.keys(params).sort();
   let data = url;
   for (const key of sortedKeys) {
-    data += key + String(params[key] ?? '');
+    const value = params[key];
+    data += key + (typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value));
   }
   return crypto.createHmac('sha1', authToken).update(Buffer.from(data, 'utf-8')).digest('base64');
 }

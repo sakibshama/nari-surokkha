@@ -10,7 +10,7 @@ import { HISTORY_LIMIT } from './constants';
 
 const STORAGE_KEY = 'emergency_alert_history_v1';
 
-export type AlertSource = 'shout' | 'help' | 'cry' | 'bachao' | 'motion' | 'manual';
+export type AlertSource = 'shout' | 'help' | 'cry' | 'bachao' | 'motion' | 'manual' | 'route';
 
 export type AlertOutcome =
   | 'pending' // countdown running

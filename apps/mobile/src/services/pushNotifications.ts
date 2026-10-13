@@ -2,6 +2,8 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import api from './api';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -12,6 +14,8 @@ Notifications.setNotificationHandler({
     shouldShowList: true,
   }),
 });
+
+const PUSH_TOKEN_KEY = '@push_token';
 
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   let token = null;
@@ -64,4 +68,35 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
   }
 
   return token;
+}
+
+/**
+ * Register this device's push token with the server (POST /auth/device-token).
+ * Returns false when there is no token (web, simulator, permission denied).
+ */
+export async function registerDeviceTokenWithServer(): Promise<boolean> {
+  const token = await registerForPushNotificationsAsync();
+  if (!token) return false;
+  await api.post('/auth/device-token', { token, platform: Platform.OS === 'ios' ? 'ios' : 'android' });
+  await AsyncStorage.setItem(PUSH_TOKEN_KEY, token).catch(() => {});
+  return true;
+}
+
+/**
+ * Stop push for this install: the server stops sending to the token
+ * (DELETE /auth/device-token — call this while still signed in), and the token
+ * itself is invalidated on the device. A later registration gets a fresh one.
+ */
+export async function unregisterPush(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  const token = await AsyncStorage.getItem(PUSH_TOKEN_KEY).catch(() => null);
+  if (token) {
+    await api.delete('/auth/device-token', { data: { token }, timeout: 8000 }).catch(() => {});
+    await AsyncStorage.removeItem(PUSH_TOKEN_KEY).catch(() => {});
+  }
+  try {
+    await Notifications.unregisterForNotificationsAsync();
+  } catch {
+    /* best-effort */
+  }
 }

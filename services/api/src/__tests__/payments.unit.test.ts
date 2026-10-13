@@ -14,12 +14,14 @@ import { PaymentConfigService, PaymentConfigError } from '@/modules/payments/pay
 import { verifyStripeSignature, verifyStripeSession, stripeCreateSession } from '@/modules/payments/providers/stripe.gateway';
 import { sslcommerzValidate, sslcommerzCreateSession } from '@/modules/payments/providers/sslcommerz.gateway';
 import { SubscriptionService } from '@/modules/subscriptions/subscription.service';
+import { SubscriptionRepository } from '@/modules/subscriptions/subscription.repository';
 
 /** In-memory system_settings table. */
 function settingsDb(initial: Record<string, unknown> = {}) {
   const rows = new Map(Object.entries(initial).map(([k, v]) => [k, { key: k, value: v }]));
   return {
     rows,
+    payment: { updateMany: vi.fn(async () => ({ count: 0 })) },
     systemSetting: {
       findUnique: vi.fn(async ({ where }: any) => rows.get(where.key) ?? null),
       upsert: vi.fn(async ({ where, create, update }: any) => {
@@ -108,6 +110,15 @@ describe('PaymentConfigService (admin-managed gateways)', () => {
         { id: 'aa', smsQuota: 1, durationDays: 1, prices: {} },
       ]),
     ).rejects.toThrow(/unique/);
+  });
+
+  it("deleting a gateway closes its pending payments with a reason", async () => {
+    const g = await svc.addGateway({ type: 'stripe' });
+    await svc.deleteGateway(g.id);
+    expect(db.payment.updateMany).toHaveBeenCalledWith({
+      where: { gatewayId: g.id, status: 'pending' },
+      data: { status: 'failed', failureReason: expect.stringMatching(/removed/) },
+    });
   });
 
   it('migrates the old seeded single-store SSLCommerz config', async () => {
@@ -204,7 +215,7 @@ describe('SubscriptionService callbacks (nothing trusted from the browser)', () 
   const payment = { transactionId: 'T1', userId: 'u1', amount: 50, currency: 'BDT', status: 'pending', planId: 'monthly_50', gatewayId: 'g1' };
   const repo: any = {
     getPaymentByTrxId: vi.fn(async () => payment),
-    completePayment: vi.fn(async () => ({ credited: true })),
+    completePayment: vi.fn(async () => ({ credited: true, paid: true })),
     markClosed: vi.fn(),
   };
   const config: any = {
@@ -231,9 +242,62 @@ describe('SubscriptionService callbacks (nothing trusted from the browser)', () 
     vi.unstubAllGlobals();
   });
 
+  it('a payment closed by the (unauthenticated) cancel URL is still credited once the gateway confirms it', async () => {
+    repo.getPaymentByTrxId.mockResolvedValueOnce({ ...payment, status: 'cancelled' });
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ status: 'VALID', tran_id: 'T1', currency_amount: '50', currency_type: 'BDT', bank_tran_id: 'B1' })));
+    const r = await svc.handleSslcommerzPaid({ tran_id: 'T1', val_id: 'v1' });
+    expect(r.status).toBe('success');
+    expect(repo.completePayment).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('never reports success unless the payment row is actually successful', async () => {
+    repo.completePayment.mockResolvedValueOnce({ credited: false, paid: false });
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ status: 'VALID', tran_id: 'T1', currency_amount: '50', currency_type: 'BDT', bank_tran_id: 'B1' })));
+    const r = await svc.handleSslcommerzPaid({ tran_id: 'T1', val_id: 'v1' });
+    expect(r.status).toBe('failed');
+    vi.unstubAllGlobals();
+  });
+
   it('a Stripe webhook with a bad signature is rejected', async () => {
     config.getGateway.mockResolvedValueOnce({ id: 'g2', type: 'stripe', stripe: { secretKey: 'sk_test', webhookSecret: 'whsec_x' } });
     expect(await svc.handleStripeWebhook('g2', Buffer.from('{}'), 't=1,v1=00')).toBe(false);
     expect(repo.completePayment).not.toHaveBeenCalled();
+  });
+});
+
+describe('SubscriptionRepository.completePayment (exactly-once crediting)', () => {
+  function txDb(status: string) {
+    const row = { transactionId: 'T1', userId: 'u1', status };
+    const tx = {
+      payment: {
+        updateMany: vi.fn(async ({ where }: any) => {
+          if (!where.status.in.includes(row.status)) return { count: 0 };
+          row.status = 'success';
+          return { count: 1 };
+        }),
+        findUnique: vi.fn(async () => ({ status: row.status })),
+        findUniqueOrThrow: vi.fn(async () => row),
+        update: vi.fn(),
+      },
+      subscription: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({ id: 'sub-1' })) },
+    };
+    return { tx, prisma: { $transaction: (fn: any) => fn(tx) } };
+  }
+  const plan = { id: 'monthly', smsQuota: 12, durationDays: 30 };
+
+  it.each(['pending', 'cancelled', 'failed'])('credits a confirmed payment that was %s', async (status) => {
+    const { tx, prisma } = txDb(status);
+    const repo = new SubscriptionRepository(prisma as never);
+    await expect(repo.completePayment('T1', {}, plan)).resolves.toEqual({ credited: true, paid: true });
+    expect(tx.subscription.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('credits once: a second confirmation reports paid without crediting again', async () => {
+    const { tx, prisma } = txDb('pending');
+    const repo = new SubscriptionRepository(prisma as never);
+    await repo.completePayment('T1', {}, plan);
+    await expect(repo.completePayment('T1', {}, plan)).resolves.toEqual({ credited: false, paid: true });
+    expect(tx.subscription.upsert).toHaveBeenCalledTimes(1);
   });
 });

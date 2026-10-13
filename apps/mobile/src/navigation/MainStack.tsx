@@ -21,6 +21,7 @@ import FakeCallScreen from '../screens/main/FakeCallScreen';
 import OfflineSosScreen from '../screens/main/OfflineSosScreen';
 import SafeRouteScreen from '../screens/main/SafeRouteScreen';
 import SettingsScreen from '../screens/main/SettingsScreen';
+import ChangePasswordScreen from '../screens/main/ChangePasswordScreen';
 import SubscriptionScreen from '../screens/main/SubscriptionScreen';
 import EmergencyDetectionScreen from '../screens/main/EmergencyDetectionScreen';
 import AlertHistoryScreen from '../screens/main/AlertHistoryScreen';
@@ -46,7 +47,8 @@ export type MainStackParamList = {
   SmsHistory: undefined;
   EvidenceLibrary: undefined;
   Settings: undefined;
-  Subscription: undefined;
+  ChangePassword: undefined;
+  Subscription: { trx?: string } | undefined;
   EmergencyDetection: undefined;
   AlertHistory: undefined;
 };
@@ -230,6 +232,11 @@ export default function MainStack() {
         name="Settings"
         component={SettingsScreen}
         options={{ title: 'Settings' }}
+      />
+      <Stack.Screen
+        name="ChangePassword"
+        component={ChangePasswordScreen}
+        options={{ title: 'Change password' }}
       />
       <Stack.Screen
         name="Subscription"

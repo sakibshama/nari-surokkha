@@ -2,8 +2,13 @@
  * Alerts Module — Unit Tests
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AlertsService } from '@/modules/alerts/alerts.service';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  AlertsService,
+  SoftAlertNotPendingError,
+  SOFT_ALERT_ESCALATION_DELAY_MS,
+  clampClientTimestamp,
+} from '@/modules/alerts/alerts.service';
 import { ForbiddenError } from '@/utils/errors';
 import { EmergencyAlert } from '@prisma/client';
 import { FastifyInstance } from 'fastify';
@@ -95,7 +100,7 @@ describe('AlertsService', () => {
       fastifyMock.prisma.subscription = { findUnique: vi.fn().mockResolvedValue({ status: 'active', smsRemaining: 5 }) };
       const r = await service.triggerManualSos('user-9', { latitude: 23.7, longitude: 90.4 });
       expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
-        'notify_trusted_contacts', expect.objectContaining({ mode: 'all' }), { jobId: 'fanout:alert-9' });
+        'notify_trusted_contacts', expect.objectContaining({ mode: 'all' }), { jobId: 'fanout-alert-9' });
       expect(r.smsViaDevice).toBe(false);
       expect(r.deviceSmsMessage).toBeUndefined();
     });
@@ -108,7 +113,7 @@ describe('AlertsService', () => {
       fastifyMock.prisma.subscription = { findUnique: vi.fn().mockResolvedValue(sub) };
       const r = await service.triggerManualSos('user-9', { latitude: 23.7, longitude: 90.4 });
       expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
-        'notify_trusted_contacts', expect.objectContaining({ mode: 'push_only' }), { jobId: 'fanout:alert-9' });
+        'notify_trusted_contacts', expect.objectContaining({ mode: 'push_only' }), { jobId: 'fanout-alert-9' });
       expect(r.smsViaDevice).toBe(true);
       expect(r.contactPhones).toEqual(['+8801711111111']);
       // Same admin template the server would have used, with a live tracking link.
@@ -124,10 +129,10 @@ describe('AlertsService', () => {
     it('server-side auto-escalation always sends from the server (the phone is not answering)', async () => {
       fastifyMock.prisma.subscription = { findUnique: vi.fn().mockResolvedValue(null) };
       alertsRepo.getAlertById = vi.fn().mockResolvedValue({ ...alert, status: 'created' });
-      alertsRepo.updateAlert = vi.fn().mockResolvedValue({ ...alert, status: 'confirmed' });
+      alertsRepo.updateIfSoftAlertPending = vi.fn().mockResolvedValue({ ...alert, status: 'confirmed' });
       const r = await service.confirmSoftAlert('user-9', 'alert-9', { forceServerSms: true });
       expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
-        'notify_trusted_contacts', expect.objectContaining({ mode: 'all' }), { jobId: 'fanout:alert-9' });
+        'notify_trusted_contacts', expect.objectContaining({ mode: 'all' }), { jobId: 'fanout-alert-9' });
       expect(r.smsViaDevice).toBe(false);
     });
 
@@ -136,7 +141,7 @@ describe('AlertsService', () => {
       const r = await service.requestServerSms('user-9', 'alert-9');
       expect(r.queued).toBe(true);
       expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
-        'notify_trusted_contacts', { alertId: 'alert-9', userId: 'user-9', mode: 'sms_retry' }, { jobId: 'fanout-sms:alert-9' });
+        'notify_trusted_contacts', { alertId: 'alert-9', userId: 'user-9', mode: 'sms_retry' }, { jobId: 'fanout-sms-alert-9' });
     });
 
     it('sms fallback refuses other users\' alerts and closed alerts', async () => {
@@ -188,7 +193,7 @@ describe('AlertsService', () => {
         'notify_trusted_contacts',
         // No subscription data available → fails open: the server sends the SMS.
         { alertId: 'alert-123', userId: 'user-123', mode: 'all' },
-        { jobId: 'fanout:alert-123' },
+        { jobId: 'fanout-alert-123' },
       );
 
       // The heavy fan-out (audit log, responder dispatch) is handed to
@@ -200,7 +205,7 @@ describe('AlertsService', () => {
           userId: 'user-123',
           ipAddress: '192.168.1.1',
         }),
-        { jobId: 'dispatch:alert-123' },
+        { jobId: 'dispatch-alert-123' },
       );
 
       // ...and therefore does NOT happen on the request itself.
@@ -280,17 +285,6 @@ describe('AlertsService', () => {
     });
   });
 
-  describe('generateTrackingToken', () => {
-    it('returns a JWT token and an expiry date', () => {
-      const { token, expiresAt } = service.generateTrackingToken('user-123', 'alert-123', 'contact-123');
-      
-      expect(typeof token).toBe('string');
-      expect(token.length).toBeGreaterThan(20);
-      expect(expiresAt).toBeInstanceOf(Date);
-      expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
-    });
-  });
-
   describe('createSoftAlert', () => {
     it('creates an alert with status created and isSoftAlert true', async () => {
       alertsRepo.createAlert.mockResolvedValue({ id: 'alert-soft' });
@@ -306,13 +300,13 @@ describe('AlertsService', () => {
   });
 
   describe('cancelSoftAlert', () => {
-    it('sets status to false_alarm', async () => {
+    it('sets status to false_alarm, conditionally on the alert still being soft', async () => {
       alertsRepo.getAlertById = vi.fn().mockResolvedValue({ userId: 'user-123', status: 'created' });
-      alertsRepo.updateAlert = vi.fn().mockResolvedValue({});
+      alertsRepo.updateIfSoftAlertPending = vi.fn().mockResolvedValue({ id: 'alert-soft' });
 
       await service.cancelSoftAlert('user-123', 'alert-soft');
 
-      expect(alertsRepo.updateAlert).toHaveBeenCalledWith('alert-soft', expect.objectContaining({
+      expect(alertsRepo.updateIfSoftAlertPending).toHaveBeenCalledWith('alert-soft', expect.objectContaining({
         status: 'false_alarm',
       }));
     });
@@ -321,19 +315,25 @@ describe('AlertsService', () => {
       alertsRepo.getAlertById = vi.fn().mockResolvedValue({ userId: 'user-123', status: 'confirmed' });
       await expect(service.cancelSoftAlert('user-123', 'alert-soft')).rejects.toThrow(ForbiddenError);
     });
+
+    it('loses cleanly to an escalation that landed between the read and the write', async () => {
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ userId: 'user-123', status: 'created' });
+      alertsRepo.updateIfSoftAlertPending = vi.fn().mockResolvedValue(null);
+      await expect(service.cancelSoftAlert('user-123', 'alert-soft')).rejects.toBeInstanceOf(SoftAlertNotPendingError);
+    });
   });
 
   describe('confirmSoftAlert', () => {
     it('updates status to confirmed and dispatches', async () => {
-      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ 
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({
         id: 'alert-soft',
-        userId: 'user-123', 
+        userId: 'user-123',
         status: 'created',
         latitude: 23,
         longitude: 90,
       });
       contactsRepo.getContactsByUserId.mockResolvedValue([{ phone: '+880123' }]);
-      alertsRepo.updateAlert = vi.fn().mockResolvedValue({
+      alertsRepo.updateIfSoftAlertPending = vi.fn().mockResolvedValue({
         id: 'alert-soft',
         userId: 'user-123',
         status: 'confirmed',
@@ -343,16 +343,132 @@ describe('AlertsService', () => {
 
       await service.confirmSoftAlert('user-123', 'alert-soft');
 
-      expect(alertsRepo.updateAlert).toHaveBeenCalledWith('alert-soft', expect.objectContaining({
+      expect(alertsRepo.updateIfSoftAlertPending).toHaveBeenCalledWith('alert-soft', expect.objectContaining({
         status: 'confirmed',
       }));
       // The audit log now lives in the queued fan-out, not on the request.
       expect(fastifyMock.queues.dispatch.add).toHaveBeenCalledWith(
         'fan_out_alert',
         expect.objectContaining({ alertId: 'alert-soft' }),
-        { jobId: 'dispatch:alert-soft' },
+        { jobId: 'dispatch-alert-soft' },
       );
       expect(fastifyMock.io.to).toHaveBeenCalledWith('admin:global');
+    });
+
+    it('auto-escalation after a cancel is a no-op, not an SOS', async () => {
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ id: 'a', userId: 'user-123', status: 'created' });
+      alertsRepo.updateIfSoftAlertPending = vi.fn().mockResolvedValue(null); // cancel won the race
+      fastifyMock.log.debug = vi.fn();
+
+      await expect(service.autoEscalateSoftAlert('a', 'user-123')).resolves.toBe(false);
+      expect(fastifyMock.queues.dispatch.add).not.toHaveBeenCalled();
+      expect(fastifyMock.queues.notifications.add).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('soft-alert escalation scheduling', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('queues a delayed, de-duplicated escalation job', async () => {
+      fastifyMock.queues.escalations = { add: vi.fn().mockResolvedValue({ id: 'j' }) };
+      alertsRepo.createAlert.mockResolvedValue({ id: 'alert-soft' });
+      await service.createSoftAlert('user-1', { latitude: 23, longitude: 90 });
+      expect(fastifyMock.queues.escalations.add).toHaveBeenCalledWith(
+        'auto_escalate_soft_alert',
+        { alertId: 'alert-soft', userId: 'user-1' },
+        { delay: SOFT_ALERT_ESCALATION_DELAY_MS, jobId: 'escalate-alert-soft' },
+      );
+    });
+
+    it('falls back to an in-process timer when the queue is unavailable', async () => {
+      vi.useFakeTimers();
+      fastifyMock.queues.escalations = { add: vi.fn().mockRejectedValue(new Error('redis down')) };
+      alertsRepo.createAlert.mockResolvedValue({ id: 'alert-soft' });
+      const escalate = vi.spyOn(service, 'autoEscalateSoftAlert').mockResolvedValue(true);
+
+      await service.createSoftAlert('user-1', { latitude: 23, longitude: 90 });
+      expect(escalate).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(SOFT_ALERT_ESCALATION_DELAY_MS);
+      expect(escalate).toHaveBeenCalledWith('alert-soft', 'user-1');
+      expect(fastifyMock.log.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('updateRouteLocation (safe-route deviation)', () => {
+    const waypoints = [{ lat: 23.70, lng: 90.40 }, { lat: 23.71, lng: 90.40 }];
+    beforeEach(() => {
+      fastifyMock.redis.get.mockResolvedValue(JSON.stringify({ userId: 'user-1', waypoints }));
+      fastifyMock.prisma.activeRoute = { updateMany: vi.fn() };
+      alertsRepo.createAlert.mockResolvedValue({ id: 'soft-1' });
+      fastifyMock.queues.escalations = { add: vi.fn().mockResolvedValue({ id: 'j' }) };
+    });
+
+    it('on route: no status change, no alert', async () => {
+      const r = await service.updateRouteLocation('user-1', 'route-1', 23.705, 90.4001);
+      expect(r.deviated).toBe(false);
+      expect(r.alertId).toBeUndefined();
+      expect(fastifyMock.prisma.activeRoute.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('raises exactly one soft alert on the active→deviated transition', async () => {
+      fastifyMock.prisma.activeRoute.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValue({ count: 0 });
+
+      const first = await service.updateRouteLocation('user-1', 'route-1', 23.705, 90.42);
+      const second = await service.updateRouteLocation('user-1', 'route-1', 23.705, 90.43);
+
+      expect(first).toMatchObject({ deviated: true, alertId: 'soft-1' });
+      expect(first.distanceM).toBeGreaterThan(500);
+      expect(second.deviated).toBe(true);
+      expect(second.alertId).toBeUndefined();
+      expect(alertsRepo.createAlert).toHaveBeenCalledTimes(1);
+      expect(fastifyMock.prisma.activeRoute.updateMany).toHaveBeenCalledWith({
+        where: { id: 'route-1', status: 'active' },
+        data: { status: 'deviated' },
+      });
+    });
+
+    it("rejects someone else's route", async () => {
+      await expect(service.updateRouteLocation('intruder', 'route-1', 23.7, 90.4)).rejects.toThrow(ForbiddenError);
+    });
+  });
+
+  describe('resolveOwnAlert', () => {
+    it("owner marks an active alert resolved and the alert room hears it", async () => {
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ id: 'a1', userId: 'user-1', status: 'confirmed' });
+      alertsRepo.updateAlert = vi.fn().mockResolvedValue({ id: 'a1', status: 'resolved' });
+
+      const r = await service.resolveOwnAlert('user-1', 'a1');
+
+      expect(r.status).toBe('resolved');
+      expect(alertsRepo.updateAlert).toHaveBeenCalledWith('a1', expect.objectContaining({ status: 'resolved' }));
+      expect(fastifyMock.io.to).toHaveBeenCalledWith(['alert:a1', 'admin:global']);
+      expect(fastifyMock.io.emit).toHaveBeenCalledWith('alert_status_update', { alertId: 'a1', status: 'resolved' });
+    });
+
+    it('is idempotent for an already-closed alert and forbidden for others', async () => {
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ id: 'a1', userId: 'user-1', status: 'false_alarm' });
+      alertsRepo.updateAlert = vi.fn();
+      await service.resolveOwnAlert('user-1', 'a1');
+      expect(alertsRepo.updateAlert).not.toHaveBeenCalled();
+      await expect(service.resolveOwnAlert('user-2', 'a1')).rejects.toThrow(ForbiddenError);
+    });
+  });
+
+  describe('clampClientTimestamp', () => {
+    const now = Date.parse('2026-10-12T12:00:00.000Z');
+    it('accepts ISO strings and epoch milliseconds', () => {
+      expect(clampClientTimestamp('2026-10-12T11:50:00.000Z', now)).toBe('2026-10-12T11:50:00.000Z');
+      expect(clampClientTimestamp(now - 60_000, now)).toBe('2026-10-12T11:59:00.000Z');
+      expect(clampClientTimestamp(String(now - 60_000), now)).toBe('2026-10-12T11:59:00.000Z');
+    });
+    it('clamps the future to now and the distant past to one hour', () => {
+      expect(clampClientTimestamp(now + 60_000, now)).toBe('2026-10-12T12:00:00.000Z');
+      expect(clampClientTimestamp('2026-10-11T00:00:00Z', now)).toBe('2026-10-12T11:00:00.000Z');
+      expect(clampClientTimestamp('garbage', now)).toBe('2026-10-12T12:00:00.000Z');
+      expect(clampClientTimestamp(undefined, now)).toBe('2026-10-12T12:00:00.000Z');
     });
   });
 
@@ -449,5 +565,34 @@ describe('AlertsService', () => {
       expect(fastifyMock.prisma.responderDispatch.createMany).not.toHaveBeenCalled();
       expect(fastifyMock.prisma.deviceToken.findMany).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('BullMQ job ids', () => {
+  // BullMQ throws "Custom Id cannot contain :" for an id with exactly one ':'.
+  // That used to make every SOS contact-notification enqueue fail.
+  it('every id the alert service enqueues is accepted by BullMQ', async () => {
+    const ids: string[] = [];
+    const queue = { add: vi.fn(async (_n: string, _d: unknown, o: { jobId: string }) => { ids.push(o.jobId); return { id: o.jobId }; }) };
+    const fastify = {
+      log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+      queues: { notifications: queue, dispatch: queue, escalations: queue },
+      prisma: { subscription: { findUnique: vi.fn().mockResolvedValue({ status: 'active', smsRemaining: 5 }) } },
+      io: { to: vi.fn().mockReturnThis(), emit: vi.fn() },
+    };
+    const repo = {
+      createAlert: vi.fn().mockResolvedValue({ id: 'a1', userId: 'u1', status: 'confirmed', type: 'manual', latitude: 1, longitude: 1 }),
+      getAlertById: vi.fn().mockResolvedValue({ id: 'a1', userId: 'u1', status: 'confirmed' }),
+    };
+    const svc = new AlertsService(repo as never, { getContactsByUserId: vi.fn().mockResolvedValue([]) } as never, {} as never, fastify as never);
+    await svc.triggerManualSos('u1', { latitude: 1, longitude: 1 });
+    await svc.createSoftAlert('u1', { latitude: 1, longitude: 1 });
+    await svc.requestServerSms('u1', 'a1');
+
+    expect(ids).toHaveLength(4);
+    // BullMQ's rule (classes/job.js validateOptions): no ':' unless it has exactly three parts.
+    for (const jobId of ids) {
+      expect(!jobId.includes(':') || jobId.split(':').length === 3, jobId).toBe(true);
+    }
   });
 });

@@ -10,11 +10,12 @@ import * as Location from 'expo-location';
 import api from '../api';
 import { sendOfflineSosSms } from '../offlineSos';
 import { sendSosSmsFromDevice } from '../deviceSms';
-import { startBackgroundLocationUpdates } from '../backgroundTasks';
+import { setRouteDeviationHandler } from '../backgroundTasks';
 import { uploadConfirmedEmergencySample, uploadMotionSample } from '../ml/motionSampleUploader';
 import { useLocationStore } from '../../store/locationStore';
 import { useAuthStore } from '../../store/authStore';
 import { tStatic } from '../../i18n';
+import { buildSosText } from '../sosText';
 import { navigateMain, currentRouteName, replaceMain } from '../../navigation/navigationRef';
 import { microphoneStream } from './MicrophoneStream';
 import { loadEmergencyModels } from './tfliteModels';
@@ -37,6 +38,8 @@ export function triggerLabel(source: AlertSource): string {
       return tStatic('"Bachao"');
     case 'motion':
       return tStatic('Fall / struggle');
+    case 'route':
+      return tStatic('Off your safe route');
     default:
       return tStatic('Silent alert');
   }
@@ -141,10 +144,7 @@ export const softAlerts = new SoftAlertManager({
     // SMS limit reached (or the server could not queue it): send from the SIM.
     // sendSosSmsFromDevice asks the server to send it after all if the phone
     // cannot (no SMS permission, app in the background on iOS, …).
-    const link = c ? `https://maps.google.com/?q=${c.latitude},${c.longitude}` : tStatic('location unavailable');
-    const message =
-      result.deviceSmsMessage ||
-      tStatic('EMERGENCY: {name} needs help! Location: {link}', { name: userName() || tStatic('A user'), link });
+    const message = result.deviceSmsMessage || buildSosText(tStatic, userName(), c);
     if (!result.alertId) {
       await sendOfflineSosSms({ coords: c ?? undefined, userName: userName() });
       return;
@@ -168,10 +168,8 @@ export const softAlerts = new SoftAlertManager({
       }
       return;
     }
+    // Live tracking follows the SOS state (services/sosSession.ts).
     useLocationStore.getState().setSosActive(true, result.alertId);
-    // ActiveSos starts live tracking when it mounts; in the background nothing
-    // mounts, so start it here (the call is idempotent).
-    void startBackgroundLocationUpdates().catch(() => {});
     if (!navigateMainIfForeground('ActiveSos', { alertId: result.alertId })) {
       void showResultNotification(
         tStatic('SOS sent'),
@@ -217,6 +215,14 @@ function navigateMainIfForeground(name: 'SoftAlert' | 'ActiveSos' | 'OfflineSos'
   if (here === 'SoftAlert') return replaceMain(name, params);
   return navigateMain(name, params);
 }
+
+/**
+ * Safe route: the server raised a soft alert because the walk left the route.
+ * Show the same 15-second countdown so the user can answer "I'm okay".
+ */
+setRouteDeviationHandler((serverAlertId) => {
+  softAlerts.trigger('route', { serverAlertId });
+});
 
 /** Sound detections become soft alerts. */
 detector.onDetection((d) => {

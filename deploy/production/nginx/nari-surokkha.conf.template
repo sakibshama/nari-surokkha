@@ -1,41 +1,65 @@
 # ============================================================
 # Nari Surokkha — Edge reverse proxy (TLS + subdomains)
-# ${DOMAIN} is substituted at container start (envsubst).
+# ${DOMAIN} is substituted at container start (envsubst, filtered to DOMAIN
+# only, so nginx's own $variables are left intact).
 #
-# Subdomains (point all three A-records at the VPS IP):
+# Subdomains (point both A-records at the VPS IP):
 #   api.${DOMAIN}     -> API (Fastify) + WebSocket / WebRTC signaling
 #   admin.${DOMAIN}   -> Admin portal (static)
+#
+# Snippets in ./snippets are mounted at /etc/nginx/snippets (see
+# docker-compose.prod.yml). Requires nginx >= 1.27.3 for `server ... resolve`.
 # ============================================================
 
-# ---- Shared upgrade map for WebSockets ----
+# ---- Docker's embedded DNS ----
+# Upstreams below use `resolve`, so nginx re-resolves the service names every
+# 10s. Without this, nginx caches the API container's IP at startup and every
+# `docker compose up -d` that recreates the API turns into 502s until nginx is
+# restarted (Infra M4). It also picks up new replicas after `--scale api=N`.
+resolver 127.0.0.11 valid=10s ipv6=off;
+resolver_timeout 5s;
+
+# ---- WebSocket upgrade map ----
+# "upgrade" for upgrade requests, empty otherwise. An empty Connection header
+# lets nginx reuse upstream keepalive connections for plain REST calls.
 map $http_upgrade $connection_upgrade {
     default upgrade;
-    ''      close;
+    ''      '';
 }
 
 # ---- API upstream pool ----
-# Was a single hardcoded `proxy_pass http://api:3001`, which meant scaling the
-# API required editing nginx. Docker's embedded DNS resolves `api` to every
-# replica, and least_conn spreads load by active connections -- the right
-# metric here, because a long-lived Socket.IO connection is not comparable to
-# a short REST call.
-#
-# Sticky sessions are NOT required: Socket.IO uses the Redis adapter, and the
-# clients connect with transports: ['websocket'], skipping the HTTP long-poll
-# handshake that would otherwise need session affinity.
+# Docker DNS returns every replica of `api`; least_conn spreads load by active
+# connections (a long-lived Socket.IO connection is not comparable to a short
+# REST call). Sticky sessions are not required: Socket.IO uses the Redis
+# adapter and clients connect with transports: ['websocket'].
 upstream nari_api {
+    zone nari_api 64k;
     least_conn;
-    server api:3001 max_fails=3 fail_timeout=10s;
+    server api:3001 resolve max_fails=3 fail_timeout=10s;
     keepalive 32;
 }
 
+upstream nari_admin_portal {
+    zone nari_admin_portal 64k;
+    server admin-portal:8080 resolve;
+}
+
 # ---- Rate limiting at the edge ----
-# Defence in depth in front of the app's own Redis-backed limiter: this sheds
-# obvious floods before they cost a Node worker or a Redis round trip.
-# The SOS endpoint is deliberately NOT limited here -- the application layer
-# handles it per user, and dropping a real emergency at the edge is unacceptable.
-limit_req_zone $binary_remote_addr zone=api_general:10m rate=30r/s;
-limit_req_zone $binary_remote_addr zone=api_auth:10m rate=1r/s;
+# Defence in depth in front of the API's own Redis-backed, per-account
+# limiter. Keys are the connecting IP. Bangladeshi mobile carriers put very
+# many users behind one CGNAT address, so per-IP edge limits must be generous
+# for anything a normal user does; the strict limits are only for credential
+# and OTP endpoints, where the API also limits per phone number.
+#
+#   auth_strict  login / register / OTP / change-password    10 r/min, burst 30
+#   auth_session refresh / logout / device-token / others     5 r/s,  burst 50
+#   api_general  everything else                             30 r/s,  burst 60
+#   (none)       SOS, live location, SMS fallback, Socket.IO — never shed at
+#                the edge; dropping a real emergency is unacceptable.
+limit_req_zone $binary_remote_addr zone=auth_strict:10m  rate=10r/m;
+limit_req_zone $binary_remote_addr zone=auth_session:10m rate=5r/s;
+limit_req_zone $binary_remote_addr zone=api_general:10m  rate=30r/s;
+limit_req_status 429;
 
 # ---- Compression ----
 gzip on;
@@ -45,6 +69,8 @@ gzip_comp_level 5;
 gzip_min_length 512;
 gzip_types application/json application/javascript text/css text/plain
            image/svg+xml application/manifest+json;
+
+server_tokens off;
 
 # ---- HTTP: ACME challenge + redirect everything else to HTTPS ----
 server {
@@ -78,50 +104,46 @@ server {
     # videos at 50MB by the API; allow a little headroom for the form framing.
     client_max_body_size 55m;
 
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options DENY always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    include /etc/nginx/snippets/security-headers.conf;
+    add_header X-Frame-Options "DENY" always;
 
     # Metrics and the queue inspector live on the API's internal port 9091 and
-    # are intentionally unreachable from here. Reach them over the Docker
-    # network or an SSH tunnel.
+    # are intentionally unreachable from here.
     location /metrics { return 404; }
     location /queues  { return 404; }
 
-    # Stricter limit on credential endpoints (brute-force surface).
+    # Credential + OTP endpoints: the brute-force / SMS-pumping surface.
+    location ~ ^/api/v1/auth/(login|register|otp/request|otp/verify|change-password)$ {
+        limit_req zone=auth_strict burst=30 nodelay;
+        include /etc/nginx/snippets/proxy-api.conf;
+    }
+
+    # Session upkeep (refresh, logout, device token). Moderate: a phone on
+    # CGNAT refreshing every 15 minutes must never be throttled by neighbours.
     location /api/v1/auth/ {
-        limit_req zone=api_auth burst=10 nodelay;
-        proxy_pass http://nari_api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        limit_req zone=auth_session burst=50 nodelay;
+        include /etc/nginx/snippets/proxy-api.conf;
+    }
+
+    # Emergency path: SOS creation, live-location pings (SOS and Safe Route),
+    # SMS fallback and the inbound SMS webhook. NOT limited at the edge — the
+    # API applies its own per-user limits here.
+    location ~ ^/api/v1/alerts/(sos|sms-webhook|[^/]+/location|[^/]+/sms-fallback|safe-route/[^/]+/location)$ {
+        include /etc/nginx/snippets/proxy-api.conf;
+    }
+
+    # Socket.IO (live tracking, dispatch, WebRTC signaling). Long-lived.
+    location /socket.io/ {
+        include /etc/nginx/snippets/proxy-api.conf;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
     }
 
     location / {
         limit_req zone=api_general burst=60 nodelay;
-
-        proxy_pass http://nari_api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Connection "";
-
-        # WebSocket / Socket.IO / WebRTC signaling upgrade
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-
-        # Retry the next upstream if one replica is unhealthy, so a single bad
-        # container does not surface as a failed SOS.
-        proxy_next_upstream error timeout http_502 http_503 http_504;
-        proxy_next_upstream_tries 2;
-
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
+        include /etc/nginx/snippets/proxy-api.conf;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
     }
 }
 
@@ -137,22 +159,30 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
 
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options SAMEORIGIN always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    include /etc/nginx/snippets/security-headers.conf;
+    add_header X-Frame-Options "DENY" always;
+    # Mirrors the CSP <meta> the portal's Vite build injects
+    # (apps/admin-portal/vite.config.ts); both apply, so keep them in step.
+    # A header adds what a <meta> cannot: frame-ancestors.
+    # If evidence is served from an S3/R2 host, it is already covered by
+    # `https:` in img-src/media-src; add it to connect-src if fetched via XHR.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.gstatic.com https://*.google.com 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://api.${DOMAIN} wss://api.${DOMAIN} https://router.project-osrm.org https://overpass-api.de https://maps.googleapis.com https://*.googleapis.com https://*.gstatic.com https://*.google.com data: blob:; worker-src 'self' blob:; frame-src https://*.google.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
 
     # Vite emits content-hashed filenames, so these can be cached forever.
+    # This location sets its own add_header, so the server-level headers are
+    # NOT inherited here — repeat them.
     location /assets/ {
-        proxy_pass http://admin-portal:80;
+        proxy_pass http://nari_admin_portal;
         proxy_set_header Host $host;
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header X-Frame-Options "DENY" always;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
     }
 
     location / {
-        proxy_pass http://admin-portal:80;
+        proxy_pass http://nari_admin_portal;
         proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }

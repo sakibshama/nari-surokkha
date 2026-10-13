@@ -22,7 +22,10 @@ import {
 } from '../services/emergency/backgroundMonitor';
 import { ACTION_HELP, ACTION_SAFE, prepareAlertNotifications } from '../services/emergency/alertNotifications';
 import { microphoneStream } from '../services/emergency/MicrophoneStream';
-import { useLocationStore } from '../store/locationStore';
+import { hydrateSosState, useLocationStore } from '../store/locationStore';
+import { initSosSession } from '../services/sosSession';
+import { startOfflineEscalationWatcher } from '../services/offlineEscalation';
+import { reconcileLocationTracking } from '../services/backgroundTasks';
 import { useSettingsStore } from '../store/settingsStore';
 import { useLanguageStore, tStatic } from '../i18n';
 import { navigateMain } from '../navigation/navigationRef';
@@ -33,6 +36,21 @@ let resyncHook: (() => void) | null = null;
 export default function EmergencyRuntime() {
   const syncing = useRef(false);
   const again = useRef(false);
+
+  // SOS tracking follows SOS state (including one restored after a restart),
+  // and an SMS-only SOS goes online by itself when the connection returns.
+  useEffect(() => {
+    void useSettingsStore.getState().hydrate();
+    const stopSession = initSosSession();
+    const stopEscalation = startOfflineEscalationWatcher();
+    void hydrateSosState().then(() => {
+      if (!useLocationStore.getState().isSosActive) void reconcileLocationTracking();
+    });
+    return () => {
+      stopSession();
+      stopEscalation();
+    };
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === 'web') {

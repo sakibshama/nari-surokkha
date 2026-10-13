@@ -7,6 +7,11 @@
 #
 # Images are pulled from your container registry in CI/CD (REGISTRY + TAG),
 # and fall back to building locally if not present.
+#
+# Seed roles (first deploy; demo users are never seeded in production):
+#             docker compose -f docker-compose.prod.yml --env-file .env.production run --rm api npm run prisma:seed
+# Point-in-time recovery (WAL-G): add -f deploy/production/walg/docker-compose.walg.yml
+#             (see docs/operations/backup-and-restore.md)
 # ============================================================
 
 # ─── Shared defaults ─────────────────────────────────────────
@@ -164,12 +169,16 @@ services:
       # you run the `osrm` profile; otherwise falls back to the public demo.
       OSRM_URL: ${OSRM_URL:-http://osrm:5000}
       # WebRTC ICE — the API serves these to clients via /config/ice-servers.
-      # TURN_PASSWORD is the SAME value the coturn container uses below, so the
-      # client credential can never drift out of sync. Set TURN_HOST to the API
-      # domain (e.g. api.mystrix-soft.com) to enable cross-network relaying.
+      # With TURN_SECRET set, each client gets a short-lived HMAC credential
+      # (coturn use-auth-secret / REST scheme) derived from the SAME secret the
+      # coturn container below verifies with. No static password is handed out.
+      # TURN_HOST is the public host clients relay through (e.g. api.example.com).
       TURN_HOST: ${TURN_HOST:-}
-      TURN_USERNAME: ${TURN_USERNAME:-nari}
-      TURN_PASSWORD: ${TURN_PASSWORD:-}
+      TURN_SECRET: ${TURN_SECRET:-}
+      # nginx is the single trusted proxy hop in front of the API (B3).
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+    # The image runs as uid 1000 (node): the host directory must be writable
+    # by it — `sudo chown -R 1000:1000 $UPLOADS_DIR` (vps-setup.sh does this).
     volumes:
       - ${UPLOADS_DIR:-./data/uploads}:/app/uploads
     depends_on:
@@ -229,23 +238,6 @@ services:
           memory: ${WORKER_MEM_LIMIT:-1g}
     networks: [internal]
 
-  # ─── ML Service (FastAPI) — internal only ──────────────────
-  ml-service:
-    image: ${REGISTRY:-nari-surokkha}/ml-service:${TAG:-latest}
-    build:
-      context: .
-      dockerfile: services/ml-service/Dockerfile
-    restart: unless-stopped
-    logging: *default-logging
-    environment:
-      ML_SERVICE_API_KEY: ${ML_SERVICE_API_KEY:?ML_SERVICE_API_KEY is required}
-      ML_ALLOWED_ORIGINS: http://api:3001
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-    networks: [internal]
-
   # ─── OSRM routing engine (Safe Route) — opt-in ────────────
   # Self-hosted road routing so Safe Route doesn't depend on the public demo
   # server. Started only with `--profile osrm` because it needs a one-time data
@@ -293,27 +285,54 @@ services:
 
   # ─── TURN relay (WebRTC across NAT/CGNAT — required for live
   #     streaming when phone and portal are on different networks) ─
+  # Auth: coturn's REST/`use-auth-secret` scheme. The API mints a credential
+  # valid for 1 hour (username "<expiry>:<userId>", password =
+  # base64(HMAC-SHA1(TURN_SECRET, username))); coturn verifies it with the same
+  # secret. Nothing long-lived ever reaches a client (B5).
+  #
+  # --denied-peer-ip: a TURN relay is an open proxy into whatever network it
+  # sits on. These ranges stop an authenticated user from relaying to the
+  # Docker network, the VPS loopback, link-local metadata or any private LAN.
+  #
+  # Firewall: 3478/tcp+udp and the UDP relay range 49152-49200 (vps-setup.sh).
   coturn:
     image: coturn/coturn:4.6-alpine
     restart: unless-stopped
+    logging: *default-logging
     # Host networking: TURN must advertise the real public IP and use a
     # UDP relay port range — Docker NAT breaks both.
     network_mode: host
-    command: >
-      -n --log-file=stdout
-      --fingerprint --lt-cred-mech
-      --realm=mystrix-soft.com
-      --user=nari:${TURN_PASSWORD:?TURN_PASSWORD is required}
-      --listening-port=3478
-      --min-port=49152 --max-port=49200
-      --no-cli --no-tlsv1 --no-tlsv1_1
+    command:
+      - -n
+      - --log-file=stdout
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:?TURN_SECRET is required (openssl rand -hex 32)}
+      - --realm=${DOMAIN:?DOMAIN is required}
+      - --listening-port=3478
+      - --min-port=49152
+      - --max-port=49200
+      - --no-cli
+      - --no-tlsv1
+      - --no-tlsv1_1
+      - --no-multicast-peers
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --denied-peer-ip=::1
+      - --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
   # ─── Monitoring ────────────────────────────────────────────
   # Start with:  docker compose -f docker-compose.prod.yml --profile monitoring up -d
   #
   # None of these are exposed publicly — reach Grafana over an SSH tunnel:
   #   ssh -L 3000:localhost:3000 user@vps
-  # Scrape targets are api:9091 and worker:9091 on the internal network.
+  # Prometheus discovers EVERY api/worker replica via Docker DNS (port 9091).
   prometheus:
     image: prom/prometheus:v2.54.1
     restart: unless-stopped
@@ -339,10 +358,16 @@ services:
     restart: unless-stopped
     profiles: ["monitoring"]
     logging: *default-logging
+    # Alertmanager does not expand environment variables in its config, so a
+    # literal "${ALERT_WEBHOOK_URL}" there was never delivered anywhere. The
+    # wrapper writes the URL to a file that slack_configs reads via
+    # api_url_file, and refuses to start without one.
     environment:
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    entrypoint: ["/bin/sh", "/etc/alertmanager/entrypoint.sh"]
     volumes:
       - ./infra/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./infra/monitoring/alertmanager-entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
       - alertmanager_data:/alertmanager
     deploy:
       resources:
@@ -374,7 +399,8 @@ services:
 
   # ─── Edge Nginx (TLS termination + reverse proxy) ──────────
   nginx:
-    image: nginx:alpine
+    # >= 1.27.3 is required for `server ... resolve` in the upstream blocks.
+    image: nginx:1.28-alpine
     restart: unless-stopped
     ports:
       - "80:80"
@@ -386,6 +412,7 @@ services:
       NGINX_ENVSUBST_FILTER: DOMAIN
     volumes:
       - ./deploy/production/nginx/nari-surokkha.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./deploy/production/nginx/snippets:/etc/nginx/snippets:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ./data/certbot-www:/var/www/certbot
     logging: *default-logging

@@ -9,7 +9,6 @@ import { ResponderRepository } from '../responder/responder.repository';
 import { ForbiddenError } from '@/utils/errors';
 import { EmergencyAlert } from '@prisma/client';
 import { env } from '@/config/env';
-import { generateTrackingToken } from './alerts.tokens';
 import { sendExpoPushBatch } from '../notifications/providers/expo-push.provider';
 import {
   ContactNotifyMode,
@@ -26,7 +25,14 @@ import {
   recordPing,
 } from './alert-location.buffer';
 
-import { ADMIN_ROOM } from '@/utils/alert-rooms';
+import { ADMIN_ROOM, emitToAlert } from '@/utils/alert-rooms';
+import { ACTIVE_ALERT_STATUSES } from './alert-status';
+
+/** A soft alert auto-escalates to a real SOS after this long without an answer. */
+export const SOFT_ALERT_ESCALATION_DELAY_MS = 30_000;
+
+/** The soft alert was already cancelled, confirmed or escalated. */
+export class SoftAlertNotPendingError extends ForbiddenError {}
 
 /**
  * How long the SOS request will wait for a queue write before giving up on it.
@@ -38,6 +44,10 @@ import { ADMIN_ROOM } from '@/utils/alert-rooms';
  * possible failure mode for this system. Bound it.
  */
 const QUEUE_ENQUEUE_TIMEOUT_MS = 2000;
+
+// BullMQ rejects a custom jobId containing exactly one ':' ("Custom Id cannot
+// contain :"), so these ids use '-'. The old 'fanout:<id>' form made every
+// contact-notification enqueue fail, silently degrading every SOS.
 
 /** Resolve with the promise, or with `null` if it takes too long. */
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
@@ -99,11 +109,11 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
  */
 const MAX_PING_AGE_MS = 60 * 60 * 1000; // 1 hour of offline replay
 
-function clampClientTimestamp(raw?: string): string {
-  const now = Date.now();
-  if (!raw) return new Date(now).toISOString();
-  const parsed = Date.parse(raw);
-  if (Number.isNaN(parsed)) return new Date(now).toISOString();
+/** Accepts an ISO string or epoch milliseconds. Exported for tests. */
+export function clampClientTimestamp(raw?: string | number | null, now = Date.now()): string {
+  if (raw === undefined || raw === null || raw === '') return new Date(now).toISOString();
+  const parsed = typeof raw === 'number' ? raw : /^\d+$/.test(raw) ? Number(raw) : Date.parse(raw);
+  if (!Number.isFinite(parsed)) return new Date(now).toISOString();
   if (parsed > now) return new Date(now).toISOString();
   if (parsed < now - MAX_PING_AGE_MS) return new Date(now - MAX_PING_AGE_MS).toISOString();
   return new Date(parsed).toISOString();
@@ -179,7 +189,6 @@ export class AlertsService {
     ipAddress?: string,
   ): Promise<
     EmergencyAlert & {
-      trackingToken?: string;
       contactPhones?: string[];
       /** The server could not queue the contact SMS — the app should send it. */
       degradedNotifications?: boolean;
@@ -204,11 +213,10 @@ export class AlertsService {
 
     const { degradedNotifications, smsViaDevice } = await this.dispatchConfirmedAlert(alert, data, ipAddress);
 
-    const trackingToken = generateTrackingToken(alert.id);
     const contactPhones = contacts.map(c => c.phone);
     const device = await this.deviceSmsInstruction(alert, smsViaDevice || degradedNotifications);
 
-    return { ...alert, trackingToken, contactPhones, degradedNotifications, ...device };
+    return { ...alert, contactPhones, degradedNotifications, ...device };
   }
 
   /**
@@ -232,7 +240,7 @@ export class AlertsService {
    */
   private async deviceSmsInstruction(alert: EmergencyAlert, needed: boolean): Promise<DeviceSmsInstruction> {
     if (!needed) return { smsViaDevice: false };
-    const mapLink = `https://maps.google.com/?q=${alert.latitude},${alert.longitude}`;
+    const mapLink = `https://maps.google.com/?q=${alert.latitude.toString()},${alert.longitude.toString()}`;
     let trackLink = mapLink;
     try {
       trackLink = publicTrackingUrl(await createTrackingLinkToken(this.fastify, alert.id, 'device'));
@@ -267,7 +275,7 @@ export class AlertsService {
   async requestServerSms(userId: string, alertId: string): Promise<{ queued: boolean }> {
     const alert = await this.repo.getAlertById(alertId);
     if (!alert || alert.userId !== userId) throw new ForbiddenError('Alert not found');
-    if (['closed', 'cancelled', 'false_alarm', 'resolved', 'created'].includes(alert.status as string)) {
+    if (['closed', 'cancelled', 'false_alarm', 'resolved', 'created'].includes(alert.status)) {
       throw new ForbiddenError('Alert is not active');
     }
     const mode: ContactNotifyMode = 'sms_retry';
@@ -276,7 +284,7 @@ export class AlertsService {
         this.fastify.queues.notifications.add(
           'notify_trusted_contacts',
           { alertId, userId, mode },
-          { jobId: `fanout-sms:${alertId}` },
+          { jobId: `fanout-sms-${alertId}` },
         ),
         QUEUE_ENQUEUE_TIMEOUT_MS,
       );
@@ -331,7 +339,7 @@ export class AlertsService {
           'notify_trusted_contacts',
           { alertId: alert.id, userId: alert.userId, mode },
           // Idempotent: re-triggering the same alert cannot double-notify.
-          { jobId: `fanout:${alert.id}` },
+          { jobId: `fanout-${alert.id}` },
         ),
         QUEUE_ENQUEUE_TIMEOUT_MS,
       );
@@ -376,7 +384,7 @@ export class AlertsService {
       ? await withTimeout(
           this.fastify.queues.dispatch.add('fan_out_alert', fanOut, {
             // Idempotent: a retried SOS request cannot double-dispatch responders.
-            jobId: `dispatch:${alert.id}`,
+            jobId: `dispatch-${alert.id}`,
           }),
           QUEUE_ENQUEUE_TIMEOUT_MS,
         )
@@ -536,23 +544,61 @@ export class AlertsService {
       mlMetadata: data.mlMetadata || null,
     });
 
-    // Enqueue an escalation job that will automatically confirm the alert in 30 seconds
-    if (this.fastify.queues?.escalations) {
-      const queued = await withTimeout(
-        this.fastify.queues.escalations.add(
-          'auto_escalate_soft_alert',
-          { alertId: alert.id, userId },
-          { delay: 30000 }, // 30 seconds delay
-        ),
-        QUEUE_ENQUEUE_TIMEOUT_MS,
-      );
-      if (queued) this.fastify.log.info({ alertId: alert.id }, 'Scheduled auto-escalation for soft alert');
-      else this.fastify.log.error({ alertId: alert.id }, 'Could not schedule soft-alert escalation');
-    }
+    await this.scheduleSoftAlertEscalation(alert.id, userId);
 
     alertsTotal.inc({ type: 'sensor_triggered' });
 
     return alert;
+  }
+
+  /**
+   * Escalate the soft alert if nobody answers. Normally a delayed BullMQ job;
+   * if the queue cannot take it, an in-process timer does the same thing, so
+   * an unanswered alert is never silently dropped. Either path is safe to race
+   * with a cancel: the transition itself is conditional on status 'created'.
+   */
+  private async scheduleSoftAlertEscalation(alertId: string, userId: string): Promise<void> {
+    const queued = this.fastify.queues?.escalations
+      ? await withTimeout(
+          this.fastify.queues.escalations.add(
+            'auto_escalate_soft_alert',
+            { alertId, userId },
+            { delay: SOFT_ALERT_ESCALATION_DELAY_MS, jobId: `escalate-${alertId}` },
+          ),
+          QUEUE_ENQUEUE_TIMEOUT_MS,
+        )
+      : null;
+    if (queued) {
+      this.fastify.log.info({ alertId }, 'Scheduled auto-escalation for soft alert');
+      return;
+    }
+
+    this.fastify.log.error({ alertId }, 'Could not queue soft-alert escalation — using an in-process timer');
+    setTimeout(() => {
+      this.autoEscalateSoftAlert(alertId, userId).catch((err) =>
+        this.fastify.log.error({ err, alertId }, 'In-process soft-alert escalation failed'),
+      );
+    }, SOFT_ALERT_ESCALATION_DELAY_MS).unref();
+  }
+
+  /**
+   * Nobody answered the soft alert: confirm it as a real SOS. Returns false
+   * when it was already cancelled or confirmed (the expected, benign race).
+   */
+  async autoEscalateSoftAlert(alertId: string, userId: string): Promise<boolean> {
+    try {
+      // The phone may be dead or out of reach, so the server texts the
+      // contacts itself whatever the user's SMS quota.
+      await this.confirmSoftAlert(userId, alertId, { forceServerSms: true });
+      this.fastify.log.info({ alertId }, 'Soft alert automatically escalated to SOS');
+      return true;
+    } catch (err) {
+      if (err instanceof SoftAlertNotPendingError) {
+        this.fastify.log.debug({ alertId }, 'Soft alert was already resolved before auto-escalation');
+        return false;
+      }
+      throw err;
+    }
   }
 
   async cancelSoftAlert(userId: string, alertId: string): Promise<void> {
@@ -560,15 +606,16 @@ export class AlertsService {
     if (!alert || alert.userId !== userId) {
       throw new ForbiddenError('Alert not found');
     }
-    if (alert.status !== 'created') {
-      throw new ForbiddenError('Cannot cancel an alert that is not in soft-alert state');
-    }
-
-    await this.repo.updateAlert(alertId, {
+    // Conditional on status 'created' in the same statement, so a cancel and
+    // a concurrent escalation can never both win.
+    const cancelled = alert.status === 'created' && (await this.repo.updateIfSoftAlertPending(alertId, {
       status: 'false_alarm',
       softAlertCancelledAt: new Date(),
       closedAt: new Date(),
-    });
+    }));
+    if (!cancelled) {
+      throw new SoftAlertNotPendingError('Cannot cancel an alert that is not in soft-alert state');
+    }
     // The cached authorisation record carries status — drop it, or the alert
     // would keep accepting location pings after being cancelled.
     await invalidateAlertMeta(this.fastify, alertId);
@@ -579,28 +626,26 @@ export class AlertsService {
     alertId: string,
     opts: { forceServerSms?: boolean } = {},
   ): Promise<
-    EmergencyAlert & { trackingToken?: string; contactPhones?: string[]; degradedNotifications?: boolean } & DeviceSmsInstruction
+    EmergencyAlert & { contactPhones?: string[]; degradedNotifications?: boolean } & DeviceSmsInstruction
   > {
     const alert = await this.repo.getAlertById(alertId);
     if (!alert || alert.userId !== userId) {
       throw new ForbiddenError('Alert not found');
     }
-    if (alert.status !== 'created') {
-      throw new ForbiddenError('Cannot confirm an alert that is not in soft-alert state');
+    // Conditional transition — see cancelSoftAlert.
+    const updatedAlert = alert.status === 'created'
+      ? await this.repo.updateIfSoftAlertPending(alertId, { status: 'confirmed', confirmedAt: new Date() })
+      : null;
+    if (!updatedAlert) {
+      throw new SoftAlertNotPendingError('Cannot confirm an alert that is not in soft-alert state');
     }
+    await invalidateAlertMeta(this.fastify, alertId);
 
-    // 1. Verify user has at least one trusted contact (same rule as manual SOS)
+    // Same rule as manual SOS: no contacts still dispatches responders.
     const contacts = await this.contactsRepo.getContactsByUserId(userId);
     if (contacts.length === 0) {
       this.fastify.log.warn('User has no trusted contacts, but allowing soft alert confirmation.');
     }
-
-    // Update state to confirmed
-    const updatedAlert = await this.repo.updateAlert(alertId, {
-      status: 'confirmed',
-      confirmedAt: new Date(),
-    });
-    await invalidateAlertMeta(this.fastify, alertId);
 
     const { degradedNotifications, smsViaDevice } = await this.dispatchConfirmedAlert(
       updatedAlert,
@@ -613,11 +658,10 @@ export class AlertsService {
       opts,
     );
 
-    const trackingToken = generateTrackingToken(updatedAlert.id);
     const contactPhones = contacts.map(c => c.phone);
     const device = await this.deviceSmsInstruction(updatedAlert, smsViaDevice || degradedNotifications);
 
-    return { ...updatedAlert, trackingToken, contactPhones, degradedNotifications, ...device };
+    return { ...updatedAlert, contactPhones, degradedNotifications, ...device };
   }
 
   async cancelSosAlert(userId: string, alertId: string): Promise<void> {
@@ -641,6 +685,28 @@ export class AlertsService {
       this.fastify.io.to(ADMIN_ROOM).emit('alert_status_update', eventPayload);
     }
   }
+
+  /** The owner says "I'm safe now". Idempotent once the alert is closed. */
+  async resolveOwnAlert(userId: string, alertId: string): Promise<EmergencyAlert> {
+    const alert = await this.repo.getAlertById(alertId);
+    if (!alert || alert.userId !== userId) {
+      throw new ForbiddenError('Alert not found');
+    }
+    if (!ACTIVE_ALERT_STATUSES.includes(alert.status)) return alert;
+
+    const now = new Date();
+    const updated = await this.repo.updateAlert(alertId, { status: 'resolved', resolvedAt: now, closedAt: now });
+    await invalidateAlertMeta(this.fastify, alertId);
+    await this.repo.createAuditLog({
+      userId,
+      action: 'updated',
+      entityType: 'alert',
+      entityId: alertId,
+      metadata: { from: alert.status, to: 'resolved', by: 'owner' },
+    });
+    emitToAlert(this.fastify, alertId, 'alert_status_update', { alertId, status: 'resolved' });
+    return updated;
+  }
   
     /**
      * Record a live position during an active SOS.
@@ -663,7 +729,7 @@ export class AlertsService {
     async updateLocation(
       userId: string,
       alertId: string,
-      data: { latitude: number; longitude: number; accuracy?: number; timestamp?: string }
+      data: { latitude: number; longitude: number; accuracy?: number; timestamp?: string | number | null }
     ): Promise<void> {
       const meta = await getAlertMeta(this.fastify, alertId);
 
@@ -705,15 +771,6 @@ export class AlertsService {
       }
     }
   
-    generateTrackingToken(_userId: string, alertId: string, trustedContactId?: string): { token: string, expiresAt: Date } {
-      const token = generateTrackingToken(alertId, trustedContactId);
-      
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24);
-      
-      return { token, expiresAt };
-    }
-
     async processSmsWebhook(from: string, body: string): Promise<void> {
       // Clean up the phone number (Twilio sends +1234567890)
       const phone = from.trim();
@@ -941,34 +998,39 @@ export class AlertsService {
       return value;
     }
 
-    async updateRouteLocation(userId: string, routeId: string, latitude: number, longitude: number) {
+    async updateRouteLocation(
+      userId: string,
+      routeId: string,
+      latitude: number,
+      longitude: number,
+    ): Promise<{ deviated: boolean; distanceM: number; alertId?: string }> {
       // The background task posts here on the SAME 10-second tick as the SOS
       // location ping, so this used to double the query cost of tracking. A
       // route's owner and waypoints never change after creation, so cache them.
+      // Status is NOT cached: it is checked in the database below.
       const route = await this.getCachedRoute(routeId);
       if (!route || route.userId !== userId) throw new ForbiddenError('Route not found');
 
       // Deviation = shortest distance from the user to the route LINE (not just
       // the nearest vertex) exceeds the threshold.
       const DEVIATION_THRESHOLD_M = 500;
-      const waypoints = route.waypoints;
-      const distanceM = pointToPathMeters(latitude, longitude, waypoints);
-      const isDeviated = distanceM > DEVIATION_THRESHOLD_M;
+      const distanceM = Math.round(pointToPathMeters(latitude, longitude, route.waypoints));
+      if (distanceM <= DEVIATION_THRESHOLD_M) return { deviated: false, distanceM };
 
-      if (isDeviated) {
-        await this.fastify.prisma.activeRoute.update({
-          where: { id: routeId },
-          data: { status: 'deviated' }
-        });
-        
-        // Trigger soft alert
-        await this.createSoftAlert(userId, {
-          latitude,
-          longitude,
-          mlMetadata: { reason: `Route deviation ${Math.round(distanceM)}m > ${DEVIATION_THRESHOLD_M}m` },
-        });
-      }
+      // Only the active→deviated transition raises an alert. Every ping after
+      // it (one each 10 s while off-route) used to create another soft alert,
+      // each auto-escalating to a full SOS 30 s later.
+      const { count } = await this.fastify.prisma.activeRoute.updateMany({
+        where: { id: routeId, status: 'active' },
+        data: { status: 'deviated' },
+      });
+      if (count === 0) return { deviated: true, distanceM };
 
-      return { deviated: isDeviated, distanceMeters: Math.round(distanceM) };
+      const alert = await this.createSoftAlert(userId, {
+        latitude,
+        longitude,
+        mlMetadata: { reason: 'route_deviation', routeId, distanceM, thresholdM: DEVIATION_THRESHOLD_M },
+      });
+      return { deviated: true, distanceM, alertId: alert.id };
     }
   }

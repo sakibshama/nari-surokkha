@@ -33,6 +33,7 @@ import MainStack from './MainStack';
 import { Theme, useTheme, useThemedStyles } from '../theme';
 import { radius, spacing, type } from '../theme/tokens';
 import { useAuthStore } from '../store/authStore';
+import { signOut } from '../services/signOut';
 import { useT } from '../i18n';
 import api from '../services/api';
 import LanguageToggle from '../components/LanguageToggle';
@@ -84,7 +85,7 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
   const styles = useThemedStyles(makeStyles);
   const { colors, gradients } = useTheme();
   const t = useT();
-  const { user, updateUser, logout } = useAuthStore();
+  const { user, updateUser } = useAuthStore();
   const isOpen = useDrawerStatus() === 'open';
   const current = activeScreen(props);
 
@@ -119,7 +120,7 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
   const confirmLogout = () => {
     showAlert(t('Log out?'), t('You will stop receiving alerts on this device until you sign in again.'), [
       { text: t('Cancel'), style: 'cancel' },
-      { text: t('Log out'), style: 'destructive', onPress: logout },
+      { text: t('Log out'), style: 'destructive', onPress: () => void signOut() },
     ]);
   };
 

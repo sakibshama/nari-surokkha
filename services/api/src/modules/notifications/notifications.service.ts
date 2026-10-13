@@ -184,7 +184,7 @@ export class NotificationsService {
     }
 
     const userName = alert.user.profile?.fullName || 'A user';
-    const mapsLink = `https://maps.google.com/?q=${alert.latitude},${alert.longitude}`;
+    const mapsLink = `https://maps.google.com/?q=${alert.latitude.toString()},${alert.longitude.toString()}`;
     const trackingBase = (env.PUBLIC_TRACKING_URL || env.API_BASE_URL).replace(/\/$/, '');
 
     const [template, token] = await Promise.all([
@@ -258,21 +258,22 @@ export class NotificationsService {
     }
 
     const log = await this.createNotificationLog(alertId, 'sms', phone, message);
+    let result: Awaited<ReturnType<SmsProvider['sendSms']>>;
     try {
-      const result = await smsProvider.sendSms(phone, message);
-      await this.updateNotificationLog(
-        log.id,
-        result.success ? 'sent' : 'failed',
-        result.error,
-        'sms',
-        alertCreatedAt,
-      );
-      if (!result.success) {
-        throw new Error(`SMS to ${phone} failed: ${result.error}`);
-      }
-    } catch (err: any) {
-      await this.updateNotificationLog(log.id, 'failed', err?.message, 'sms');
-      throw err;
+      result = await smsProvider.sendSms(phone, message);
+    } catch (err) {
+      result = { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    // Recorded exactly once per attempt, success or failure.
+    await this.updateNotificationLog(
+      log.id,
+      result.success ? 'sent' : 'failed',
+      result.error,
+      'sms',
+      alertCreatedAt,
+    );
+    if (!result.success) {
+      throw new Error(`SMS to ${phone} failed: ${result.error}`);
     }
 
     // The quota decision (server SMS vs the phone's own SIM) is made when the

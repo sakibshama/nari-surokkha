@@ -41,7 +41,7 @@ beforeAll(async () => {
     },
     $transaction: vi.fn(async () => {
       completed.push('T1');
-      return { credited: true };
+      return { credited: true, paid: true };
     }),
   };
   app = Fastify();

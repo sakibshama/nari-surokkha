@@ -26,7 +26,8 @@ datasource db {
   // Migrations must bypass the pooler: DDL and Prisma's advisory locks cannot
   // survive transaction-mode pooling. Points straight at Postgres.
   //   DIRECT_DATABASE_URL=postgresql://user:pass@postgres:5432/nari_surokkha
-  // Falls back to DATABASE_URL when unset, so local development is unchanged.
+  // REQUIRED in every environment (Prisma does not fall back to DATABASE_URL);
+  // locally it is simply the same value as DATABASE_URL.
   directUrl  = env("DIRECT_DATABASE_URL")
   extensions = [postgis(schema: "public"), pgcrypto]
 }
@@ -283,7 +284,12 @@ model TrustedContact {
 }
 
 // ============================================================
-// POLICE STATIONS & USERS
+// POLICE STATIONS & USERS — DEPRECATED
+// The police integration was removed from the product (Oct 2026). These
+// tables (police_stations, police_users, cases, case_updates) and the
+// police-related enum values are kept ONLY so existing data is not lost; no
+// code path writes to them. Do not build on them. Dropping them needs a
+// deliberate, data-reviewed migration.
 // ============================================================
 
 /// Police station — has a geographic location for nearest-match lookup

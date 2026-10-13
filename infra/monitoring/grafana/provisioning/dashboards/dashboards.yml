@@ -1,0 +1,10 @@
+# Loads every dashboard JSON in ./json (mounted read-only by docker-compose.prod.yml).
+apiVersion: 1
+providers:
+  - name: nari-surokkha
+    folder: Nari Surokkha
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

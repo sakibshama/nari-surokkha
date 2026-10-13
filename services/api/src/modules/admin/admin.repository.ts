@@ -1,5 +1,30 @@
-import { PrismaClient, User, Responder, AuditLog } from '@prisma/client';
-import argon2 from 'argon2';
+import { PrismaClient, Prisma, Responder, AuditLog, AlertStatus } from '@prisma/client';
+import { ACTIVE_ALERT_STATUSES } from '@/modules/alerts/alert-status';
+
+/** Every column the portal needs — and, deliberately, not passwordHash. */
+export const ADMIN_USER_SELECT = {
+  id: true,
+  phone: true,
+  email: true,
+  status: true,
+  permissions: true,
+  roleId: true,
+  createdAt: true,
+  updatedAt: true,
+  role: { select: { id: true, key: true, name: true } },
+  profile: {
+    select: {
+      fullName: true,
+      nationalId: true,
+      bloodGroup: true,
+      preferredLanguage: true,
+      isVerified: true,
+      verifiedAt: true,
+    },
+  },
+} satisfies Prisma.UserSelect;
+
+export type AdminUserView = Prisma.UserGetPayload<{ select: typeof ADMIN_USER_SELECT }>;
 
 export class AdminRepository {
   constructor(
@@ -11,8 +36,8 @@ export class AdminRepository {
     private readonly prismaRead: PrismaClient = prisma,
   ) {}
 
-  async listUsers(roleKey?: string, search?: string, limit: number = 50, offset: number = 0): Promise<{ data: User[], total: number }> {
-    const where: any = {};
+  async listUsers(roleKey?: string, search?: string, limit: number = 50, offset: number = 0): Promise<{ data: AdminUserView[], total: number }> {
+    const where: Prisma.UserWhereInput = {};
     if (roleKey) where.role = { key: roleKey };
     if (search) {
       where.OR = [
@@ -21,14 +46,14 @@ export class AdminRepository {
         { profile: { fullName: { contains: search, mode: 'insensitive' } } }
       ];
     }
-    
+
     const [data, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
         take: limit,
         skip: offset,
         orderBy: { createdAt: 'desc' },
-        include: { profile: true, role: true }
+        select: ADMIN_USER_SELECT,
       }),
       this.prisma.user.count({ where })
     ]);
@@ -36,90 +61,102 @@ export class AdminRepository {
     return { data, total };
   }
 
-  async createUser(data: any): Promise<User> {
-    const passwordHash = await argon2.hash(data.password || 'default123!');
-    const email = data.email && data.email.trim() !== '' ? data.email : null;
+  async findUser(id: string): Promise<AdminUserView | null> {
+    return this.prisma.user.findUnique({ where: { id }, select: ADMIN_USER_SELECT });
+  }
 
-    // Auto-assign full permissions to admin users if none explicitly provided
-    const ALL_ADMIN_PERMISSIONS = ['manage_users', 'manage_admins', 'view_audit_logs'];
-    const permissions = data.role === 'admin' && (!data.permissions || data.permissions.length === 0)
-      ? ALL_ADMIN_PERMISSIONS
-      : (data.permissions || []);
-    if (data.role === 'police') {
-      throw new Error('The police role has been retired');
-    }
+  async roleExists(key: string): Promise<boolean> {
+    return (await this.prisma.role.count({ where: { key } })) > 0;
+  }
 
+  async isEmailTaken(email: string, exceptUserId?: string): Promise<boolean> {
+    const owner = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+    return !!owner && owner.id !== exceptUserId;
+  }
+
+  async isPhoneTaken(phone: string, exceptUserId?: string): Promise<boolean> {
+    const owner = await this.prisma.user.findUnique({ where: { phone }, select: { id: true } });
+    return !!owner && owner.id !== exceptUserId;
+  }
+
+  async createUser(data: {
+    phone: string;
+    email: string | null;
+    passwordHash: string;
+    fullName: string;
+    nationalId?: string;
+    roleKey: string;
+    permissions: string[];
+    isVerified: boolean;
+  }): Promise<AdminUserView> {
     return this.prisma.user.create({
       data: {
         phone: data.phone,
-        email,
-        passwordHash,
-        role: { connect: { key: data.role || 'citizen' } },
-        permissions,
+        email: data.email,
+        passwordHash: data.passwordHash,
+        role: { connect: { key: data.roleKey } },
+        permissions: data.permissions,
         profile: {
           create: {
             fullName: data.fullName,
             nationalId: data.nationalId,
-            isVerified: data.isVerified || false
-          }
-        }
+            isVerified: data.isVerified,
+            verifiedAt: data.isVerified ? new Date() : null,
+          },
+        },
       },
-      include: { profile: true, role: true }
+      select: ADMIN_USER_SELECT,
     });
   }
 
-  async updateUser(id: string, data: any): Promise<User> {
-    const existingUser = await this.prisma.user.findUnique({ where: { id }, include: { role: true, profile: true } });
-    if (!existingUser) throw new Error('User not found');
+  async updateUser(id: string, data: Prisma.UserUpdateInput): Promise<AdminUserView> {
+    return this.prisma.user.update({ where: { id }, data, select: ADMIN_USER_SELECT });
+  }
 
-    const updateData: any = {};
-    if (data.phone) updateData.phone = data.phone;
-    if (data.email !== undefined) updateData.email = data.email && data.email.trim() !== '' ? data.email : null;
-    if (data.role === 'police') throw new Error('The police role has been retired');
-    if (data.role) updateData.role = { connect: { key: data.role } };
-    if (data.status) updateData.status = data.status;
-    if (data.permissions && Array.isArray(data.permissions)) {
-      updateData.permissions = data.permissions;
-    }
-
-    if (data.fullName || data.nationalId || typeof data.isVerified === 'boolean') {
-      updateData.profile = {
-        update: {}
-      };
-      if (data.fullName) updateData.profile.update.fullName = data.fullName;
-      if (data.nationalId) updateData.profile.update.nationalId = data.nationalId;
-      if (typeof data.isVerified === 'boolean') {
-        updateData.profile.update.isVerified = data.isVerified;
-        updateData.profile.update.verifiedAt = data.isVerified ? new Date() : null;
-      }
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const updatedUser = await tx.user.update({
-        where: { id },
-        data: updateData,
-        include: { profile: true, role: true }
-      });
-
-      return updatedUser;
+  /** Revoke every refresh session (the access-token side is the token version). */
+  async revokeSessions(userId: string): Promise<void> {
+    await this.prisma.userSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
     });
   }
 
-  async deleteUser(id: string): Promise<User> {
-    return this.prisma.user.delete({
-      where: { id }
-    });
+  /**
+   * Does anything reference this user that must outlive them (alerts,
+   * payments, the audit trail) or that has no ON DELETE CASCADE?
+   */
+  async hasHistory(userId: string): Promise<boolean> {
+    const counts = await Promise.all([
+      this.prisma.emergencyAlert.count({ where: { userId } }),
+      this.prisma.payment.count({ where: { userId } }),
+      this.prisma.auditLog.count({ where: { userId } }),
+      this.prisma.mlDetectionEvent.count({ where: { userId } }),
+      this.prisma.activeRoute.count({ where: { userId } }),
+      this.prisma.responderDispatch.count({ where: { responder: { userId } } }),
+    ]);
+    return counts.some((n) => n > 0);
   }
 
-  async updateUserVerification(id: string, isVerified: boolean): Promise<User> {
-    const user = await this.prisma.user.findUnique({ where: { id }, include: { profile: true } });
-    if (user?.profile) {
-      await this.prisma.userProfile.update({
-        where: { userId: id },
-        data: { isVerified, verifiedAt: isVerified ? new Date() : null }
-      });
-    }
-    return this.prisma.user.findUnique({ where: { id } }) as Promise<User>;
+  async deleteUser(id: string): Promise<void> {
+    await this.prisma.user.delete({ where: { id } });
+  }
+
+  /** Soft delete: keep the row (and its history), end every way in. */
+  async deactivateUser(id: string): Promise<void> {
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id }, data: { status: 'inactive' } }),
+      this.prisma.userSession.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: now } }),
+      this.prisma.deviceToken.updateMany({ where: { userId: id }, data: { isActive: false } }),
+    ]);
+  }
+
+  async updateUserVerification(id: string, isVerified: boolean): Promise<void> {
+    // update (not updateMany) so a missing profile surfaces as P2025 / 404.
+    await this.prisma.userProfile.update({
+      where: { userId: id },
+      data: { isVerified, verifiedAt: isVerified ? new Date() : null },
+    });
   }
 
   async listResponders(isVerified?: boolean, search?: string, limit: number = 50): Promise<any[]> {
@@ -203,7 +240,7 @@ export class AdminRepository {
   async getSystemHealth(): Promise<{ totalUsers: number, activeAlerts: number, verifiedResponders: number, pendingResponders: number }> {
     const [totalUsers, activeAlerts, verifiedResponders, pendingResponders] = await Promise.all([
       this.prisma.user.count(),
-      this.prisma.emergencyAlert.count({ where: { status: 'in_progress' } }),
+      this.prisma.emergencyAlert.count({ where: { status: { in: ACTIVE_ALERT_STATUSES } } }),
       this.prisma.responder.count({ where: { status: 'verified' } }),
       this.prisma.responder.count({ where: { status: 'pending' } }),
     ]);
@@ -241,6 +278,17 @@ export class AdminRepository {
         }
       }
     });
+  }
+
+  async updateAlertStatus(
+    id: string,
+    data: { status: AlertStatus; resolvedAt?: Date; closedAt?: Date },
+  ) {
+    return this.prisma.emergencyAlert.update({ where: { id }, data });
+  }
+
+  async createAuditLog(data: Prisma.AuditLogUncheckedCreateInput): Promise<void> {
+    await this.prisma.auditLog.create({ data });
   }
 
   // --- INCIDENTS ---

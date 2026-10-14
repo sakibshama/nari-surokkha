@@ -55,7 +55,8 @@ ok "Required settings present"
 
 [[ "$(env_get STORAGE_PROVIDER)" != "local" && "$(env_get S3_ACCESS_KEY)" == *CHANGE_ME* ]] \
   && fail "STORAGE_PROVIDER is $(env_get STORAGE_PROVIDER) but S3_* is not filled in (or set STORAGE_PROVIDER=local)"
-[[ "$(env_get BACKUP_AGE_RECIPIENT)" == *CHANGE_ME* ]] && warn "Backups are not configured yet (BACKUP_*) — do this before real users"
+BACKUP_KEY="$(env_get BACKUP_AGE_RECIPIENT)$(env_get BACKUP_GPG_RECIPIENT)"
+[[ -z "${BACKUP_KEY}" || "${BACKUP_KEY}" == *CHANGE_ME* ]] && warn "Backups are not configured yet (BACKUP_*) — do this before real users"
 [[ -z "$(env_get FIREBASE_PROJECT_ID)" ]] && warn "FIREBASE_* empty — push notifications are off"
 
 # DNS: both hostnames must point at this server, or certificates and the app fail.

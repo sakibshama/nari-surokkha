@@ -308,6 +308,86 @@ git pull                                   # or: git fetch --tags && git checkou
 bash deploy/production/scripts/deploy.sh   # rebuilds, migrates, restarts only what changed
 ```
 
+### 12.1 Upgrading a server that runs the previous version (one time)
+
+Older installs were set up before these scripts existed. They have no TURN secret or the other new settings, and their certificates renew in a way that clashes with nginx. Do this once. The site is down for about a minute during the restart in step 5.
+
+**0. On your PC:** push the new code to GitHub (`git push`) and merge it into the branch the server uses (usually `main`).
+
+**1. Safety copy before touching anything** (on the server, in `/opt/nari-surokkha`):
+
+```bash
+cd /opt/nari-surokkha
+C="docker compose -f docker-compose.prod.yml --env-file .env.production"
+git rev-parse --short HEAD | tee ~/pre-upgrade-commit.txt          # the version you can roll back to
+$C exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > ~/pre-upgrade-$(date +%F).dump
+ls -lh ~/pre-upgrade-*.dump                                        # must not be 0 bytes
+cp -p .env.production ~/env.production.pre-upgrade
+```
+
+**2. Get the new code:**
+
+```bash
+git status --short             # anything listed was changed by hand on the server
+git stash                      # only if something was listed (keeps your edits aside)
+git fetch origin
+git checkout main && git pull  # or the branch/tag you deploy
+```
+
+**3. Add the new settings.** Your existing values are never changed:
+
+```bash
+bash deploy/production/scripts/upgrade-env.sh
+```
+
+It adds `TURN_SECRET`, `TURN_HOST`, `TRUST_PROXY`, `EVIDENCE_URL_SECRET` and `PHONE_VERIFICATION=optional`.
+
+Phone verification is set to `optional` on purpose: the app your users have now registers without an SMS code. Switch it to `required` after the new app is out and the SMS gateway works (step 8 of this guide).
+
+**4. Switch certificate renewal to the new method.** The existing certificates are kept:
+
+```bash
+sudo bash deploy/production/scripts/issue-certs.sh mystrix-soft.com you@example.com
+```
+
+**5. Deploy:**
+
+```bash
+bash deploy/production/scripts/deploy.sh
+```
+
+- The new images are built while the old version keeps serving.
+- The two new database migrations are additive: subscriptions/payments and incident media.
+- The containers are then replaced, which is the roughly one-minute interruption.
+- Containers from the old version that no longer exist (`ml-service`, the police portal) are removed.
+
+**6. Check:**
+
+- [ ] `https://api.<domain>/health/ready` shows `"status":"ok"`.
+- [ ] You can sign in to the admin portal.
+- [ ] Settings → SMS Gateway → **Send a test SMS** arrives.
+- [ ] An SOS from the app *currently installed on your phone* still reaches a trusted contact.
+
+The portal now hides pages an admin has no permission for. If **Users** or **Audit Logs** is missing for you, restore your admin permissions with `create-admin` (step 7). Running it for your existing phone number keeps the account but sets a new password.
+
+**7. Afterwards:**
+
+- Remove the old `police.` DNS record.
+- Set up backups (step 9).
+- Release the new mobile app (step 11).
+
+Optionally, run `sudo bash deploy/production/scripts/vps-setup.sh` for the newer server hardening: deploy user, fail2ban, swap and automatic updates.
+
+**If something goes wrong, roll back** to the copy from step 1:
+
+```bash
+git checkout "$(cat ~/pre-upgrade-commit.txt)"
+cp -p ~/env.production.pre-upgrade .env.production
+$C build && $C up -d --remove-orphans
+# Only if the database itself is damaged — this replaces ALL data with the copy:
+# $C exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < ~/pre-upgrade-YYYY-MM-DD.dump
+```
+
 **Rollback:** check out the previous tag and run `deploy.sh` again. Migrations only move forward, so if a migration itself must be undone, restore from backup.
 
 **Automated deploys from GitHub (optional):**

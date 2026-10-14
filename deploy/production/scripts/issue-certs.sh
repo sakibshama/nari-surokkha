@@ -22,17 +22,18 @@ for host in "api.${DOMAIN}" "admin.${DOMAIN}"; do
 done
 
 if [[ -f "/etc/letsencrypt/renewal/${DOMAIN}.conf" ]]; then
-  echo "✅ Certificates for ${DOMAIN} already exist — nothing to do (renewal is automatic)."
-  exit 0
+  # Existing install: keep the certificate, just make sure renewal goes
+  # through the running nginx (older setups renewed in standalone mode,
+  # which fails while nginx holds port 80).
+  echo "ℹ️  Certificates for ${DOMAIN} already exist — keeping them, updating the renewal method."
+else
+  # Standalone mode needs port 80; stop our nginx if an earlier attempt started it.
+  if [[ -f "${APP_DIR}/.env.production" ]]; then
+    ${COMPOSE} stop nginx >/dev/null 2>&1 || true
+  fi
+  certbot certonly --standalone --non-interactive --agree-tos -m "${EMAIL}" \
+    --cert-name "${DOMAIN}" -d "api.${DOMAIN}" -d "admin.${DOMAIN}"
 fi
-
-# Standalone mode needs port 80; stop our nginx if an earlier attempt started it.
-if [[ -f "${APP_DIR}/.env.production" ]]; then
-  ${COMPOSE} stop nginx >/dev/null 2>&1 || true
-fi
-
-certbot certonly --standalone --non-interactive --agree-tos -m "${EMAIL}" \
-  --cert-name "${DOMAIN}" -d "api.${DOMAIN}" -d "admin.${DOMAIN}"
 
 # Renew through the running nginx (it serves /.well-known/acme-challenge/ from
 # this directory) instead of standalone, which would need port 80 free.
@@ -54,5 +55,5 @@ HOOK
 chmod +x "${HOOK}"
 systemctl enable --now certbot.timer >/dev/null 2>&1 || true
 
-echo "✅ Certificates issued for api.${DOMAIN} and admin.${DOMAIN}; renewal is automatic."
+echo "✅ Certificates ready for api.${DOMAIN} and admin.${DOMAIN}; renewal is automatic."
 echo "   Test renewal later (stack running):  sudo certbot renew --dry-run"

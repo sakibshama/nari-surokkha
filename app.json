@@ -4,6 +4,9 @@
       "eas": {
         "projectId": "0c8649fc-01e7-4202-ad19-4ce86fd77a3b"
       }
+    },
+    "android": {
+      "package": "com.jabir33.narisurokkha"
     }
   }
 }

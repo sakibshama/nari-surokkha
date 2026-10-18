@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Mic, PlayCircle, CheckCircle2, Archive, XCircle } from 'lucide-react';
+import { ArrowLeft, Mic, PlayCircle, CheckCircle2, Archive, XCircle, History } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api, { apiErrorMessage } from '../services/api';
 import { socketService } from '../services/socket';
@@ -8,6 +8,7 @@ import { socketService } from '../services/socket';
 import LiveLocationMap from '../components/SmartLocationMap';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useT, fmt } from '../i18n';
+import { AlertStatusBadge, ACTOR_LABEL, formatDateTime } from '../utils/alertStatus';
 
 // Contract 7: statuses an admin can set, and which count as "active".
 type AdminStatus = 'in_progress' | 'resolved' | 'closed' | 'false_alarm';
@@ -39,6 +40,17 @@ async function loadIceServers(): Promise<RTCIceServer[]> {
   return ICE_SERVERS;
 }
 
+interface StatusEvent {
+  id: string;
+  fromStatus: string | null;
+  toStatus: string;
+  actorKind: 'user' | 'admin' | 'system' | string;
+  actorId: string | null;
+  reason: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 interface AlertDetail {
   id: string;
   type: string;
@@ -47,6 +59,16 @@ interface AlertDetail {
   latitude: number | string;
   longitude: number | string;
   createdAt: string;
+  updatedAt?: string;
+  softAlertAt?: string | null;
+  softAlertCancelledAt?: string | null;
+  confirmedAt?: string | null;
+  resolvedAt?: string | null;
+  closedAt?: string | null;
+  statusEvents?: StatusEvent[];
+  recipients?: { id: string; notifiedAt: string | null; createdAt: string; trustedContact?: { name: string; phone: string; relation?: string | null } | null }[];
+  notificationLogs?: { id: string; channel: string; recipient: string; status: string; attempts?: number; sentAt: string | null; deliveredAt?: string | null; createdAt: string }[];
+  counts?: { evidence: number; locationUpdates: number; recipients: number; responderDispatches: number; notifications: number; cases: number };
   user: {
     id: string;
     phone: string;
@@ -130,14 +152,20 @@ export default function AlertDetails() {
     }
   };
 
+  // The alert record, incl. its status history. Re-run after any status
+  // change so the timeline shows the new event.
+  const fetchAlert = async () => {
+    try {
+      const alertRes = await api.get(`/admin/alerts/${id}`);
+      setAlert(alertRes.data.data);
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('Failed to fetch alert', err);
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
-      try {
-        const alertRes = await api.get(`/admin/alerts/${id}`);
-        setAlert(alertRes.data.data);
-      } catch (err) {
-        if (import.meta.env.DEV) console.error('Failed to fetch alert', err);
-      }
+      await fetchAlert();
 
       // Responders for map markers — may fail with 403 if admin lacks permission, that's OK
 
@@ -174,6 +202,7 @@ export default function AlertDetails() {
     const onStatus = (data: { alertId: string; status: string }) => {
       if (data?.alertId === id && data.status) {
         setAlert(prev => prev ? { ...prev, status: data.status } : prev);
+        void fetchAlert();
       }
     };
     const onSignal = async (data: any) => {
@@ -229,6 +258,7 @@ export default function AlertDetails() {
       const res = await api.patch(`/admin/alerts/${id}/status`, { status, ...(note ? { note } : {}) });
       const updated = res.data?.data;
       setAlert(prev => prev ? { ...prev, status: updated?.status ?? status } : prev);
+      void fetchAlert();
       toast.success(fmt(t('Alert marked as {status}'), { status: t(STATUS_LABEL[status]) }));
       setPendingAction(null);
       if (status !== 'in_progress') disconnectStream();
@@ -379,6 +409,37 @@ export default function AlertDetails() {
               <span className="detail-field-label">{t('Created At')}</span>
               <span className="detail-field-value">{new Date(alert.createdAt).toLocaleString()}</span>
             </div>
+
+            {alert.confirmedAt && (
+              <div className="detail-field">
+                <span className="detail-field-label">{t('Confirmed At')}</span>
+                <span className="detail-field-value">{formatDateTime(alert.confirmedAt)}</span>
+              </div>
+            )}
+            {alert.softAlertCancelledAt && (
+              <div className="detail-field">
+                <span className="detail-field-label">{t('Cancelled At')}</span>
+                <span className="detail-field-value">{formatDateTime(alert.softAlertCancelledAt)}</span>
+              </div>
+            )}
+            {alert.resolvedAt && (
+              <div className="detail-field">
+                <span className="detail-field-label">{t('Resolved At')}</span>
+                <span className="detail-field-value">{formatDateTime(alert.resolvedAt)}</span>
+              </div>
+            )}
+            {alert.closedAt && (
+              <div className="detail-field">
+                <span className="detail-field-label">{t('Closed At')}</span>
+                <span className="detail-field-value">{formatDateTime(alert.closedAt)}</span>
+              </div>
+            )}
+            {alert.updatedAt && (
+              <div className="detail-field">
+                <span className="detail-field-label">{t('Last updated')}</span>
+                <span className="detail-field-value">{formatDateTime(alert.updatedAt)}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -401,6 +462,107 @@ export default function AlertDetails() {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* STATUS HISTORY + INCIDENT RECORD */}
+      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', marginTop: 24 }}>
+        <div className="card" style={{ flex: '2 1 400px' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <History size={16} /> {t('Status history')}
+          </h2>
+          <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
+          {!alert.statusEvents || alert.statusEvents.length === 0 ? (
+            <div style={{ padding: '16px 0', color: 'var(--text-sub)', fontSize: 14 }}>{t('No status history recorded for this alert.')}</div>
+          ) : (
+            <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              {alert.statusEvents.map((ev, i) => {
+                const last = i === alert.statusEvents!.length - 1;
+                return (
+                  <li key={ev.id} style={{ display: 'grid', gridTemplateColumns: '18px 1fr', gap: 12 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', marginTop: 5, background: last ? 'var(--gov-green, #006a4e)' : 'var(--border)', border: '2px solid var(--bg-card, #fff)', boxShadow: '0 0 0 1px var(--border)' }} />
+                      {!last && <span style={{ flex: 1, width: 2, background: 'var(--border)', minHeight: 24 }} />}
+                    </div>
+                    <div style={{ paddingBottom: last ? 0 : 16 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {ev.fromStatus ? (
+                          <>
+                            <AlertStatusBadge status={ev.fromStatus} />
+                            <span style={{ color: 'var(--text-muted)' }}>→</span>
+                          </>
+                        ) : (
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-sub)' }}>{t('SOS triggered')}</span>
+                        )}
+                        <AlertStatusBadge status={ev.toStatus} />
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                        {formatDateTime(ev.createdAt)} · {fmt(t('by {actor}'), { actor: t(ACTOR_LABEL[ev.actorKind] ?? ev.actorKind) })}
+                        {ev.metadata && (ev.metadata as { backfilled?: boolean }).backfilled ? ` · ${t('reconstructed from earlier records')}` : ''}
+                      </div>
+                      {ev.reason && (
+                        <div style={{ fontSize: 13, color: 'var(--text)', marginTop: 4, whiteSpace: 'pre-wrap' }}>{ev.reason}</div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+
+        <div className="card" style={{ flex: '1 1 300px' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>{t('Incident record')}</h2>
+          <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '0 0 16px' }} />
+          {alert.counts && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
+              {([
+                ['Evidence files', alert.counts.evidence],
+                ['Location updates', alert.counts.locationUpdates],
+                ['Contacts notified', alert.counts.recipients],
+                ['Notifications sent', alert.counts.notifications],
+                ['Responders dispatched', alert.counts.responderDispatches],
+                ['Cases', alert.counts.cases],
+              ] as [string, number][]).map(([label, n]) => (
+                <div key={label} style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)' }}>{n}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-sub)' }}>{t(label)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="detail-field-label" style={{ marginBottom: 8 }}>{t('Trusted contacts alerted')}</div>
+          {!alert.recipients || alert.recipients.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-sub)', marginBottom: 12 }}>{t('None recorded')}</div>
+          ) : (
+            <ul style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: 13, color: 'var(--text)' }}>
+              {alert.recipients.map(r => (
+                <li key={r.id}>
+                  {r.trustedContact?.name || t('Unknown')} <span className="cell-mono" style={{ color: 'var(--text-sub)' }}>{r.trustedContact?.phone}</span>
+                  {r.notifiedAt && <span style={{ color: 'var(--text-muted)' }}> · {formatDateTime(r.notifiedAt)}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="detail-field-label" style={{ marginBottom: 8 }}>{t('Notifications')}</div>
+          {!alert.notificationLogs || alert.notificationLogs.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-sub)' }}>{t('None recorded')}</div>
+          ) : (
+            <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+              <table className="portal-table" style={{ fontSize: 12 }}>
+                <tbody>
+                  {alert.notificationLogs.map(n => (
+                    <tr key={n.id}>
+                      <td style={{ textTransform: 'uppercase' }}>{n.channel}</td>
+                      <td className="cell-mono">{n.recipient}</td>
+                      <td>{n.status}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(n.sentAt ?? n.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,7 +1,20 @@
+diff --git a/node_modules/react-native-live-audio-stream/android/build.gradle b/node_modules/react-native-live-audio-stream/android/build.gradle
+index de6cdf1..8116e20 100755
+--- a/node_modules/react-native-live-audio-stream/android/build.gradle
++++ b/node_modules/react-native-live-audio-stream/android/build.gradle
+@@ -10,6 +10,7 @@ def safeExtGet(prop, fallback) {
+ }
+ 
+ android {
++    namespace "com.imxiqi.rnliveaudiostream"  // Nari Surokkha patch: required by AGP 8+
+     compileSdkVersion safeExtGet("compileSdkVersion", DEFAULT_COMPILE_SDK_VERSION)
+     buildToolsVersion safeExtGet("buildToolsVersion", DEFAULT_BUILD_TOOLS_VERSION)
+ 
 diff --git a/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java b/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
+index 20f454f..8bff428 100755
 --- a/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
 +++ b/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
-@@ -27,7 +27,7 @@
+@@ -27,7 +27,7 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
  
      private AudioRecord recorder;
      private int bufferSize;
@@ -10,7 +23,7 @@ diff --git a/node_modules/react-native-live-audio-stream/android/src/main/java/c
  
      public RNLiveAudioStreamModule(ReactApplicationContext reactContext) {
          super(reactContext);
-@@ -75,13 +75,48 @@
+@@ -75,13 +75,48 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
          }
  
          int recordingBufferSize = bufferSize * 3;
@@ -61,7 +74,7 @@ diff --git a/node_modules/react-native-live-audio-stream/android/src/main/java/c
  
          Thread recordingThread = new Thread(new Runnable() {
              public void run() {
-@@ -92,20 +127,27 @@
+@@ -92,20 +127,27 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
                      byte[] buffer = new byte[bufferSize];
  
                      while (isRecording) {
@@ -93,7 +106,7 @@ diff --git a/node_modules/react-native-live-audio-stream/android/src/main/java/c
  
          recordingThread.start();
      }
-@@ -113,5 +155,7 @@
+@@ -113,5 +155,7 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
      @ReactMethod
      public void stop(Promise promise) {
          isRecording = false;

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import argon2 from 'argon2';
-import { AuditLog, EmergencyAlert, Prisma } from '@prisma/client';
-import { AdminRepository, AdminUserView } from './admin.repository';
+import { AlertStatus, AlertType, AuditLog, EmergencyAlert, Prisma } from '@prisma/client';
+import { AdminRepository, AdminUserView, AdminAlertFilters } from './admin.repository';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/utils/errors';
 import { bumpTokenVersion } from '@/utils/token-version';
 import { env } from '@/config/env';
@@ -13,6 +13,65 @@ import type { AdminSettableStatus } from '@/modules/alerts/alert-status';
 export interface AdminActor {
   id: string;
   permissions: string[];
+}
+
+/** Raw querystring of GET /admin/alerts (already type-coerced by the route schema). */
+export interface ListAlertsQuery {
+  /** One status or a comma-separated list. Omitted → every status. */
+  status?: string;
+  /** One type or a comma-separated list. */
+  type?: string;
+  /** Only soft alerts (true) or only real SOS (false). */
+  soft?: boolean;
+  /** ISO date/time; inclusive. A bare date for `to` covers that whole day. */
+  from?: string;
+  to?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+const ALERT_STATUS_VALUES = Object.values(AlertStatus) as string[];
+const ALERT_TYPE_VALUES = Object.values(AlertType) as string[];
+export const ALERT_LIST_MAX_LIMIT = 200;
+
+function parseList<T extends string>(raw: string | undefined, allowed: string[], what: string): T[] | undefined {
+  if (!raw) return undefined;
+  const items = Array.from(new Set(raw.split(',').map((v) => v.trim()).filter(Boolean)));
+  const bad = items.filter((v) => !allowed.includes(v));
+  if (bad.length) throw new ValidationError(`Unknown ${what}: ${bad.join(', ')}`);
+  return items.length ? (items as T[]) : undefined;
+}
+
+function parseDate(raw: string | undefined, what: string, endOfDay = false): Date | undefined {
+  if (!raw) return undefined;
+  const bareDate = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  const d = new Date(bareDate ? `${raw}T00:00:00.000Z` : raw);
+  if (Number.isNaN(d.getTime())) throw new ValidationError(`Invalid ${what} date`);
+  if (bareDate && endOfDay) d.setUTCHours(23, 59, 59, 999);
+  return d;
+}
+
+export function toAlertFilters(q: ListAlertsQuery): AdminAlertFilters {
+  const limit = Math.min(Math.max(Math.trunc(Number(q.limit ?? 50)) || 50, 1), ALERT_LIST_MAX_LIMIT);
+  const offset = Math.max(Math.trunc(Number(q.offset ?? 0)) || 0, 0);
+  return {
+    statuses: parseList<AlertStatus>(q.status, ALERT_STATUS_VALUES, 'status'),
+    types: parseList<AlertType>(q.type, ALERT_TYPE_VALUES, 'type'),
+    isSoftAlert: q.soft,
+    from: parseDate(q.from, 'from'),
+    to: parseDate(q.to, 'to', true),
+    search: q.search?.trim() || undefined,
+    limit,
+    offset,
+  };
+}
+
+/** Push tokens are credentials of a sort — show only their tail. */
+function maskRecipient(recipient: string): string {
+  return /^\+?[\d\s-]{6,20}$/.test(recipient) || recipient.includes('@')
+    ? recipient
+    : `…${recipient.slice(-6)}`;
 }
 
 export interface CreateUserInput {
@@ -260,14 +319,30 @@ export class AdminService {
   }
 
   // --- ALERTS ---
-  async listAlerts(status?: any, limit?: number) {
-    return this.repo.listAlerts(status, limit);
+  /** Every SOS ever raised (all statuses unless filtered), paginated. */
+  async listAlerts(query: ListAlertsQuery = {}) {
+    const filters = toAlertFilters(query);
+    const { data, total } = await this.repo.listAlerts(filters);
+    return { data, total, limit: filters.limit, offset: filters.offset };
   }
 
+  /** Alert detail: victim, location, recipients, notifications, counts and the status timeline. */
   async getAlertById(id: string) {
     const alert = await this.repo.getAlertById(id);
     if (!alert) throw new NotFoundError('Alert not found');
-    return alert;
+    const { _count, notificationLogs, ...rest } = alert;
+    return {
+      ...rest,
+      notificationLogs: notificationLogs.map((n) => ({ ...n, recipient: maskRecipient(n.recipient) })),
+      counts: {
+        evidence: _count.evidence,
+        locationUpdates: _count.locationUpdates,
+        recipients: _count.recipients,
+        responderDispatches: _count.responderDispatches,
+        notifications: _count.notificationLogs,
+        cases: _count.cases,
+      },
+    };
   }
 
   /** Admin closes the loop on an alert (in progress / resolved / closed / false alarm). */
@@ -281,11 +356,21 @@ export class AdminService {
     if (!alert) throw new NotFoundError('Alert');
 
     const now = new Date();
-    const updated = await this.repo.updateAlertStatus(id, {
-      status,
-      ...(status === 'resolved' ? { resolvedAt: now } : {}),
-      ...(status !== 'in_progress' ? { closedAt: now } : {}),
-    });
+    const updated = await this.repo.updateAlertStatus(
+      id,
+      {
+        status,
+        ...(status === 'resolved' ? { resolvedAt: now } : {}),
+        ...(status !== 'in_progress' ? { closedAt: now } : {}),
+      },
+      {
+        fromStatus: alert.status,
+        actorKind: 'admin',
+        actorId: actor.id,
+        reason: note || null,
+        metadata: { event: 'admin_status_update' },
+      },
+    );
     // The cached authorisation record carries status (location pings).
     await invalidateAlertMeta(this.fastify, id);
     await this.repo.createAuditLog({

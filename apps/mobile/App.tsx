@@ -10,9 +10,11 @@ import Toast from 'react-native-toast-message';
 import AppNavigator from './src/navigation/AppNavigator';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import AnimatedSplash from './src/components/AnimatedSplash';
+import SmsPermissionGuide from './src/components/SmsPermissionGuide';
 import { ThemeProvider, useTheme } from './src/theme';
 import { useLanguageStore, useT } from './src/i18n';
 import { initApiTarget } from './src/services/api';
+import { requestStartupPermissions } from './src/services/startupPermissions';
 
 LogBox.ignoreLogs(['Attempted to import the module', 'event-target-shim']);
 
@@ -38,6 +40,13 @@ function AppShell() {
       /* the request itself will report the failure */
     });
   }, []);
+
+  // Every permission the safety features need, asked right after the splash
+  // (a dialog over the splash animation is easy to miss) — not by each screen
+  // later, and never left for the user to find in Android settings.
+  useEffect(() => {
+    if (splashDone) void requestStartupPermissions();
+  }, [splashDone]);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => setIsConnected(state.isConnected));
@@ -79,6 +88,7 @@ function AppShell() {
 
         <AppNavigator />
         {!splashDone && <AnimatedSplash onFinish={() => setSplashDone(true)} />}
+        {splashDone && <SmsPermissionGuide />}
       </View>
     </View>
   );

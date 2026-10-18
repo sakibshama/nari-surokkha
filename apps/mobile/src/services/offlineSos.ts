@@ -12,6 +12,7 @@
  * TrustedContactsScreen keeps up to date (`@trusted_contacts`).
  */
 
+import { AppState } from 'react-native';
 import * as SMS from 'expo-sms';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -103,8 +104,17 @@ export async function sendOfflineSosSms(
   }
   if (direct.failed.length === 0) return { opened: true, auto: true };
 
-  // 2. Fallback for whoever was not texted: the native composer.
+  // 2. Fallback for whoever was not texted: the native composer — only while
+  //    the app is on screen. Launching Messages from the background (an SOS
+  //    raised by sound detection with the phone in a pocket) would pull
+  //    another app over whatever the user is doing and wait for a tap nobody
+  //    can see; the escalation outbox sends the SOS online instead.
   const rest = direct.failed;
+  if (AppState.currentState !== 'active') {
+    const reason = direct.error || 'Silent SMS unavailable while the app is in the background.';
+    await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'failed', reason });
+    return direct.sent.length ? { opened: true, auto: true } : { opened: false, reason: tStatic('The SMS was not sent.') };
+  }
   const available = await SMS.isAvailableAsync().catch(() => false);
   if (!available) {
     const reason = direct.error || 'SMS not available on device.';

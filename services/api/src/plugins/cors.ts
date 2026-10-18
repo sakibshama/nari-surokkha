@@ -21,16 +21,40 @@ import { ForbiddenError } from '@/utils/errors';
  */
 const PAYMENT_CALLBACK = /^\/api\/v1\/subscriptions\/(sslcommerz|stripe)\//;
 
+/**
+ * Public token pages served by the API itself (trusted-contact consent /c/,
+ * live tracking /t/). Their forms post back to the API's OWN origin, so the
+ * browser sends `Origin: https://api.<domain>` — which is not an admin-portal
+ * origin, and was rejected with 403. That is why a contact who tapped
+ * "I agree" was never marked verified. Same-origin requests are not CORS at
+ * all; the unguessable token is the credential.
+ */
+const PUBLIC_TOKEN_PAGE = /^\/(c|t)\/[A-Za-z0-9_-]+(\/|$)/;
+
+/** The API's own origin (scheme + host), e.g. https://api.example.com. */
+function ownOrigin(): string | null {
+  try {
+    return new URL(env.API_BASE_URL).origin;
+  } catch {
+    return null;
+  }
+}
+
 async function corsPlugin(fastify: FastifyInstance): Promise<void> {
   fastify.addHook('onRequest', (request, _reply, done) => {
-    if (PAYMENT_CALLBACK.test(request.url)) delete request.headers.origin;
+    if (PAYMENT_CALLBACK.test(request.url) || PUBLIC_TOKEN_PAGE.test(request.url)) delete request.headers.origin;
     done();
   });
   await fastify.register(cors, {
     // Allow configured origins + null origin (React Native mobile apps don't
     // send an Origin header, so the browser/native runtime sends origin=null)
     origin: (origin, cb) => {
-      if (!origin || env.CORS_ORIGINS.includes('*') || env.CORS_ORIGINS.includes(origin)) {
+      if (
+        !origin ||
+        env.CORS_ORIGINS.includes('*') ||
+        env.CORS_ORIGINS.includes(origin) ||
+        origin === ownOrigin() // same-origin: a page served by this API
+      ) {
         cb(null, true);
       } else {
         // A ForbiddenError, not a bare Error.

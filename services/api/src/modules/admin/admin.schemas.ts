@@ -207,6 +207,34 @@ export const adminAlertStatusSchema = {
   },
 };
 
+// No response schema on the two alert reads below, on purpose: a response
+// schema makes fast-json-stringify drop every property it does not list, and
+// these payloads (alert + user + recipients + notifications + statusEvents +
+// counts) grow with the product. They are admin-only reads of whole records.
+export const adminListAlertsSchema = {
+  tags: ['admin'],
+  summary: 'SOS reports: every alert (all statuses), filtered and paginated',
+  querystring: {
+    type: 'object',
+    properties: {
+      status: { type: 'string', maxLength: 300, pattern: '^[a-z_]+(,[a-z_]+)*$' },
+      type: { type: 'string', maxLength: 100, pattern: '^[a-z_]+(,[a-z_]+)*$' },
+      soft: { type: 'boolean' },
+      from: { type: 'string', maxLength: 40 },
+      to: { type: 'string', maxLength: 40 },
+      search: { type: 'string', maxLength: 100 },
+      limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+      offset: { type: 'integer', minimum: 0, default: 0 },
+    },
+  },
+};
+
+export const adminAlertDetailSchema = {
+  tags: ['admin'],
+  summary: 'Alert detail with recipients, notifications, evidence counts and status history',
+  params: uuidParams,
+};
+
 export const adminHealthSchema = {
   tags: ['admin'],
   summary: 'System health summary',

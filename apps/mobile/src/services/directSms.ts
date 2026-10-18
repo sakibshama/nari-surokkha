@@ -19,10 +19,19 @@
  * NOTE: Sending SMS with the user's SIM may incur their normal carrier charge.
  */
 import { Platform, PermissionsAndroid } from 'react-native';
-import { tStatic } from '../i18n';
+import { ensureSmsPermission } from './smsPermission';
+import { prepareRecipients, sendSequentially } from './smsQueue';
+
+export interface SmsCapability {
+  telephony: boolean;
+  simReady: boolean;
+  permission: boolean;
+  subscriptionId: number;
+}
 
 interface DirectSmsModule {
   sendDirectSmsMultipart?: (phone: string, message: string) => Promise<string>;
+  getSmsCapability?: () => Promise<SmsCapability>;
 }
 
 // The native module only exists in a real build, never in Expo Go. Resolve it
@@ -50,22 +59,13 @@ export async function hasSmsPermission(): Promise<boolean> {
   }
 }
 
-/** Prompt for SEND_SMS. Safe to call on first run / onboarding. */
+/**
+ * Ask for SEND_SMS if Android can still show its dialog. Never opens Settings:
+ * the step-by-step guide (Android 15 "restricted settings", or "don't ask
+ * again") is shown at app start and from Settings, not in the middle of an SOS.
+ */
 export async function requestSmsPermission(): Promise<boolean> {
-  if (Platform.OS !== 'android') return false;
-  try {
-    const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.SEND_SMS, {
-      title: tStatic('Send Emergency SMS Automatically'),
-      message: tStatic(
-        'Nari Surokkha needs SMS permission so it can text your trusted contacts automatically during an emergency when you have no internet. Standard SMS charges from your mobile operator may apply.',
-      ),
-      buttonPositive: tStatic('Allow'),
-      buttonNegative: tStatic('Not now'),
-    });
-    return result === PermissionsAndroid.RESULTS.GRANTED;
-  } catch {
-    return false;
-  }
+  return ensureSmsPermission(false);
 }
 
 export interface DirectSmsResult {
@@ -84,25 +84,26 @@ export interface DirectSmsResult {
  */
 export async function trySendDirectSms(recipients: string[], message: string): Promise<DirectSmsResult> {
   const send = native?.sendDirectSmsMultipart;
-  if (!isDirectSmsSupported() || !send || recipients.length === 0) {
+  const targets = prepareRecipients(recipients);
+  if (!isDirectSmsSupported() || !send || targets.length === 0) {
     return { sent: [], failed: [...recipients], error: 'Silent SMS is not available on this phone' };
   }
 
-  const granted = (await hasSmsPermission()) || (await requestSmsPermission());
-  if (!granted) return { sent: [], failed: [...recipients], error: 'SMS permission not granted' };
+  // No SIM / no mobile network on this phone: say so at once, so the caller
+  // falls back to the server (or the composer) instead of waiting for every
+  // message to time out.
+  const capability = await native?.getSmsCapability?.().catch(() => null);
+  if (capability && (!capability.telephony || !capability.simReady)) {
+    return { sent: [], failed: targets, error: 'No SIM card ready to send SMS' };
+  }
 
-  const results = await Promise.allSettled(recipients.map((n) => send(n, message)));
-  const out: DirectSmsResult = { sent: [], failed: [] };
-  results.forEach((r, i) => {
-    if (r.status === 'fulfilled' && r.value === 'sent') {
-      out.sent.push(recipients[i]);
-    } else {
-      out.failed.push(recipients[i]);
-      if (!out.error) {
-        const reason = r.status === 'rejected' ? (r.reason as Error)?.message : String(r.value);
-        out.error = reason || 'SMS failed';
-      }
-    }
-  });
-  return out;
+  // A permission dialog that never answers must not hold up an emergency text.
+  const granted =
+    (await hasSmsPermission()) ||
+    (await Promise.race([requestSmsPermission(), new Promise<boolean>((r) => setTimeout(() => r(false), 20000))]));
+  if (!granted) return { sent: [], failed: targets, error: 'SMS permission not granted' };
+
+  // One recipient at a time (see smsQueue.ts): firing them all at once
+  // flooded the radio and could trigger Android's "too many messages" stop.
+  return sendSequentially(targets, (n) => send(n, message));
 }

@@ -1,60 +1,378 @@
+diff --git a/node_modules/react-native-direct-sms/android/build.gradle b/node_modules/react-native-direct-sms/android/build.gradle
+index 970bb32..4c4f893 100755
+--- a/node_modules/react-native-direct-sms/android/build.gradle
++++ b/node_modules/react-native-direct-sms/android/build.gradle
+@@ -1,156 +1,31 @@
+-// android/build.gradle
++// Nari Surokkha patch: modern Gradle/AGP build file.
++// The original used jcenter(), Upload tasks and the removed `compile`
++// configuration, which fail on Gradle 9 (Expo SDK 56).
+ 
+-// based on:
+-//
+-// * https://github.com/facebook/react-native/blob/0.60-stable/template/android/build.gradle
+-//   original location:
+-//   - https://github.com/facebook/react-native/blob/0.58-stable/local-cli/templates/HelloWorld/android/build.gradle
+-//
+-// * https://github.com/facebook/react-native/blob/0.60-stable/template/android/app/build.gradle
+-//   original location:
+-//   - https://github.com/facebook/react-native/blob/0.58-stable/local-cli/templates/HelloWorld/android/app/build.gradle
+-
+-def DEFAULT_COMPILE_SDK_VERSION = 28
+-def DEFAULT_BUILD_TOOLS_VERSION = '28.0.3'
+-def DEFAULT_MIN_SDK_VERSION = 16
+-def DEFAULT_TARGET_SDK_VERSION = 28
++apply plugin: 'com.android.library'
+ 
+ def safeExtGet(prop, fallback) {
+     rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+ }
+ 
+-apply plugin: 'com.android.library'
+-apply plugin: 'maven-publish'
+-
+-buildscript {
+-    // The Android Gradle plugin is only required when opening the android folder stand-alone.
+-    // This avoids unnecessary downloads and potential conflicts when the library is included as a
+-    // module dependency in an application project.
+-    // ref: https://docs.gradle.org/current/userguide/tutorial_using_tasks.html#sec:build_script_external_dependencies
+-    if (project == rootProject) {
+-        repositories {
+-            google()
+-            jcenter()
+-        }
+-        dependencies {
+-            classpath 'com.android.tools.build:gradle:3.4.1'
+-        }
+-    }
+-}
+-
+-apply plugin: 'com.android.library'
+-apply plugin: 'maven-publish'
+-
+ android {
+-    compileSdkVersion safeExtGet('compileSdkVersion', DEFAULT_COMPILE_SDK_VERSION)
+-    buildToolsVersion safeExtGet('buildToolsVersion', DEFAULT_BUILD_TOOLS_VERSION)
++    namespace "com.reactlibrary"
++    compileSdkVersion safeExtGet('compileSdkVersion', 36)
+     defaultConfig {
+-        minSdkVersion safeExtGet('minSdkVersion', DEFAULT_MIN_SDK_VERSION)
+-        targetSdkVersion safeExtGet('targetSdkVersion', DEFAULT_TARGET_SDK_VERSION)
+-        versionCode 1
+-        versionName "1.0"
++        minSdkVersion safeExtGet('minSdkVersion', 24)
++        targetSdkVersion safeExtGet('targetSdkVersion', 36)
+     }
+-    lintOptions {
++    lint {
+         abortOnError false
+     }
+ }
+ 
+ repositories {
+-    // ref: https://www.baeldung.com/maven-local-repository
+-    mavenLocal()
+-    maven {
+-        // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+-        url "$rootDir/../node_modules/react-native/android"
+-    }
+-    maven {
+-        // Android JSC is installed from npm
+-        url "$rootDir/../node_modules/jsc-android/dist"
+-    }
+     google()
+-    jcenter()
++    mavenCentral()
+ }
+ 
+ dependencies {
+     //noinspection GradleDynamicVersion
+-    implementation 'com.facebook.react:react-native:+'  // From node_modules
+-}
+-
+-def configureReactNativePom(def pom) {
+-    def packageJson = new groovy.json.JsonSlurper().parseText(file('../package.json').text)
+-
+-    pom.project {
+-        name packageJson.title
+-        artifactId packageJson.name
+-        version = packageJson.version
+-        group = "com.reactlibrary"
+-        description packageJson.description
+-        url packageJson.repository.baseUrl
+-
+-        licenses {
+-            license {
+-                name packageJson.license
+-                url packageJson.repository.baseUrl + '/blob/master/' + packageJson.licenseFilename
+-                distribution 'repo'
+-            }
+-        }
+-
+-        developers {
+-            developer {
+-                id packageJson.author.username
+-                name packageJson.author.name
+-            }
+-        }
+-    }
+-}
+-
+-afterEvaluate { project ->
+-    // some Gradle build hooks ref:
+-    // https://www.oreilly.com/library/view/gradle-beyond-the/9781449373801/ch03.html
+-    task androidJavadoc(type: Javadoc) {
+-        source = android.sourceSets.main.java.srcDirs
+-        classpath += files(android.bootClasspath)
+-        classpath += files(project.getConfigurations().getByName('compile').asList())
+-        include '**/*.java'
+-    }
+-
+-    task androidJavadocJar(type: Jar, dependsOn: androidJavadoc) {
+-        classifier = 'javadoc'
+-        from androidJavadoc.destinationDir
+-    }
+-
+-    task androidSourcesJar(type: Jar) {
+-        classifier = 'sources'
+-        from android.sourceSets.main.java.srcDirs
+-        include '**/*.java'
+-    }
+-
+-    android.libraryVariants.all { variant ->
+-        def name = variant.name.capitalize()
+-        def javaCompileTask = variant.javaCompileProvider.get()
+-
+-        task "jar${name}"(type: Jar, dependsOn: javaCompileTask) {
+-            from javaCompileTask.destinationDir
+-        }
+-    }
+-
+-    artifacts {
+-        archives androidSourcesJar
+-        archives androidJavadocJar
+-    }
+-
+-    task installArchives(type: Upload) {
+-        configuration = configurations.archives
+-        repositories.mavenDeployer {
+-            // Deploy to react-native-event-bridge/maven, ready to publish to npm
+-            repository url: "file://${projectDir}/../android/maven"
+-            configureReactNativePom pom
+-        }
+-    }
+-    
+-    tasks.withType(Javadoc) {
+-      failOnError false
+-      options.addStringOption('Xdoclint:none', '-quiet')
+-      options.addStringOption('encoding', 'UTF-8')
+-      options.addStringOption('charSet', 'UTF-8')
+-    }
++    implementation 'com.facebook.react:react-native:+'  // resolved to react-android by the RN Gradle plugin
+ }
+diff --git a/node_modules/react-native-direct-sms/android/src/main/AndroidManifest.xml b/node_modules/react-native-direct-sms/android/src/main/AndroidManifest.xml
+index e497838..a81c10d 100755
+--- a/node_modules/react-native-direct-sms/android/src/main/AndroidManifest.xml
++++ b/node_modules/react-native-direct-sms/android/src/main/AndroidManifest.xml
+@@ -1,5 +1,4 @@
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-          package="com.reactlibrary">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ 
+     <uses-permission android:name="android.permission.SEND_SMS"/>
+ </manifest>
 diff --git a/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java b/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java
-index 90cda30..5acaad4 100644
+index 90cda30..d16f65c 100755
 --- a/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java
 +++ b/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java
-@@ -3,12 +3,28 @@ package com.reactlibrary;
+@@ -1,31 +1,337 @@
+ package com.reactlibrary;
+ 
++import com.facebook.react.bridge.Arguments;
++import com.facebook.react.bridge.Promise;
  import com.facebook.react.bridge.ReactApplicationContext;
  import com.facebook.react.bridge.ReactContextBaseJavaModule;
- import com.facebook.react.bridge.Callback;
-+import com.facebook.react.bridge.Promise;
+-import com.facebook.react.bridge.Callback;
  import com.facebook.react.bridge.ReactMethod;
- import com.facebook.react.uimanager.IllegalViewOperationException;
+-import com.facebook.react.uimanager.IllegalViewOperationException;
++import com.facebook.react.bridge.WritableMap;
++import android.Manifest;
 +import android.app.Activity;
 +import android.app.PendingIntent;
 +import android.content.BroadcastReceiver;
 +import android.content.Context;
 +import android.content.Intent;
 +import android.content.IntentFilter;
++import android.content.pm.InstallSourceInfo;
++import android.content.pm.PackageInstaller;
++import android.content.pm.PackageManager;
 +import android.os.Build;
 +import android.os.Handler;
-+import android.os.Looper;
++import android.os.HandlerThread;
  import android.telephony.SmsManager;
+- 
++import android.telephony.SubscriptionInfo;
++import android.telephony.SubscriptionManager;
++import android.telephony.TelephonyManager;
 +import java.util.ArrayList;
++import java.util.List;
 +import java.util.concurrent.atomic.AtomicInteger;
- 
++
++/**
++ * Nari Surokkha patch: silent emergency SMS from the phone's own SIM.
++ *
++ * What the original module did wrong, and what this version does instead:
++ *
++ *  - sendTextMessage() silently drops a message longer than one SMS part
++ *    (160 GSM-7 / 70 UCS-2 characters, i.e. every Bangla SOS). The text is
++ *    split and sent as a multipart message.
++ *  - Nothing reported the result. Every part now has a "sent" PendingIntent,
++ *    and the promise resolves only once the network accepted every part.
++ *  - SmsManager.getDefault() on a dual-SIM phone set to "Ask every time" has
++ *    no default subscription: Android then pops a SIM picker over whatever is
++ *    on screen (or fails), which interrupted the phone in the middle of an
++ *    emergency. The SIM is chosen explicitly: the default SMS SIM, otherwise
++ *    the first active one.
++ *  - Result receivers and timeouts ran on the app's main thread. They now run
++ *    on a dedicated background thread, so sending never touches the UI.
++ *  - getSmsCapability() lets JavaScript skip the silent path at once when the
++ *    phone cannot send (no SIM, no permission) instead of waiting for a
++ *    timeout before falling back.
++ */
  public class DirectSmsModule extends ReactContextBaseJavaModule {
- 
-+    // Nari Surokkha patch: multi-part send with delivery-to-network confirmation.
-+    private static final long MULTIPART_TIMEOUT_MS = 30000;
+- 
++
++    private static final long SEND_TIMEOUT_MS = 30000;
 +    private static final AtomicInteger REQUEST_SEQ = new AtomicInteger();
 +
++    /** One background thread for every send's receiver and timeout. */
++    private static HandlerThread sThread;
++
++    private static synchronized Handler backgroundHandler() {
++        if (sThread == null || !sThread.isAlive()) {
++            sThread = new HandlerThread("NariDirectSms");
++            sThread.start();
++        }
++        return new Handler(sThread.getLooper());
++    }
++
      public DirectSmsModule(ReactApplicationContext reactContext) {
-         super(reactContext); //required by React Native
+-        super(reactContext); //required by React Native
++        super(reactContext);
      }
-@@ -28,4 +44,156 @@ public class DirectSmsModule extends ReactContextBaseJavaModule {
-             System.out.println("couldn't send message.");
-         }
+- 
++
+     @Override
+-    //getName is required to define the name of the module represented in JavaScript
+-    public String getName() { 
++    public String getName() {
+         return "DirectSms";
      }
+- 
++
++    /** Kept for compatibility. Prefer sendDirectSmsMultipart (it reports the result). */
+     @ReactMethod
+     public void sendDirectSms(String phoneNumber, String msg) {
+-        try {      
+-            SmsManager smsManager = SmsManager.getDefault();
+-            smsManager.sendTextMessage(phoneNumber, null, msg, null, null);    
++        try {
++            Context context = getReactApplicationContext().getApplicationContext();
++            SmsManager smsManager = resolveSmsManager(context);
++            smsManager.sendMultipartTextMessage(phoneNumber, null, smsManager.divideMessage(msg), null, null);
++        } catch (Exception ignored) { }
++    }
 +
 +    /**
-+     * Nari Surokkha patch.
++     * Can this phone send an SMS silently right now?
++     * Resolves { telephony, simReady, permission, subscriptionId }.
++     */
++    @ReactMethod
++    public void getSmsCapability(Promise promise) {
++        try {
++            Context context = getReactApplicationContext().getApplicationContext();
++            WritableMap out = Arguments.createMap();
++            boolean telephony = context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY);
++            out.putBoolean("telephony", telephony);
++            out.putBoolean("permission",
++                    context.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED);
++            boolean simReady = false;
++            if (telephony) {
++                TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
++                simReady = tm != null && tm.getSimState() == TelephonyManager.SIM_STATE_READY;
++            }
++            out.putBoolean("simReady", simReady);
++            out.putInt("subscriptionId", pickSubscriptionId(context));
++            promise.resolve(out);
++        } catch (Exception ex) {
++            promise.reject("E_SMS_CAPABILITY", ex.getMessage(), ex);
++        }
++    }
++
++    /**
++     * How this app was installed, so JavaScript can tell why SEND_SMS is not
++     * granted. Android 15+ treats SMS as a *restricted* permission for apps
++     * installed from an APK file or a browser download (package source
++     * LOCAL_FILE / DOWNLOADED_FILE): the request is refused without a dialog
++     * until the user taps ⋮ → "Allow restricted settings" on the app's info
++     * page. Store installs are not restricted.
 +     *
-+     * sendTextMessage() silently drops a message longer than one SMS part (160
-+     * GSM-7 / 70 UCS-2 characters), so a long or Bangla text never left the
-+     * phone. This splits the message, sends every part with its own "sent"
-+     * PendingIntent, and resolves "sent" only once every part reports
-+     * RESULT_OK. Any failing part rejects with its result code; no answer
-+     * within 30 s rejects with E_SMS_TIMEOUT.
++     * Resolves { sdk, granted, telephony, installer, packageSource, sideloaded }.
++     */
++    @ReactMethod
++    public void getSmsPermissionInfo(Promise promise) {
++        try {
++            Context context = getReactApplicationContext().getApplicationContext();
++            PackageManager pm = context.getPackageManager();
++            String pkg = context.getPackageName();
++            WritableMap out = Arguments.createMap();
++            out.putInt("sdk", Build.VERSION.SDK_INT);
++            out.putBoolean("granted",
++                    context.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED);
++            out.putBoolean("telephony", pm.hasSystemFeature(PackageManager.FEATURE_TELEPHONY));
++
++            String installer = null;
++            int source = -1;
++            try {
++                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
++                    InstallSourceInfo info = pm.getInstallSourceInfo(pkg);
++                    installer = info.getInstallingPackageName();
++                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) source = info.getPackageSource();
++                } else {
++                    installer = pm.getInstallerPackageName(pkg);
++                }
++            } catch (Exception ignored) { }
++            out.putString("installer", installer);
++            out.putInt("packageSource", source);
++            out.putBoolean("sideloaded",
++                    source == PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE
++                            || source == PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE);
++            promise.resolve(out);
++        } catch (Exception ex) {
++            promise.reject("E_SMS_INFO", ex.getMessage(), ex);
++        }
++    }
++
++    /**
++     * Send `msg` to `phoneNumber`, split into as many parts as needed.
++     * Resolves "sent" once the network accepted every part; rejects with the
++     * failure (E_SMS_RESULT_<code>, E_SMS_TIMEOUT, E_SMS_PERMISSION, ...).
 +     */
 +    @ReactMethod
 +    public void sendDirectSmsMultipart(final String phoneNumber, final String msg, final Promise promise) {
-+        final Context context = getReactApplicationContext();
++        final Context context = getReactApplicationContext().getApplicationContext();
++        if (context.checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
++            promise.reject("E_SMS_PERMISSION", "SEND_SMS permission is not granted");
++            return;
++        }
 +        final SmsManager smsManager;
 +        final ArrayList<String> parts;
 +        try {
 +            smsManager = resolveSmsManager(context);
 +            parts = smsManager.divideMessage(msg);
-+        } catch (Exception ex) {
+         } catch (Exception ex) {
+-            System.out.println("couldn't send message.");
+-        } 
 +            promise.reject("E_SMS_UNAVAILABLE", "SMS is not available: " + ex.getMessage(), ex);
 +            return;
 +        }
@@ -62,15 +380,39 @@ index 90cda30..5acaad4 100644
 +            promise.reject("E_SMS_EMPTY", "The message is empty");
 +            return;
 +        }
-+        new MultipartSend(context, smsManager, phoneNumber, parts, promise).start();
++        new MultipartSend(context, smsManager, phoneNumber, parts, promise, backgroundHandler()).start();
 +    }
 +
++    /**
++     * The subscription to send from: the user's default SMS SIM, otherwise the
++     * first active SIM (needs READ_PHONE_STATE to list them), otherwise
++     * INVALID_SUBSCRIPTION_ID (the system default is used).
++     */
++    private static int pickSubscriptionId(Context context) {
++        int id = SubscriptionManager.getDefaultSmsSubscriptionId();
++        if (id != SubscriptionManager.INVALID_SUBSCRIPTION_ID) return id;
++        try {
++            if (context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
++                SubscriptionManager sm = (SubscriptionManager) context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
++                List<SubscriptionInfo> active = sm != null ? sm.getActiveSubscriptionInfoList() : null;
++                if (active != null && !active.isEmpty()) return active.get(0).getSubscriptionId();
++            }
++        } catch (SecurityException ignored) { }
++        return SubscriptionManager.INVALID_SUBSCRIPTION_ID;
++    }
++
++    @SuppressWarnings("deprecation")
 +    private static SmsManager resolveSmsManager(Context context) {
++        int subId = pickSubscriptionId(context);
 +        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-+            SmsManager manager = context.getSystemService(SmsManager.class);
-+            if (manager != null) return manager;
++            SmsManager base = context.getSystemService(SmsManager.class);
++            if (base != null) {
++                return subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID ? base.createForSubscriptionId(subId) : base;
++            }
 +        }
-+        return SmsManager.getDefault();
++        return subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID
++                ? SmsManager.getSmsManagerForSubscriptionId(subId)
++                : SmsManager.getDefault();
 +    }
 +
 +    private static String describeResult(int code) {
@@ -79,6 +421,9 @@ index 90cda30..5acaad4 100644
 +            case SmsManager.RESULT_ERROR_RADIO_OFF: return "radio off (airplane mode?)";
 +            case SmsManager.RESULT_ERROR_NULL_PDU: return "null PDU";
 +            case SmsManager.RESULT_ERROR_NO_SERVICE: return "no mobile service";
++            case SmsManager.RESULT_ERROR_LIMIT_EXCEEDED: return "sending limit exceeded";
++            case SmsManager.RESULT_ERROR_SHORT_CODE_NOT_ALLOWED: return "short code not allowed";
++            case SmsManager.RESULT_ERROR_SHORT_CODE_NEVER_ALLOWED: return "short code never allowed";
 +            default: return "result code " + code;
 +        }
 +    }
@@ -91,7 +436,7 @@ index 90cda30..5acaad4 100644
 +        private final ArrayList<String> parts;
 +        private final Promise promise;
 +        private final String action;
-+        private final Handler handler = new Handler(Looper.getMainLooper());
++        private final Handler handler;
 +        private final ArrayList<PendingIntent> sentIntents = new ArrayList<>();
 +        private int okParts = 0;
 +        private boolean settled = false;
@@ -112,23 +457,25 @@ index 90cda30..5acaad4 100644
 +        private final Runnable timeout = new Runnable() {
 +            @Override
 +            public void run() {
-+                settle("E_SMS_TIMEOUT", "No send confirmation within " + (MULTIPART_TIMEOUT_MS / 1000) + " s ("
++                settle("E_SMS_TIMEOUT", "No send confirmation within " + (SEND_TIMEOUT_MS / 1000) + " s ("
 +                        + okParts + "/" + parts.size() + " parts sent)");
 +            }
 +        };
 +
-+        MultipartSend(Context context, SmsManager smsManager, String phoneNumber, ArrayList<String> parts, Promise promise) {
++        MultipartSend(Context context, SmsManager smsManager, String phoneNumber, ArrayList<String> parts,
++                      Promise promise, Handler handler) {
 +            this.context = context;
 +            this.smsManager = smsManager;
 +            this.phoneNumber = phoneNumber;
 +            this.parts = parts;
 +            this.promise = promise;
++            this.handler = handler;
 +            this.action = context.getPackageName() + ".DIRECT_SMS_SENT." + REQUEST_SEQ.incrementAndGet() + "." + System.nanoTime();
 +        }
 +
 +        void start() {
-+            // Everything (receiver callbacks, timeout, settle) runs on the main
-+            // looper, so the counters need no further synchronisation.
++            // Receiver callbacks, the timeout and settle() all run on the same
++            // background looper, so the counters need no further locking.
 +            handler.post(new Runnable() {
 +                @Override
 +                public void run() {
@@ -153,12 +500,14 @@ index 90cda30..5acaad4 100644
 +                return;
 +            }
 +
++            int base = REQUEST_SEQ.incrementAndGet() * 16;
 +            for (int i = 0; i < parts.size(); i++) {
 +                Intent intent = new Intent(action).setPackage(context.getPackageName());
-+                // Distinct request codes give every part its own PendingIntent.
-+                sentIntents.add(PendingIntent.getBroadcast(context, i, intent, PendingIntent.FLAG_IMMUTABLE));
++                // Unique request codes: every part of every send has its own PendingIntent.
++                sentIntents.add(PendingIntent.getBroadcast(context, base + i, intent,
++                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_ONE_SHOT));
 +            }
-+            handler.postDelayed(timeout, MULTIPART_TIMEOUT_MS);
++            handler.postDelayed(timeout, SEND_TIMEOUT_MS);
 +
 +            try {
 +                if (parts.size() == 1) {
@@ -186,5 +535,7 @@ index 90cda30..5acaad4 100644
 +            if (errorCode == null) promise.resolve("sent");
 +            else promise.reject(errorCode, errorMessage);
 +        }
-+    }
- }
+     }
+-}
+\ No newline at end of file
++}

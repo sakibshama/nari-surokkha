@@ -9,6 +9,10 @@
       "distribution": "internal",
       "ios": {
         "resourceClass": "m1-medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.mystrix-soft.com/api/v1",
+        "EXPO_PUBLIC_WS_URL": "https://api.mystrix-soft.com"
       }
     },
     "preview": {
@@ -20,7 +24,9 @@
         "resourceClass": "m1-medium"
       },
       "env": {
-        "APP_ENV": "production"
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://api.mystrix-soft.com/api/v1",
+        "EXPO_PUBLIC_WS_URL": "https://api.mystrix-soft.com"
       }
     },
     "production": {
@@ -28,7 +34,9 @@
         "resourceClass": "m1-medium"
       },
       "env": {
-        "APP_ENV": "production"
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://api.mystrix-soft.com/api/v1",
+        "EXPO_PUBLIC_WS_URL": "https://api.mystrix-soft.com"
       },
       "autoIncrement": true,
       "android": {

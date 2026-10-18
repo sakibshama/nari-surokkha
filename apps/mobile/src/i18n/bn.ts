@@ -738,4 +738,45 @@ export const bn: Record<string, string> = {
   'Location permission is off — tracking stopped': 'লোকেশনের অনুমতি বন্ধ — ট্র্যাকিং বন্ধ',
   'Live link to responders connected': 'রেসপন্ডারদের সাথে লাইভ সংযোগ চালু',
   'Live link reconnecting…': 'লাইভ সংযোগ আবার যুক্ত হচ্ছে…',
+  'Turn on location': 'লোকেশন চালু করুন',
+  'Your SOS was sent by SMS without your location. Allow location so responders can find you next time.':
+    'আপনার SOS লোকেশন ছাড়া SMS-এ পাঠানো হয়েছে। পরের বার রেসপন্ডাররা যেন আপনাকে খুঁজে পায়, সেজন্য লোকেশনের অনুমতি দিন।',
+  'Later': 'পরে',
+  // ── About ──
+  'About': 'অ্যাপ সম্পর্কে',
+  'Nari Surokkha': 'নারী সুরক্ষা',
+  'Nari Surokkha — women’s safety': 'নারী সুরক্ষা — নারীর নিরাপত্তা',
+  'A one-tap SOS, live location for your trusted contacts, offline SMS and on-device emergency detection — built to get help to you fast.':
+    'এক ট্যাপে SOS, বিশ্বস্ত পরিচিতদের জন্য লাইভ লোকেশন, অফলাইন SMS এবং ফোনেই বিপদ শনাক্তকরণ — দ্রুত সাহায্য পৌঁছে দিতে তৈরি।',
+  'Version {v}': 'সংস্করণ {v}',
+  'Developer': 'ডেভেলপার',
+  'Developed by': 'ডেভেলপ করেছেন',
+  'Founder & CEO': 'প্রতিষ্ঠাতা ও সিইও',
+  'Role': 'ভূমিকা',
+  'Software & Machine Learning Engineer': 'সফটওয়্যার ও মেশিন লার্নিং ইঞ্জিনিয়ার',
+  'Contact': 'যোগাযোগ',
+  '© {year} {company}. All rights reserved.': '© {year} {company}। সর্বস্বত্ব সংরক্ষিত।',
+  // ── Emergency SMS permission ──
+  'Allow emergency SMS': 'জরুরি SMS-এর অনুমতি দিন',
+  'Without internet, your SOS reaches your trusted contacts by SMS from your SIM. Android blocks SMS for apps installed from an APK file until you allow it once in Settings.':
+    'ইন্টারনেট না থাকলে আপনার SOS আপনার সিম থেকে SMS হয়ে বিশ্বস্ত পরিচিতদের কাছে যায়। APK ফাইল থেকে ইনস্টল করা অ্যাপের জন্য Android SMS বন্ধ রাখে — সেটিংসে একবার অনুমতি দিতে হবে।',
+  'Without internet, your SOS reaches your trusted contacts by SMS from your SIM. SMS permission is turned off for this app.':
+    'ইন্টারনেট না থাকলে আপনার SOS আপনার সিম থেকে SMS হয়ে বিশ্বস্ত পরিচিতদের কাছে যায়। এই অ্যাপের SMS অনুমতি বন্ধ আছে।',
+  'Tap “Open settings” below. The app info page opens.': 'নিচের “সেটিংস খুলুন” চাপুন। অ্যাপের তথ্য পাতা খুলবে।',
+  'Tap ⋮ (top right) and choose “Allow restricted settings”. Confirm with your PIN or fingerprint.':
+    'উপরে ডানে ⋮ চাপুন এবং “Allow restricted settings” বেছে নিন। পিন বা আঙুলের ছাপ দিয়ে নিশ্চিত করুন।',
+  'Tap Permissions → SMS → Allow.': 'Permissions → SMS → Allow চাপুন।',
+  'Come back to Nari Surokkha.': 'নারী সুরক্ষা অ্যাপে ফিরে আসুন।',
+  'On Xiaomi, Redmi, POCO, Realme or Oppo phones, also allow “Send SMS” under “Other permissions” if you see it.':
+    'Xiaomi, Redmi, POCO, Realme বা Oppo ফোনে “Other permissions”-এ “Send SMS” থাকলে সেটিও চালু করুন।',
+  'SMS is only sent to your trusted contacts during an SOS. Standard operator charges may apply.':
+    'শুধু SOS-এর সময় আপনার বিশ্বস্ত পরিচিতদের SMS পাঠানো হয়। অপারেটরের সাধারণ চার্জ প্রযোজ্য হতে পারে।',
+  'I have allowed it — check again': 'অনুমতি দিয়েছি — আবার যাচাই করুন',
+  'Emergency SMS': 'জরুরি SMS',
+  'Allowed — offline SOS texts your contacts automatically': 'চালু — অফলাইন SOS নিজে থেকেই পরিচিতদের SMS পাঠাবে',
+  'Not allowed — tap to turn on': 'বন্ধ — চালু করতে চাপুন',
+  'Emergency SMS is off': 'জরুরি SMS বন্ধ',
+  'Emergency SMS is off. Tap to turn it on.': 'জরুরি SMS বন্ধ। চালু করতে চাপুন।',
+  'Without internet your SOS cannot text your contacts. Tap to turn it on.':
+    'ইন্টারনেট ছাড়া আপনার SOS পরিচিতদের SMS পাঠাতে পারবে না। চালু করতে চাপুন।',
 };

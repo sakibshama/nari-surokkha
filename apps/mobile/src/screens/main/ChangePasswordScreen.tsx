@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { Pressable } from 'react-native';
 import { Eye, EyeOff, KeyRound, Lock } from 'lucide-react-native';
 
 import api from '../../services/api';
@@ -55,43 +55,41 @@ export default function ChangePasswordScreen() {
   );
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Screen>
-        <AppBar title={t('Change password')} subtitle={t('You will be signed out on all devices.')} />
-        <Card elevation="raised">
-          <Field
-            label={t('Current password')}
-            secureTextEntry={!reveal}
-            autoComplete="current-password"
-            value={current}
-            onChangeText={setCurrent}
-            icon={(c) => <Lock size={18} color={c} />}
-            trailing={revealToggle}
-          />
-          <Field
-            label={t('New password')}
-            secureTextEntry={!reveal}
-            autoComplete="new-password"
-            value={next}
-            onChangeText={setNext}
-            hint={t('At least {n} characters.', { n: MIN_LENGTH })}
-            icon={(c) => <KeyRound size={18} color={c} />}
-          />
-          <Field
-            label={t('Confirm password')}
-            secureTextEntry={!reveal}
-            autoComplete="new-password"
-            value={confirm}
-            onChangeText={setConfirm}
-            error={error ?? undefined}
-            icon={(c) => <KeyRound size={18} color={c} />}
-          />
-          <Button label={t('Change password')} onPress={submit} loading={saving} style={{ marginTop: spacing.sm }} />
-          <Txt variant="xs" tone="muted" center style={{ marginTop: spacing.md }}>
-            {t('After the change, log in again on this phone.')}
-          </Txt>
-        </Card>
-      </Screen>
-    </KeyboardAvoidingView>
+    <Screen>
+      <AppBar title={t('Change password')} subtitle={t('You will be signed out on all devices.')} />
+      <Card elevation="raised">
+        <Field
+          label={t('Current password')}
+          secureTextEntry={!reveal}
+          autoComplete="current-password"
+          value={current}
+          onChangeText={setCurrent}
+          icon={(c) => <Lock size={18} color={c} />}
+          trailing={revealToggle}
+        />
+        <Field
+          label={t('New password')}
+          secureTextEntry={!reveal}
+          autoComplete="new-password"
+          value={next}
+          onChangeText={setNext}
+          hint={t('At least {n} characters.', { n: MIN_LENGTH })}
+          icon={(c) => <KeyRound size={18} color={c} />}
+        />
+        <Field
+          label={t('Confirm password')}
+          secureTextEntry={!reveal}
+          autoComplete="new-password"
+          value={confirm}
+          onChangeText={setConfirm}
+          error={error ?? undefined}
+          icon={(c) => <KeyRound size={18} color={c} />}
+        />
+        <Button label={t('Change password')} onPress={submit} loading={saving} style={{ marginTop: spacing.sm }} />
+        <Txt variant="xs" tone="muted" center style={{ marginTop: spacing.md }}>
+          {t('After the change, log in again on this phone.')}
+        </Txt>
+      </Card>
+    </Screen>
   );
 }

@@ -45,6 +45,8 @@ describe('E2E Emergency Flow: Citizen SOS -> Dispatch -> Audit -> WebRTC Stream 
       if (alertId) {
         await app.prisma.notificationLog.deleteMany({ where: { alertId } }).catch(() => undefined);
         await app.prisma.alertLocation.deleteMany({ where: { alertId } }).catch(() => undefined);
+        // Test fixtures only: status history is RESTRICT-protected, clear it first.
+        await app.prisma.alertStatusEvent.deleteMany({ where: { alertId } }).catch(() => undefined);
         await app.prisma.emergencyAlert.deleteMany({ where: { id: alertId } }).catch(() => undefined);
       }
       if (citizenUserId) {

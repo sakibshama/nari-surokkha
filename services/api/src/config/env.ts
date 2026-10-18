@@ -170,6 +170,9 @@ const EnvSchema = z.object({
   // fine for a pilot; self-host for production (docker: osrm/osrm-backend).
   // Profile in the path (…/route/v1/walking/…) is chosen in code.
   OSRM_URL: z.string().url().default('https://router.project-osrm.org'),
+  // Map tiles for the mobile Safety Map, fetched and cached by the API
+  // (GET /api/v1/map/tiles/:z/:x/:y). {s} = a–d, {r} = retina suffix (unused).
+  MAP_TILE_URL: z.string().default('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'),
 
   // ─── Rate Limiting ─────────────────────────────────────────
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(5),

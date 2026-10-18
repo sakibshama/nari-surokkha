@@ -48,10 +48,10 @@ import { softAlerts } from '../../services/emergency/runtime';
 import DetectionStatusChip from '../../components/DetectionStatusChip';
 import { motionModelLoader } from '../../services/ml/ModelLoader';
 import { sendOfflineSosSms, getCachedContactPhones } from '../../services/offlineSos';
-import { hasSmsPermission, requestSmsPermission } from '../../services/directSms';
 import { logSms } from '../../services/smsHistory';
 import { sendSosSmsFromDevice } from '../../services/deviceSms';
 import { buildSosText } from '../../services/sosText';
+import { ensureSmsPermission, useSmsPermission } from '../../services/smsPermission';
 import { useTheme } from '../../theme';
 import { useT } from '../../i18n';
 import { radius, spacing, type as typeScale } from '../../theme/tokens';
@@ -95,6 +95,20 @@ const ACTIONS: Action[] = [
 const SOS_SIZE = 212;
 /** How long the SOS waits for a fresh GPS fix before using the last known one. */
 const GPS_TIMEOUT_MS = 8000;
+/**
+ * A permission dialog that never answers (another request already holding the
+ * system dialog, an activity recreated underneath it) must not freeze the SOS
+ * button: after this long the SOS carries on without the permission.
+ */
+const PERMISSION_TIMEOUT_MS = 20000;
+
+/** Resolve to null instead of hanging or throwing. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    p.catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
 
 export default function HomeScreen({ navigation }: Props) {
   const { colors, gradients, shadows, isDark } = useTheme();
@@ -104,6 +118,7 @@ export default function HomeScreen({ navigation }: Props) {
   const { isSosActive, setSosActive, activeAlertId } = useLocationStore();
   const mlGyroEnabled = useSettingsStore((st) => st.mlGyroEnabled);
   const [loading, setLoading] = useState(false);
+  const smsState = useSmsPermission((st) => st.state);
 
   // The SOS button drives its own press animation through a plain Pressable.
   // Everything else uses PressableScale; this is the one control that must
@@ -134,27 +149,9 @@ export default function HomeScreen({ navigation }: Props) {
       .catch(() => {});
   }, []);
 
-  // First run: ask for SMS permission once so the offline SOS can auto-send.
+  // Permissions (location, SMS, microphone, notifications, camera) are asked
+  // once at app start — see services/startupPermissions.ts.
   useEffect(() => {
-    (async () => {
-      try {
-        if (await AsyncStorage.getItem('@sms_perm_asked')) return;
-        await AsyncStorage.setItem('@sms_perm_asked', '1');
-        if (!(await hasSmsPermission())) await requestSmsPermission();
-      } catch {
-        /* non-blocking */
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        showAlert(t('Permission denied'), t('SOS needs location permission.'));
-      }
-    })();
-
     // Pull a newer on-device model over the air if the server has one.
     motionModelLoader.checkForUpdate();
   }, []);
@@ -216,41 +213,48 @@ export default function HomeScreen({ navigation }: Props) {
 
     setLoading(true);
     const userName = user?.profile?.fullName?.trim() || '';
+    let locationDenied = false;
     try {
       // A real GPS fix every time — an SOS must never go out with a fallback
       // location, or responders are sent to the wrong place.
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      // No location permission must never stop an SOS: without it the alert
+      // still goes out by SMS (without coordinates), and the user is told how
+      // to turn location on afterwards.
+      const perm = await Location.getForegroundPermissionsAsync().catch(() => null);
+      const status =
+        perm?.status === 'granted'
+          ? 'granted'
+          : (await withTimeout(Location.requestForegroundPermissionsAsync(), PERMISSION_TIMEOUT_MS))?.status ??
+            'denied';
       step('location permission', status);
-      if (status !== 'granted') {
-        showAlert(
-          t('Location required'),
-          t('Location permission is needed so responders can find you. Please enable it and try again.'),
-        );
-        return;
-      }
+      locationDenied = status !== 'granted';
 
       // A fresh fix, but never wait forever for one: after GPS_TIMEOUT_MS use
       // the last known position. With no position at all the SOS still goes
       // out — by SMS, without coordinates — instead of doing nothing.
-      const fix = await Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null),
-        new Promise<null>((r) => setTimeout(() => r(null), GPS_TIMEOUT_MS)),
-      ]);
-      const loc = fix ?? (await Location.getLastKnownPositionAsync().catch(() => null));
+      const fix = locationDenied
+        ? null
+        : await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null),
+            new Promise<null>((r) => setTimeout(() => r(null), GPS_TIMEOUT_MS)),
+          ]);
+      const loc =
+        fix ?? (locationDenied ? null : await withTimeout(Location.getLastKnownPositionAsync(), 3000));
       step(fix ? 'fresh fix' : loc ? 'last known position' : 'no position');
       const coords = loc ? { latitude: loc.coords.latitude, longitude: loc.coords.longitude } : null;
 
       // ─── Offline path (or no position: the API needs one) ───
       let offline = false;
       if (Platform.OS !== 'web') {
-        const netInfo = await NetInfo.fetch();
-        step('connectivity', netInfo.isConnected);
-        offline = netInfo.isConnected === false;
+        const netInfo = await withTimeout(NetInfo.fetch(), 3000);
+        step('connectivity', netInfo?.isConnected);
+        offline = netInfo?.isConnected === false;
       }
       if (offline || !coords) {
         if (!coords) toast(t('No GPS signal'), t('Sending your SOS by SMS without a location.'), 'info');
         await triggerOfflineSms(coords ?? undefined, userName);
         navigation.navigate('OfflineSos');
+        if (locationDenied) promptLocationSettings();
         return;
       }
 
@@ -361,6 +365,18 @@ export default function HomeScreen({ navigation }: Props) {
     }
   };
 
+  /** After an SOS sent without a location: show how to switch location on. */
+  const promptLocationSettings = () => {
+    showAlert(
+      t('Turn on location'),
+      t('Your SOS was sent by SMS without your location. Allow location so responders can find you next time.'),
+      [
+        { text: t('Later'), style: 'cancel' },
+        { text: t('Open settings'), onPress: () => void Linking.openSettings() },
+      ],
+    );
+  };
+
   /** Offline SOS: auto-send SMS via the SIM (Android) or open the composer. */
   const triggerOfflineSms = async (
     coords: { latitude: number; longitude: number } | undefined,
@@ -466,6 +482,25 @@ export default function HomeScreen({ navigation }: Props) {
                 </Text>
               </View>
               <Text style={[typeScale.smStrong, { color: colors.onDanger }]}>{t('Return to SOS')}</Text>
+            </PressableScale>
+          </FadeIn>
+        )}
+
+        {Platform.OS === 'android' && (smsState === 'restricted' || smsState === 'blocked' || smsState === 'askable') && (
+          <FadeIn style={{ paddingHorizontal: spacing.lg, marginTop: spacing.sm }}>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={t('Emergency SMS is off. Tap to turn it on.')}
+              onPress={() => void ensureSmsPermission(true)}
+              style={[styles.sosBanner, { backgroundColor: colors.warningSoft }]}
+            >
+              <ShieldAlert color={colors.warningText} size={20} />
+              <View style={{ flex: 1 }}>
+                <Text style={[typeScale.smStrong, { color: colors.warningText }]}>{t('Emergency SMS is off')}</Text>
+                <Text style={[typeScale.xs, { color: colors.warningText }]}>
+                  {t('Without internet your SOS cannot text your contacts. Tap to turn it on.')}
+                </Text>
+              </View>
             </PressableScale>
           </FadeIn>
         )}

@@ -16,7 +16,6 @@ import {
   Platform,
   Pressable,
   PressableProps,
-  ScrollView,
   StyleProp,
   StyleSheet,
   Text,
@@ -34,8 +33,10 @@ import { Theme, useTheme, useThemedStyles } from '../../theme';
 import { radius, spacing, type as typeScale } from '../../theme/tokens';
 import { useLanguageStore } from '../../i18n';
 import { FadeIn, PressableScale } from './motion';
+import { KeyboardAwareScrollView, useKeyboardAwareInput } from './keyboard';
 
 export * from './motion';
+export * from './keyboard';
 
 /** Bangla glyphs sit taller than Latin ones; give them a little more room. */
 function useScriptLineHeight(style: TextStyle): TextStyle {
@@ -84,15 +85,17 @@ export function Screen({
     );
   }
 
+  // Keyboard-aware: the focused input is scrolled above the software keyboard
+  // (see ./keyboard — adjustResize does nothing under Android edge-to-edge).
   return (
-    <ScrollView
+    <KeyboardAwareScrollView
+      containerStyle={{ backgroundColor: colors.bg }}
       style={[{ flex: 1, backgroundColor: colors.bg }, style]}
       contentContainerStyle={[{ flexGrow: 1 }, inner]}
-      keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
       {children}
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 
@@ -377,6 +380,7 @@ export function Field({
 }: FieldProps) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
+  const keyboardAware = useKeyboardAwareInput();
 
   const borderColor = error ? colors.danger : focused ? colors.accent : colors.border;
   const iconColor = error ? colors.dangerText : focused ? colors.accent : colors.textMuted;
@@ -417,12 +421,22 @@ export function Field({
           {...inputProps}
           onFocus={(e) => {
             setFocused(true);
+            keyboardAware.onFocus();
             inputProps.onFocus?.(e);
           }}
           onBlur={(e) => {
             setFocused(false);
+            keyboardAware.onBlur();
             inputProps.onBlur?.(e);
           }}
+          onContentSizeChange={
+            inputProps.multiline
+              ? (e) => {
+                  keyboardAware.onContentSizeChange();
+                  inputProps.onContentSizeChange?.(e);
+                }
+              : inputProps.onContentSizeChange
+          }
           style={[
             {
               flex: 1,

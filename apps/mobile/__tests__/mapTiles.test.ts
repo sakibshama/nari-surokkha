@@ -49,3 +49,10 @@ test('wraps around the antimeridian and drops rows beyond the poles', () => {
   assert.ok(polar.tiles.every((t) => Number(t.key.split('/')[2]) >= 0));
   assert.equal(polar.tiles.length, 6);
 });
+
+test('proxied tiles go through the API, not tile.openstreetmap.org', async () => {
+  const { proxiedTileUrl } = await import('../src/services/mapTiles');
+  assert.equal(proxiedTileUrl('https://api.example.com/api/v1/', 15, 1, 2), 'https://api.example.com/api/v1/map/tiles/15/1/2.png');
+  const view = tileView(23.81, 90.41, 15, 300, 240, 1, (z, x, y) => proxiedTileUrl('https://api.example.com/api/v1', z, x, y));
+  assert.ok(view.tiles.every((t) => t.url.startsWith('https://api.example.com/api/v1/map/tiles/15/')));
+});

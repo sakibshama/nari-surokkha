@@ -589,7 +589,7 @@ export class AlertsService {
     try {
       // The phone may be dead or out of reach, so the server texts the
       // contacts itself whatever the user's SMS quota.
-      await this.confirmSoftAlert(userId, alertId, { forceServerSms: true });
+      await this.confirmSoftAlert(userId, alertId, { forceServerSms: true, autoEscalated: true });
       this.fastify.log.info({ alertId }, 'Soft alert automatically escalated to SOS');
       return true;
     } catch (err) {
@@ -608,11 +608,15 @@ export class AlertsService {
     }
     // Conditional on status 'created' in the same statement, so a cancel and
     // a concurrent escalation can never both win.
-    const cancelled = alert.status === 'created' && (await this.repo.updateIfSoftAlertPending(alertId, {
-      status: 'false_alarm',
-      softAlertCancelledAt: new Date(),
-      closedAt: new Date(),
-    }));
+    const cancelled = alert.status === 'created' && (await this.repo.updateIfSoftAlertPending(
+      alertId,
+      {
+        status: 'false_alarm',
+        softAlertCancelledAt: new Date(),
+        closedAt: new Date(),
+      },
+      { actorKind: 'user', actorId: userId, reason: 'Soft alert cancelled by user', metadata: { event: 'soft_cancelled' } },
+    ));
     if (!cancelled) {
       throw new SoftAlertNotPendingError('Cannot cancel an alert that is not in soft-alert state');
     }
@@ -624,7 +628,7 @@ export class AlertsService {
   async confirmSoftAlert(
     userId: string,
     alertId: string,
-    opts: { forceServerSms?: boolean } = {},
+    opts: { forceServerSms?: boolean; autoEscalated?: boolean } = {},
   ): Promise<
     EmergencyAlert & { contactPhones?: string[]; degradedNotifications?: boolean } & DeviceSmsInstruction
   > {
@@ -634,7 +638,13 @@ export class AlertsService {
     }
     // Conditional transition — see cancelSoftAlert.
     const updatedAlert = alert.status === 'created'
-      ? await this.repo.updateIfSoftAlertPending(alertId, { status: 'confirmed', confirmedAt: new Date() })
+      ? await this.repo.updateIfSoftAlertPending(
+          alertId,
+          { status: 'confirmed', confirmedAt: new Date() },
+          opts.autoEscalated
+            ? { actorKind: 'system', reason: 'Soft alert not answered — auto-escalated to SOS', metadata: { event: 'auto_escalated' } }
+            : { actorKind: 'user', actorId: userId, reason: 'Soft alert confirmed by user', metadata: { event: 'soft_confirmed' } },
+        )
       : null;
     if (!updatedAlert) {
       throw new SoftAlertNotPendingError('Cannot confirm an alert that is not in soft-alert state');
@@ -674,10 +684,12 @@ export class AlertsService {
       return;
     }
 
-    await this.repo.updateAlert(alertId, {
-      status: 'false_alarm',
-      closedAt: new Date(),
-    });
+    // Status change only — the alert and its history are kept for good.
+    await this.repo.updateAlert(
+      alertId,
+      { status: 'false_alarm', closedAt: new Date() },
+      { fromStatus: alert.status, actorKind: 'user', actorId: userId, reason: 'SOS cancelled by user', metadata: { event: 'cancelled' } },
+    );
     await invalidateAlertMeta(this.fastify, alertId);
 
     if (this.fastify.io) {
@@ -695,7 +707,11 @@ export class AlertsService {
     if (!ACTIVE_ALERT_STATUSES.includes(alert.status)) return alert;
 
     const now = new Date();
-    const updated = await this.repo.updateAlert(alertId, { status: 'resolved', resolvedAt: now, closedAt: now });
+    const updated = await this.repo.updateAlert(
+      alertId,
+      { status: 'resolved', resolvedAt: now, closedAt: now },
+      { fromStatus: alert.status, actorKind: 'user', actorId: userId, reason: 'Marked safe by user', metadata: { event: 'resolved' } },
+    );
     await invalidateAlertMeta(this.fastify, alertId);
     await this.repo.createAuditLog({
       userId,

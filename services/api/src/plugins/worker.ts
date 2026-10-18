@@ -36,7 +36,7 @@ async function workerPlugin(fastify: FastifyInstance): Promise<void> {
 
   const notificationsService = new NotificationsService(fastify.prisma, fastify);
 
-  const alertsRepo = new AlertsRepository(fastify.prisma);
+  const alertsRepo = new AlertsRepository(fastify.prisma, fastify.log);
   const contactsRepo = new ContactsRepository(fastify.prisma);
   const responderRepo = new ResponderRepository(fastify.prisma);
   const alertsService = new AlertsService(alertsRepo, contactsRepo, responderRepo, fastify);

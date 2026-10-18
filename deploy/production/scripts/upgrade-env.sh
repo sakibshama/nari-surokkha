@@ -54,6 +54,8 @@ add PHONE_VERIFICATION "optional" "Phone OTP at sign-up: optional now, set to re
 add CONFIG_ENCRYPTION_KEY "$(openssl rand -hex 32)" "Encrypts SMS/payment secrets stored in the database (back this up!)"
 add ADMIN_VITE_API_URL "https://api.${DOMAIN}/api/v1" "Admin portal build-time API URL"
 add PUBLIC_WS_URL "https://api.${DOMAIN}" "Admin portal build-time realtime URL"
+# Compose validates every service, including the optional monitoring profile.
+add GRAFANA_PASSWORD "$(openssl rand -hex 16)" "Grafana admin password (monitoring profile)"
 if ! has_key DIRECT_DATABASE_URL || [[ -z "$(get_val DIRECT_DATABASE_URL)" ]]; then
   PG_USER="$(get_val POSTGRES_USER)"; PG_PASS="$(get_val POSTGRES_PASSWORD)"; PG_DB="$(get_val POSTGRES_DB)"
   add DIRECT_DATABASE_URL "postgresql://${PG_USER}:${PG_PASS}@postgres:5432/${PG_DB}" "Migrations connect to Postgres directly (not through PgBouncer)"

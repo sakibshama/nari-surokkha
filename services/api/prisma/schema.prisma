@@ -381,6 +381,7 @@ model EmergencyAlert {
   mlDetections        MlDetectionEvent[]
   notificationLogs    NotificationLog[]
   responderDispatches ResponderDispatch[]
+  statusEvents        AlertStatusEvent[]
 
   @@index([userId])
   @@index([status])
@@ -390,6 +391,30 @@ model EmergencyAlert {
   // Station dashboards filter by station + status and sort by newest first.
   @@index([assignedStationId, status, createdAt(sort: Desc)], map: "idx_alerts_station_status_created")
   @@map("emergency_alerts")
+}
+
+/// Permanent, append-only history of every alert status change (creation,
+/// soft cancel/confirm, auto-escalation, user cancel/resolve, admin updates).
+/// Never pruned and never cascaded: the FK is RESTRICT, so an alert that has
+/// history cannot be deleted. Migration 20261015000000_alert_status_history.
+model AlertStatusEvent {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  alertId    String       @map("alert_id") @db.Uuid
+  /// null for the creation event
+  fromStatus AlertStatus? @map("from_status")
+  toStatus   AlertStatus  @map("to_status")
+  /// 'user' | 'admin' | 'system' (CHECK constraint in the migration)
+  actorKind  String       @map("actor_kind") @db.VarChar(16)
+  actorId    String?      @map("actor_id") @db.Uuid
+  reason     String?      @db.VarChar(2000)
+  metadata   Json?
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  alert EmergencyAlert @relation(fields: [alertId], references: [id], onDelete: Restrict)
+
+  @@index([alertId, createdAt], map: "idx_alert_status_events_alert_created")
+  @@index([createdAt], map: "idx_alert_status_events_created")
+  @@map("alert_status_events")
 }
 
 /// Live location updates during active SOS — high-frequency writes

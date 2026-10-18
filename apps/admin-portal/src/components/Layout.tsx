@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserCheck,
   Activity, Settings, LogOut, Menu, X,
-  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, Languages, CreditCard, WifiOff
+  Bell, Moon, Sun, AlertTriangle, BarChart3, ShieldCheck, CheckCircle, Languages, CreditCard, WifiOff, Siren
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
@@ -23,6 +23,7 @@ type NavItemDef = { label: string; icon: any; path: string; permission?: string 
 
 const NAV_MAIN: NavItemDef[] = [
   { label: 'Dashboard',       icon: LayoutDashboard, path: '/' },
+  { label: 'SOS Reports',     icon: Siren,           path: '/alerts' },
   { label: 'Users',            icon: Users,        path: '/users', permission: 'manage_users' },
   { label: 'Role Management',  icon: ShieldCheck,  path: '/roles', permission: 'manage_users' },
   { label: 'Responders',       icon: UserCheck,    path: '/responders', permission: 'manage_users' },
@@ -56,7 +57,8 @@ export default function Layout() {
 
   const fetchNotifications = async () => {
     try {
-      const res = await api.get('/admin/alerts', { params: { limit: 5, _t: Date.now() }, headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
+      // Ask for active alerts only: the newest 5 of ALL alerts can be all closed.
+      const res = await api.get('/admin/alerts', { params: { limit: 5, status: ACTIVE_STATUSES.join(','), _t: Date.now() }, headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
       const activeAlerts = res.data.data.filter((a: any) => ACTIVE_STATUSES.includes(a.status));
       setNotifications(activeAlerts);
       setUnreadCount(activeAlerts.length);
@@ -163,6 +165,7 @@ export default function Layout() {
     '/roles': 'Role Management',
     '/responders': 'Responders',
     '/incidents': 'Incident Reports',
+    '/alerts': 'SOS Reports',
     '/analytics': 'City Safety Analytics',
     '/audit-logs': 'Audit Logs',
     '/settings': 'Settings',
@@ -300,7 +303,7 @@ export default function Layout() {
                     </div>
                     <div 
                       style={{ padding: '12px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', fontSize: 13, color: 'var(--text-sub)', cursor: 'pointer', borderTop: '1px solid var(--border)' }}
-                      onClick={() => { setShowNotifications(false); navigate('/'); }}
+                      onClick={() => { setShowNotifications(false); navigate('/alerts'); }}
                     >
                       {t('View All Alerts')}
                     </div>

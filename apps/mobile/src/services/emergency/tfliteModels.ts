@@ -40,6 +40,28 @@ function wrap(model: FastTfliteModel): TensorModel {
   };
 }
 
+/**
+ * A real file:// (or http:// in development) URL for a bundled model.
+ *
+ * fast-tflite's own require() path does `new URL(resolveAssetSource(id).uri)`.
+ * In a release Android build that uri is a bare resource name
+ * ("assets_models_yamnet", the file lives in res/raw), which is not a URL, so
+ * every model failed with "MalformedURLException: no protocol". expo-asset
+ * copies the resource into the cache directory and hands back a file:// URL
+ * that works in development and release builds alike.
+ */
+async function modelFileUrl(mod: number): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Asset } = require('expo-asset') as typeof import('expo-asset');
+  const asset = Asset.fromModule(mod);
+  await asset.downloadAsync();
+  const url = asset.localUri ?? asset.uri;
+  if (!url || !url.includes('://')) {
+    throw new Error(`Detection model could not be unpacked (${url || 'no uri'}).`);
+  }
+  return url;
+}
+
 let cached: Promise<EmergencyModels> | null = null;
 
 /** Throws if the native module is missing (web, Expo Go, or an old dev build). */
@@ -50,13 +72,14 @@ export function loadEmergencyModels(): Promise<EmergencyModels> {
       // Lazy require: a missing native module must not crash app start-up.
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { loadTensorflowModel } = require('react-native-fast-tflite') as {
-        loadTensorflowModel: (src: number, delegates: string[]) => Promise<FastTfliteModel>;
+        loadTensorflowModel: (src: { url: string }, delegates: string[]) => Promise<FastTfliteModel>;
       };
+      const load = async (mod: number) => loadTensorflowModel({ url: await modelFileUrl(mod) }, []);
       const [yamnet, kwsMel, kwsEmbedding, kwsHead] = await Promise.all([
-        loadTensorflowModel(require('../../../assets/models/yamnet.tflite'), []),
-        loadTensorflowModel(require('../../../assets/models/kws_mel.tflite'), []),
-        loadTensorflowModel(require('../../../assets/models/kws_embedding.tflite'), []),
-        loadTensorflowModel(require('../../../assets/models/kws_head.tflite'), []),
+        load(require('../../../assets/models/yamnet.tflite')),
+        load(require('../../../assets/models/kws_mel.tflite')),
+        load(require('../../../assets/models/kws_embedding.tflite')),
+        load(require('../../../assets/models/kws_head.tflite')),
       ]);
       return {
         yamnet: wrap(yamnet),

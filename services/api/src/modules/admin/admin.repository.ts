@@ -1,5 +1,57 @@
-import { PrismaClient, Prisma, Responder, AuditLog, AlertStatus } from '@prisma/client';
+import { PrismaClient, Prisma, Responder, AuditLog, AlertStatus, AlertType } from '@prisma/client';
 import { ACTIVE_ALERT_STATUSES } from '@/modules/alerts/alert-status';
+import {
+  AlertStatusActor,
+  HistoryLogger,
+  applyStatusTransition,
+} from '@/modules/alerts/alert-history';
+
+/** Filters for the admin SOS report list. Every status is included by default. */
+export interface AdminAlertFilters {
+  statuses?: AlertStatus[];
+  types?: AlertType[];
+  isSoftAlert?: boolean;
+  from?: Date;
+  to?: Date;
+  /** Victim name or phone (case-insensitive substring). */
+  search?: string;
+  limit: number;
+  offset: number;
+}
+
+const ALERT_LIST_INCLUDE = {
+  user: {
+    select: { id: true, phone: true, profile: { select: { fullName: true } } },
+  },
+  _count: { select: { evidence: true, recipients: true, responderDispatches: true } },
+} satisfies Prisma.EmergencyAlertInclude;
+
+const ALERT_DETAIL_BASE_INCLUDE = {
+  user: {
+    select: { id: true, phone: true, profile: { select: { fullName: true, bloodGroup: true } } },
+  },
+  recipients: {
+    orderBy: { createdAt: 'asc' as const },
+    select: {
+      id: true, notifiedAt: true, createdAt: true,
+      trustedContact: { select: { name: true, phone: true, relation: true } },
+    },
+  },
+  notificationLogs: {
+    orderBy: { createdAt: 'asc' as const },
+    take: 200,
+    select: {
+      id: true, channel: true, recipient: true, status: true, attempts: true,
+      sentAt: true, deliveredAt: true, createdAt: true,
+    },
+  },
+  _count: {
+    select: {
+      evidence: true, locationUpdates: true, recipients: true,
+      responderDispatches: true, notificationLogs: true, cases: true,
+    },
+  },
+} satisfies Prisma.EmergencyAlertInclude;
 
 /** Every column the portal needs — and, deliberately, not passwordHash. */
 export const ADMIN_USER_SELECT = {
@@ -34,6 +86,8 @@ export class AdminRepository {
      * no replica is configured, so this is safe either way.
      */
     private readonly prismaRead: PrismaClient = prisma,
+    /** Where alert-history write failures are reported. */
+    private readonly log?: HistoryLogger,
   ) {}
 
   async listUsers(roleKey?: string, search?: string, limit: number = 50, offset: number = 0): Promise<{ data: AdminUserView[], total: number }> {
@@ -254,37 +308,80 @@ export class AdminRepository {
   }
 
   // --- ALERTS ---
-  async listAlerts(status?: any, limit: number = 50): Promise<any[]> {
-    const where: any = {};
-    if (status) where.status = status;
-    return this.prisma.emergencyAlert.findMany({
-      where,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: {
-          select: { phone: true, profile: { select: { fullName: true } } }
-        }
-      }
-    });
+  /**
+   * The SOS report list: every alert ever raised — active, cancelled,
+   * false alarm, resolved, closed — newest first. Nothing is filtered out
+   * unless the caller asks for it.
+   */
+  async listAlerts(filters: AdminAlertFilters) {
+    const where: Prisma.EmergencyAlertWhereInput = {};
+    if (filters.statuses?.length) where.status = { in: filters.statuses };
+    if (filters.types?.length) where.type = { in: filters.types };
+    if (filters.isSoftAlert !== undefined) where.isSoftAlert = filters.isSoftAlert;
+    if (filters.from || filters.to) {
+      where.createdAt = {
+        ...(filters.from ? { gte: filters.from } : {}),
+        ...(filters.to ? { lte: filters.to } : {}),
+      };
+    }
+    const search = filters.search?.trim();
+    if (search) {
+      where.user = {
+        OR: [
+          { phone: { contains: search, mode: 'insensitive' } },
+          { profile: { fullName: { contains: search, mode: 'insensitive' } } },
+        ],
+      };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prismaRead.emergencyAlert.findMany({
+        where,
+        take: filters.limit,
+        skip: filters.offset,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: ALERT_LIST_INCLUDE,
+      }),
+      this.prismaRead.emergencyAlert.count({ where }),
+    ]);
+    return { data, total };
   }
 
-  async getAlertById(id: string): Promise<any> {
-    return this.prisma.emergencyAlert.findUnique({
-      where: { id },
-      include: {
-        user: {
-          select: { phone: true, profile: { select: { fullName: true, bloodGroup: true } } }
-        }
-      }
-    });
+  /** Alert detail with its full status timeline (oldest first). */
+  async getAlertById(id: string) {
+    try {
+      return await this.prisma.emergencyAlert.findUnique({
+        where: { id },
+        include: {
+          ...ALERT_DETAIL_BASE_INCLUDE,
+          statusEvents: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+        },
+      });
+    } catch (err) {
+      // History migration not applied yet: still show the alert.
+      this.log?.error({ err, alertId: id }, 'Alert detail with status history failed — loading without it');
+      const alert = await this.prisma.emergencyAlert.findUnique({
+        where: { id },
+        include: ALERT_DETAIL_BASE_INCLUDE,
+      });
+      return alert ? { ...alert, statusEvents: [] } : null;
+    }
   }
 
+  /** Status change + its history row, atomically (see alert-history.ts). */
   async updateAlertStatus(
     id: string,
     data: { status: AlertStatus; resolvedAt?: Date; closedAt?: Date },
+    history?: AlertStatusActor & { fromStatus: AlertStatus | null },
   ) {
-    return this.prisma.emergencyAlert.update({ where: { id }, data });
+    if (!history) return this.prisma.emergencyAlert.update({ where: { id }, data });
+    const updated = await applyStatusTransition(
+      this.prisma,
+      this.log,
+      (tx) => tx.emergencyAlert.update({ where: { id }, data }),
+      () => ({ ...history, alertId: id, toStatus: data.status }),
+    );
+    return updated!;
   }
 
   async createAuditLog(data: Prisma.AuditLogUncheckedCreateInput): Promise<void> {

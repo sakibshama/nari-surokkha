@@ -102,3 +102,6 @@ services/ml-training/.pytest_cache/
 # Generated reports (stale snapshots were committed before)
 type-check-report.txt
 lint-report.txt
+
+# Firebase service-account keys are secrets: never commit them
+*firebase-adminsdk*.json

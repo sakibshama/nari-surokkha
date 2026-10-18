@@ -1,16 +1,15 @@
 /**
- * A small, static OpenStreetMap view: a 3×3 grid of tiles around a point with
+ * A small, static map view (OpenStreetMap data, tiles via our API): a 3×3 grid of tiles around a point with
  * a marker for the user. Plain <Image>s — no native map module.
  */
 import React, { useMemo, useState } from 'react';
 import { Image, LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
-import { TILE_SIZE, tileView } from '../services/mapTiles';
+import { TILE_SIZE, proxiedTileUrl, tileView } from '../services/mapTiles';
+import { getApiBaseUrl } from '../services/api';
 import { useTheme } from '../theme';
 import { useT } from '../i18n';
 import { radius as radii } from '../theme/tokens';
 
-// OSM's tile policy asks for an identifying User-Agent; native <Image> sends it.
-const TILE_HEADERS = { 'User-Agent': 'NariSurokkha/1.0 (com.narisurokkha.app)' };
 
 interface Props {
   latitude: number;
@@ -28,7 +27,10 @@ export default function TileMap({ latitude, longitude, zoom = 15, height = 240, 
   const onLayout = (e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width));
 
   const view = useMemo(
-    () => (width ? tileView(latitude, longitude, zoom, width, height) : null),
+    () =>
+      width
+        ? tileView(latitude, longitude, zoom, width, height, 1, (z, x, y) => proxiedTileUrl(getApiBaseUrl(), z, x, y))
+        : null,
     [latitude, longitude, zoom, width, height],
   );
 
@@ -42,7 +44,7 @@ export default function TileMap({ latitude, longitude, zoom = 15, height = 240, 
       {view?.tiles.map((tile) => (
         <Image
           key={tile.key}
-          source={{ uri: tile.url, headers: TILE_HEADERS }}
+          source={{ uri: tile.url }}
           style={{ position: 'absolute', left: tile.left, top: tile.top, width: TILE_SIZE, height: TILE_SIZE }}
         />
       ))}
@@ -50,7 +52,7 @@ export default function TileMap({ latitude, longitude, zoom = 15, height = 240, 
         <View pointerEvents="none" style={[styles.marker, { left: width / 2 - 9, top: height / 2 - 9, backgroundColor: color }]} />
       )}
       <View style={styles.attribution}>
-        <Text style={styles.attributionText}>© OpenStreetMap contributors</Text>
+        <Text style={styles.attributionText}>© OpenStreetMap contributors © CARTO</Text>
       </View>
     </View>
   );

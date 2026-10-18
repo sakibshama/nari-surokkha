@@ -24,6 +24,7 @@ const Roles = lazy(() => import('./pages/Roles'));
 const Responders = lazy(() => import('./pages/Responders'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const Incidents = lazy(() => import('./pages/Incidents'));
+const SosReports = lazy(() => import('./pages/SosReports'));
 const Settings = lazy(() => import('./pages/Settings'));
 const PaymentGateways = lazy(() => import('./pages/PaymentGateways'));
 // Analytics pulls in Recharts — by far the heaviest page, and the one least
@@ -122,6 +123,7 @@ function App() {
           }
         >
           <Route index element={<Dashboard />} />
+          <Route path="alerts" element={<SosReports />} />
           <Route path="alerts/:id" element={<AlertDetails />} />
           <Route path="users" element={<RequirePermission permission="manage_users"><Users /></RequirePermission>} />
           <Route path="roles" element={<RequirePermission permission="manage_users"><Roles /></RequirePermission>} />

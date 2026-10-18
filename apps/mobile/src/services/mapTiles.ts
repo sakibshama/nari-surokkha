@@ -34,10 +34,28 @@ export function tileUrl(z: number, x: number, y: number): string {
 }
 
 /**
+ * Tiles through our own API (GET /api/v1/map/tiles/:z/:x/:y.png), which
+ * fetches them from a tile provider and caches them. Loading straight from
+ * tile.openstreetmap.org gets "403 Access blocked": OSM's volunteer servers
+ * do not serve app traffic.
+ */
+export function proxiedTileUrl(apiBaseUrl: string, z: number, x: number, y: number): string {
+  return `${apiBaseUrl.replace(/\/+$/, '')}/map/tiles/${z}/${x}/${y}.png`;
+}
+
+/**
  * A `radius`-tile grid ((2r+1)²; 3×3 by default) centred on (lat, lng) and
  * positioned so that point sits at the centre of a width × height viewport.
  */
-export function tileView(lat: number, lng: number, zoom: number, width: number, height: number, radius = 1): TileView {
+export function tileView(
+  lat: number,
+  lng: number,
+  zoom: number,
+  width: number,
+  height: number,
+  radius = 1,
+  urlFor: (z: number, x: number, y: number) => string = tileUrl,
+): TileView {
   const n = 2 ** zoom;
   const c = lonLatToTile(lat, lng, zoom);
   const cx = Math.floor(c.x);
@@ -54,7 +72,7 @@ export function tileView(lat: number, lng: number, zoom: number, width: number, 
       const x = (((cx + dx) % n) + n) % n; // wrap around the antimeridian
       tiles.push({
         key: `${zoom}/${x}/${y}`,
-        url: tileUrl(zoom, x, y),
+        url: urlFor(zoom, x, y),
         left: originLeft + dx * TILE_SIZE,
         top: originTop + dy * TILE_SIZE,
       });

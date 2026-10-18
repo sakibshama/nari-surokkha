@@ -130,15 +130,30 @@ test('TypeScript keyword front-end matches the Python reference used for trainin
     scores: [number, number][];
   }[];
   let maxDiff = 0;
+  let gatedDiff = 0;
+  let gatedHops = 0;
   for (const r of ref) {
-    const k = new KeywordSpotter(models.kwsMel, models.kwsEmbedding, models.kwsHead);
+    // The reference has no silence gate: compare with it disabled …
+    const k = new KeywordSpotter(models.kwsMel, models.kwsEmbedding, models.kwsHead, { gateDb: -Infinity });
     const audio = readWav16k(path.join(DIR!, r.file));
     const got = await k.push(audio);
     assert.equal(got.length, r.scores.length, `${r.file}: score count`);
     got.forEach((s, i) => {
       maxDiff = Math.max(maxDiff, Math.abs(s.help - r.scores[i][0]), Math.abs(s.bachao - r.scores[i][1]));
     });
+    // … and check that the gated spotter (what the app runs) gives the same
+    // scores wherever it ran, in real-time sized chunks.
+    const g = new KeywordSpotter(models.kwsMel, models.kwsEmbedding, models.kwsHead);
+    const gotGated = [];
+    for (let i = 0; i < audio.length; i += 2048) gotGated.push(...(await g.push(audio.subarray(i, i + 2048))));
+    assert.equal(gotGated.length, got.length, `${r.file}: gated score count`);
+    gotGated.forEach((s, i) => {
+      if (s.gated) gatedHops++;
+      else gatedDiff = Math.max(gatedDiff, Math.abs(s.help - got[i].help), Math.abs(s.bachao - got[i].bachao));
+    });
   }
   console.log(`max |TS − Python| keyword score difference: ${maxDiff.toExponential(2)}`);
+  console.log(`max |gated − ungated| difference: ${gatedDiff.toExponential(2)} (${gatedHops} silent hops skipped)`);
   assert.ok(maxDiff < 2e-3);
+  assert.ok(gatedDiff < 1e-5);
 });

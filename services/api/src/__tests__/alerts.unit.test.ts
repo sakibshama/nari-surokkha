@@ -308,7 +308,7 @@ describe('AlertsService', () => {
 
       expect(alertsRepo.updateIfSoftAlertPending).toHaveBeenCalledWith('alert-soft', expect.objectContaining({
         status: 'false_alarm',
-      }));
+      }), expect.objectContaining({ actorKind: 'user', actorId: 'user-123' }));
     });
 
     it('throws if not created status', async () => {
@@ -345,7 +345,7 @@ describe('AlertsService', () => {
 
       expect(alertsRepo.updateIfSoftAlertPending).toHaveBeenCalledWith('alert-soft', expect.objectContaining({
         status: 'confirmed',
-      }));
+      }), expect.objectContaining({ actorKind: 'user', actorId: 'user-123' }));
       // The audit log now lives in the queued fan-out, not on the request.
       expect(fastifyMock.queues.dispatch.add).toHaveBeenCalledWith(
         'fan_out_alert',
@@ -443,7 +443,8 @@ describe('AlertsService', () => {
       const r = await service.resolveOwnAlert('user-1', 'a1');
 
       expect(r.status).toBe('resolved');
-      expect(alertsRepo.updateAlert).toHaveBeenCalledWith('a1', expect.objectContaining({ status: 'resolved' }));
+      expect(alertsRepo.updateAlert).toHaveBeenCalledWith('a1', expect.objectContaining({ status: 'resolved' }),
+        expect.objectContaining({ fromStatus: 'confirmed', actorKind: 'user', actorId: 'user-1' }));
       expect(fastifyMock.io.to).toHaveBeenCalledWith(['alert:a1', 'admin:global']);
       expect(fastifyMock.io.emit).toHaveBeenCalledWith('alert_status_update', { alertId: 'a1', status: 'resolved' });
     });

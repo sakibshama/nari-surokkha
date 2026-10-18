@@ -9,6 +9,7 @@ import {
   Languages,
   Lock,
   LogOut,
+  MessageSquare,
   Mic,
   Palette,
   RotateCcw,
@@ -26,6 +27,7 @@ import { signOut } from '../../services/signOut';
 import { registerDeviceTokenWithServer, unregisterPush } from '../../services/pushNotifications';
 import { refreshLocationTracking } from '../../services/backgroundTasks';
 import { useSettingsStore } from '../../store/settingsStore';
+import { ensureSmsPermission, useSmsPermission } from '../../services/smsPermission';
 import { useTheme } from '../../theme';
 import { useT } from '../../i18n';
 import { spacing } from '../../theme/tokens';
@@ -36,6 +38,10 @@ import { MainStackParamList } from '../../navigation/MainStack';
 export default function SettingsScreen() {
   const { colors } = useTheme();
   const t = useT();
+  const smsState = useSmsPermission((st) => st.state);
+  React.useEffect(() => {
+    void useSmsPermission.getState().refresh();
+  }, []);
   const navigation = useNavigation<NativeStackNavigationProp<MainStackParamList>>();
   const {
     mlGyroEnabled,
@@ -205,6 +211,21 @@ export default function SettingsScreen() {
           icon={<Shield size={19} color={colors.accent} />}
           right={themedSwitch(backgroundLocationEnabled, toggleBackgroundLocation)}
         />
+        {smsState !== 'unsupported' && (
+          <>
+            <RowDivider />
+            <ListRow
+              title={t('Emergency SMS')}
+              subtitle={
+                smsState === 'granted'
+                  ? t('Allowed — offline SOS texts your contacts automatically')
+                  : t('Not allowed — tap to turn on')
+              }
+              icon={<MessageSquare size={19} color={smsState === 'granted' ? colors.accent : colors.danger} />}
+              onPress={smsState === 'granted' ? undefined : () => void ensureSmsPermission(true)}
+            />
+          </>
+        )}
       </Card>
 
       {/* ── On-device detection ────────────────────────────────────── */}

@@ -49,6 +49,7 @@ import { settingsRoutes } from '@/modules/settings/settings.routes';
 import { mlRoutes } from '@/modules/ml/ml.routes';
 import { subscriptionRoutes } from '@/modules/subscriptions/subscription.routes';
 import { paymentsAdminRoutes } from '@/modules/payments/payments.admin.routes';
+import { mapRoutes } from '@/modules/map/map-tiles';
 import settingsPlugin from '@/plugins/settings';
 import storagePlugin from '@/plugins/storage';
 import fastifyMultipart from '@fastify/multipart';
@@ -218,6 +219,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       void apiRouter.register(mlRoutes, { prefix: '/ml' });
       void apiRouter.register(subscriptionRoutes, { prefix: '/subscriptions' });
       void apiRouter.register(paymentsAdminRoutes, { prefix: '/payments' });
+      void apiRouter.register(mapRoutes, { prefix: '/map' });
 
       // Connection check used by the mobile Settings screen.
       apiRouter.get('/ping', {

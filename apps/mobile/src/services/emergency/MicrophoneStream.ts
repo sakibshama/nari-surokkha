@@ -35,6 +35,9 @@ class MicrophoneStream {
   private stoppedAt = 0;
   private listeners = new Set<ChunkListener>();
   private lastChunkAt = 0;
+  /** Bumped by stop(); a pending start() from an older epoch gives up. */
+  private epoch = 0;
+  private starting: { epoch: number; promise: Promise<void> } | null = null;
 
   get isRunning(): boolean {
     return this.running;
@@ -68,14 +71,41 @@ class MicrophoneStream {
     return () => this.listeners.delete(cb);
   }
 
-  /** Caller must have obtained RECORD_AUDIO permission first. */
-  async start(): Promise<void> {
-    if (this.running) return;
+  /**
+   * Caller must have obtained RECORD_AUDIO permission first.
+   *
+   * Safe to call concurrently with stop(): a stop() that lands while start()
+   * is still waiting for the restart guard cancels that start (previously the
+   * pending start went on to open the microphone after stop() had returned,
+   * leaving it recording with nobody listening).
+   */
+  start(): Promise<void> {
+    if (this.running) return Promise.resolve();
+    const pending = this.starting;
+    if (pending) {
+      // A start is already in flight. If a stop() has cancelled it since, start
+      // again once it has settled; otherwise share it.
+      if (pending.epoch === this.epoch) return pending.promise;
+      return pending.promise.then(
+        () => this.start(),
+        () => this.start(),
+      );
+    }
+    const epoch = this.epoch;
+    const promise = this.doStart(epoch).finally(() => {
+      if (this.starting?.promise === promise) this.starting = null;
+    });
+    this.starting = { epoch, promise };
+    return promise;
+  }
+
+  private async doStart(epoch: number): Promise<void> {
     const mod = this.load();
     if (!mod) throw new Error('Microphone streaming module is not in this build.');
 
     const sinceStop = Date.now() - this.stoppedAt;
     if (sinceStop < RESTART_GUARD_MS) await new Promise((r) => setTimeout(r, RESTART_GUARD_MS - sinceStop));
+    if (epoch !== this.epoch || this.running) return; // stopped (or started by someone else) meanwhile
 
     if (!this.initialised) {
       mod.init({
@@ -98,6 +128,7 @@ class MicrophoneStream {
         } catch {
           return;
         }
+        if (samples.length === 0) return;
         this.listeners.forEach((l) => {
           try {
             l(samples);
@@ -114,6 +145,7 @@ class MicrophoneStream {
   }
 
   stop(): void {
+    this.epoch++; // cancels a start() that is still waiting
     if (!this.running) return;
     this.running = false;
     this.stoppedAt = Date.now();

@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AppState, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { showAlert, toast } from '../../utils/notify';
 import Animated, { FadeInDown, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
@@ -94,6 +94,23 @@ export default function TrustedContactsScreen() {
     }, [load]),
   );
 
+  // The contact approves in their phone's browser (the SMS link), so the
+  // usual moment the status changes is while this app is in the background.
+  // Reload when the user comes back, and poll briefly while any contact is
+  // still pending, so "Verified" appears without leaving the screen.
+  // (No polling while offline / failing: every failed request shows a toast.)
+  const anyPending = !error && !fromCache && contacts.some((c) => !c.isVerified);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void load();
+    });
+    const timer = anyPending ? setInterval(() => void load(), 20000) : null;
+    return () => {
+      sub.remove();
+      if (timer) clearInterval(timer);
+    };
+  }, [load, anyPending]);
+
   const addContact = async () => {
     if (!name.trim() || !phone.trim()) {
       showAlert(t('Required'), t('Name and phone are required.'));
@@ -155,165 +172,163 @@ export default function TrustedContactsScreen() {
   const full = contacts.length >= MAX_CONTACTS;
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-      <Screen>
-        <AppBar
-          title={t('Trusted Contacts')}
-          subtitle={t('They get an SMS with your live location when you press SOS.')}
+    <Screen>
+      <AppBar
+        title={t('Trusted Contacts')}
+        subtitle={t('They get an SMS with your live location when you press SOS.')}
+      />
+
+      {/* Add form */}
+      <Card elevation="raised" delay={40}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md }}>
+          <View style={{ width: 36, height: 36, borderRadius: radius.md, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+            <UserPlus color={colors.accent} size={18} />
+          </View>
+          <Txt variant="h3" style={{ flex: 1 }}>{t('Add trusted contact')}</Txt>
+          <Badge
+            label={t('{n} of {max}', { n: contacts.length, max: MAX_CONTACTS })}
+            tone={full ? 'warning' : 'accent'}
+          />
+        </View>
+
+        <Field
+          placeholder={t('Full name *')}
+          value={name}
+          onChangeText={setName}
+          autoCapitalize="words"
+          icon={(c) => <User size={17} color={c} />}
         />
+        <Field
+          placeholder={t('Phone number *')}
+          keyboardType="phone-pad"
+          value={phone}
+          onChangeText={setPhone}
+          icon={(c) => <Phone size={17} color={c} />}
+        />
+        <Field
+          placeholder={t('Relation (e.g. Sister, Mother)')}
+          value={relation}
+          onChangeText={setRelation}
+          icon={(c) => <Heart size={17} color={c} />}
+        />
+        <Button
+          label={full ? t('Contact limit reached') : t('Add contact')}
+          onPress={addContact}
+          loading={adding}
+          disabled={full}
+          icon={<UserPlus color={colors.onAccent} size={18} />}
+        />
+      </Card>
 
-        {/* Add form */}
-        <Card elevation="raised" delay={40}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md }}>
-            <View style={{ width: 36, height: 36, borderRadius: radius.md, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
-              <UserPlus color={colors.accent} size={18} />
+      <SectionLabel>{t('Your trusted contacts')}</SectionLabel>
+
+      {error && (
+        <Card tone="danger" delay={60} style={{ marginBottom: spacing.sm, gap: spacing.sm }}>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+            <AlertCircle color={colors.dangerText} size={18} />
+            <View style={{ flex: 1 }}>
+              <Txt variant="smStrong" style={{ color: colors.dangerText }}>
+                {fromCache ? t('Showing your saved copy') : t('Could not load your contacts')}
+              </Txt>
+              <Txt variant="xs" tone="sub">{error}</Txt>
             </View>
-            <Txt variant="h3" style={{ flex: 1 }}>{t('Add trusted contact')}</Txt>
-            <Badge
-              label={t('{n} of {max}', { n: contacts.length, max: MAX_CONTACTS })}
-              tone={full ? 'warning' : 'accent'}
-            />
           </View>
-
-          <Field
-            placeholder={t('Full name *')}
-            value={name}
-            onChangeText={setName}
-            autoCapitalize="words"
-            icon={(c) => <User size={17} color={c} />}
-          />
-          <Field
-            placeholder={t('Phone number *')}
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={setPhone}
-            icon={(c) => <Phone size={17} color={c} />}
-          />
-          <Field
-            placeholder={t('Relation (e.g. Sister, Mother)')}
-            value={relation}
-            onChangeText={setRelation}
-            icon={(c) => <Heart size={17} color={c} />}
-          />
-          <Button
-            label={full ? t('Contact limit reached') : t('Add contact')}
-            onPress={addContact}
-            loading={adding}
-            disabled={full}
-            icon={<UserPlus color={colors.onAccent} size={18} />}
-          />
+          <Button label={t('Try again')} variant="subtle" onPress={load} icon={<RefreshCw size={16} color={colors.text} />} />
         </Card>
+      )}
 
-        <SectionLabel>{t('Your trusted contacts')}</SectionLabel>
-
-        {error && (
-          <Card tone="danger" delay={60} style={{ marginBottom: spacing.sm, gap: spacing.sm }}>
-            <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
-              <AlertCircle color={colors.dangerText} size={18} />
-              <View style={{ flex: 1 }}>
-                <Txt variant="smStrong" style={{ color: colors.dangerText }}>
-                  {fromCache ? t('Showing your saved copy') : t('Could not load your contacts')}
-                </Txt>
-                <Txt variant="xs" tone="sub">{error}</Txt>
-              </View>
-            </View>
-            <Button label={t('Try again')} variant="subtle" onPress={load} icon={<RefreshCw size={16} color={colors.text} />} />
-          </Card>
-        )}
-
-        {loading ? (
-          <View style={{ gap: spacing.sm }}>
-            {[0, 1].map((i) => (
-              <Shimmer key={i} width="100%" height={76} radius={radius.lg} />
-            ))}
-          </View>
-        ) : contacts.length === 0 ? (
-          <EmptyState
-            icon={<Users color={colors.textMuted} size={30} />}
-            title={t('No contacts yet')}
-            message={t("Add people who will be alerted in an emergency. They'll receive your live location via SMS.")}
-          />
-        ) : (
-          contacts.map((item, index) => {
-            const ac = getColor(item.name, colors);
-            return (
-              <Animated.View
-                key={item.id}
-                entering={FadeInDown.delay(index * 60).duration(360)}
-                exiting={FadeOutLeft.duration(250)}
-                layout={LinearTransition.springify().damping(18)}
-                style={[
-                  {
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: spacing.md,
-                    backgroundColor: colors.surface,
-                    borderRadius: radius.lg,
-                    padding: spacing.md,
-                    marginBottom: spacing.sm,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                  },
-                  shadows.soft,
-                ]}
+      {loading ? (
+        <View style={{ gap: spacing.sm }}>
+          {[0, 1].map((i) => (
+            <Shimmer key={i} width="100%" height={76} radius={radius.lg} />
+          ))}
+        </View>
+      ) : contacts.length === 0 ? (
+        <EmptyState
+          icon={<Users color={colors.textMuted} size={30} />}
+          title={t('No contacts yet')}
+          message={t("Add people who will be alerted in an emergency. They'll receive your live location via SMS.")}
+        />
+      ) : (
+        contacts.map((item, index) => {
+          const ac = getColor(item.name, colors);
+          return (
+            <Animated.View
+              key={item.id}
+              entering={FadeInDown.delay(index * 60).duration(360)}
+              exiting={FadeOutLeft.duration(250)}
+              layout={LinearTransition.springify().damping(18)}
+              style={[
+                {
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.md,
+                  backgroundColor: colors.surface,
+                  borderRadius: radius.lg,
+                  padding: spacing.md,
+                  marginBottom: spacing.sm,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                },
+                shadows.soft,
+              ]}
+            >
+              <View
+                style={{
+                  width: 50,
+                  height: 50,
+                  borderRadius: 25,
+                  borderWidth: 1.5,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: `${ac}20`,
+                  borderColor: `${ac}55`,
+                }}
               >
-                <View
-                  style={{
-                    width: 50,
-                    height: 50,
-                    borderRadius: 25,
-                    borderWidth: 1.5,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: `${ac}20`,
-                    borderColor: `${ac}55`,
-                  }}
-                >
-                  <Text style={{ fontSize: 17, fontWeight: '800', color: ac }}>{getInitials(item.name)}</Text>
+                <Text style={{ fontSize: 17, fontWeight: '800', color: ac }}>{getInitials(item.name)}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Txt variant="bodyStrong" numberOfLines={1}>{item.name}</Txt>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                  <Phone color={colors.textMuted} size={12} />
+                  <Text style={[type.sm, { color: colors.textMuted }]}>{item.phone}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Txt variant="bodyStrong" numberOfLines={1}>{item.name}</Txt>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                    <Phone color={colors.textMuted} size={12} />
-                    <Text style={[type.sm, { color: colors.textMuted }]}>{item.phone}</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                    {!!item.relation && (
-                      <Badge label={item.relation} tone="accent" icon={<Heart color={colors.accentText} size={10} />} />
-                    )}
-                    {item.isVerified ? (
-                      <Badge label={t('Verified')} tone="success" icon={<ShieldCheck color={colors.successText} size={10} />} />
-                    ) : (
-                      <>
-                        <Badge label={t('Pending consent')} tone="warning" />
-                        <PressableScale
-                          accessibilityRole="button"
-                          accessibilityLabel={t('Verify {name}', { name: item.name })}
-                          onPress={() => requestVerification(item)}
-                          disabled={verifying === item.id}
-                          hitSlop={6}
-                        >
-                          <Txt variant="xs" tone="accent" style={{ fontWeight: '700' }}>
-                            {verifying === item.id ? t('Sending…') : t('Verify')}
-                          </Txt>
-                        </PressableScale>
-                      </>
-                    )}
-                  </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                  {!!item.relation && (
+                    <Badge label={item.relation} tone="accent" icon={<Heart color={colors.accentText} size={10} />} />
+                  )}
+                  {item.isVerified ? (
+                    <Badge label={t('Verified')} tone="success" icon={<ShieldCheck color={colors.successText} size={10} />} />
+                  ) : (
+                    <>
+                      <Badge label={t('Pending consent')} tone="warning" />
+                      <PressableScale
+                        accessibilityRole="button"
+                        accessibilityLabel={t('Verify {name}', { name: item.name })}
+                        onPress={() => requestVerification(item)}
+                        disabled={verifying === item.id}
+                        hitSlop={6}
+                      >
+                        <Txt variant="xs" tone="accent" style={{ fontWeight: '700' }}>
+                          {verifying === item.id ? t('Sending…') : t('Verify')}
+                        </Txt>
+                      </PressableScale>
+                    </>
+                  )}
                 </View>
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel={t('Remove contact')}
-                  onPress={() => removeContact(item.id)}
-                  style={{ padding: spacing.sm + 2, backgroundColor: colors.dangerSoft, borderRadius: radius.md }}
-                >
-                  <UserMinus color={colors.dangerText} size={19} />
-                </PressableScale>
-              </Animated.View>
-            );
-          })
-        )}
-      </Screen>
-    </KeyboardAvoidingView>
+              </View>
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={t('Remove contact')}
+                onPress={() => removeContact(item.id)}
+                style={{ padding: spacing.sm + 2, backgroundColor: colors.dangerSoft, borderRadius: radius.md }}
+              >
+                <UserMinus color={colors.dangerText} size={19} />
+              </PressableScale>
+            </Animated.View>
+          );
+        })
+      )}
+    </Screen>
   );
 }

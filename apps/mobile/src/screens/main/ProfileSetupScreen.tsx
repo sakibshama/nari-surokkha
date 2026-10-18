@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, Switch, Text, View } from 'react-native';
+import { Modal, Pressable, Switch, Text, View } from 'react-native';
 import { showAlert } from '../../utils/notify';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -29,6 +29,7 @@ import {
   Card,
   FadeIn,
   Field,
+  KeyboardAwareScrollView,
   Screen,
   SectionLabel,
   Shimmer,
@@ -168,7 +169,7 @@ export default function ProfileSetupScreen() {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    <>
       <Screen>
         {/* Hero */}
         <FadeIn from="zoom" style={{ alignItems: 'center', paddingVertical: spacing.lg }}>
@@ -330,66 +331,77 @@ export default function ProfileSetupScreen() {
 
       {/* Apply sheet */}
       <Modal visible={showApplyModal} transparent animationType="fade" onRequestClose={() => setShowApplyModal(false)}>
-        <Pressable
-          style={{ flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' }}
-          onPress={() => setShowApplyModal(false)}
+        {/* A Modal is its own window: it needs its own keyboard handling so the
+            sheet rises above the keyboard and the focused field stays visible. */}
+        <KeyboardAwareScrollView
+          inModal
+          containerStyle={{ backgroundColor: colors.scrim }}
+          contentContainerStyle={{ flexGrow: 1 }}
+          bounces={false}
+          overScrollMode="never"
+          showsVerticalScrollIndicator={false}
         >
-          <Animated.View entering={SlideInDown.springify().damping(18)}>
-            <Pressable
-              onPress={() => {}}
-              style={{
-                backgroundColor: colors.surface,
-                borderTopLeftRadius: radius.xl,
-                borderTopRightRadius: radius.xl,
-                padding: spacing.lg,
-                paddingBottom: spacing.xxl,
-              }}
-            >
-              <View style={{ alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: spacing.md }} />
-              <Txt variant="h2">{t('Apply as responder')}</Txt>
-              <Txt variant="sm" tone="muted" style={{ marginTop: 4, marginBottom: spacing.lg }}>
-                {t('All fields are optional but help speed up verification.')}
-              </Txt>
+          <Pressable
+            style={{ flex: 1, justifyContent: 'flex-end' }}
+            onPress={() => setShowApplyModal(false)}
+          >
+            <Animated.View entering={SlideInDown.springify().damping(18)}>
+              <Pressable
+                onPress={() => {}}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderTopLeftRadius: radius.xl,
+                  borderTopRightRadius: radius.xl,
+                  padding: spacing.lg,
+                  paddingBottom: spacing.xxl,
+                }}
+              >
+                <View style={{ alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: spacing.md }} />
+                <Txt variant="h2">{t('Apply as responder')}</Txt>
+                <Txt variant="sm" tone="muted" style={{ marginTop: 4, marginBottom: spacing.lg }}>
+                  {t('All fields are optional but help speed up verification.')}
+                </Txt>
 
-              <Field
-                label={t('National ID (NID)')}
-                placeholder="1234567890123"
-                value={nationalId}
-                onChangeText={setNationalId}
-                keyboardType="numeric"
-                icon={(c) => <CreditCard size={18} color={c} />}
-              />
-              <Field
-                label={t('Occupation')}
-                placeholder={t('e.g. Doctor, Teacher')}
-                value={occupation}
-                onChangeText={setOccupation}
-                icon={(c) => <Briefcase size={18} color={c} />}
-              />
-              <Field
-                label={t('Organization (if any)')}
-                placeholder={t('e.g. Red Crescent')}
-                value={orgName}
-                onChangeText={setOrgName}
-                icon={(c) => <ShieldCheck size={18} color={c} />}
-              />
+                <Field
+                  label={t('National ID (NID)')}
+                  placeholder="1234567890123"
+                  value={nationalId}
+                  onChangeText={setNationalId}
+                  keyboardType="numeric"
+                  icon={(c) => <CreditCard size={18} color={c} />}
+                />
+                <Field
+                  label={t('Occupation')}
+                  placeholder={t('e.g. Doctor, Teacher')}
+                  value={occupation}
+                  onChangeText={setOccupation}
+                  icon={(c) => <Briefcase size={18} color={c} />}
+                />
+                <Field
+                  label={t('Organization (if any)')}
+                  placeholder={t('e.g. Red Crescent')}
+                  value={orgName}
+                  onChangeText={setOrgName}
+                  icon={(c) => <ShieldCheck size={18} color={c} />}
+                />
 
-              <Button
-                label={t('Submit application')}
-                onPress={handleApply}
-                loading={applying}
-                icon={<ShieldCheck color={colors.onAccent} size={18} />}
-              />
-              <Button
-                label={t('Cancel')}
-                variant="ghost"
-                onPress={() => setShowApplyModal(false)}
-                style={{ marginTop: spacing.sm }}
-              />
-            </Pressable>
-          </Animated.View>
-        </Pressable>
+                <Button
+                  label={t('Submit application')}
+                  onPress={handleApply}
+                  loading={applying}
+                  icon={<ShieldCheck color={colors.onAccent} size={18} />}
+                />
+                <Button
+                  label={t('Cancel')}
+                  variant="ghost"
+                  onPress={() => setShowApplyModal(false)}
+                  style={{ marginTop: spacing.sm }}
+                />
+              </Pressable>
+            </Animated.View>
+          </Pressable>
+        </KeyboardAwareScrollView>
       </Modal>
-    </KeyboardAvoidingView>
+    </>
   );
 }

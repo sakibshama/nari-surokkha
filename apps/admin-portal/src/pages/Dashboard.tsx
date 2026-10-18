@@ -10,6 +10,7 @@ import api from '../services/api';
 import { socketService, useSocketStatus } from '../services/socket';
 import { useT, tr } from '../i18n';
 import AppLogo from '../components/AppLogo';
+import { ACTIVE_ALERT_STATUSES } from '../utils/alertStatus';
 
 interface HealthData {
   totalUsers: number;
@@ -85,12 +86,14 @@ export default function Dashboard() {
     try {
       const [healthRes, alertsRes] = await Promise.all([
         api.get('/admin/health'),
-        api.get('/admin/alerts', { params: { limit: 20, _t: Date.now() }, headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } }),
+        // This widget is for alerts that still need help, so ask the API for
+        // active ones (the newest 20 of ALL alerts could hide an older active
+        // one). The full history, cancelled included, is on /alerts.
+        api.get('/admin/alerts', { params: { limit: 100, status: ACTIVE_ALERT_STATUSES.join(','), _t: Date.now() }, headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } }),
       ]);
       setHealth(healthRes.data.data);
       // Contract 7: active = created, confirmed, notified_contacts, in_progress.
-      const activeStatuses = ['created', 'confirmed', 'notified_contacts', 'in_progress'];
-      const active = (alertsRes.data.data || []).filter((a: Alert) => activeStatuses.includes(a.status));
+      const active = (alertsRes.data.data || []).filter((a: Alert) => ACTIVE_ALERT_STATUSES.includes(a.status));
       // Sort by urgency: newest first
       active.sort((a: Alert, b: Alert) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setActiveAlertsList(active);
@@ -263,6 +266,10 @@ export default function Dashboard() {
             </div>
           </div>
 
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/alerts')}>
+              {t('All SOS reports')} <ArrowRight size={12} />
+            </button>
           {activeAlertsList.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(239,68,68,0.08)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)' }}>
@@ -273,6 +280,7 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+          </div>
         </div>
 
         {/* Alert Content */}

@@ -3,7 +3,7 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminRepository } from './admin.repository';
 import { requireRoles, requirePermissions } from '@/middleware/rbac';
-import type { CreateUserInput, UpdateUserInput } from './admin.service';
+import type { CreateUserInput, UpdateUserInput, ListAlertsQuery } from './admin.service';
 import type { AdminSettableStatus } from '@/modules/alerts/alert-status';
 
 type IdParams = { id: string };
@@ -16,6 +16,8 @@ import {
   adminUpdateUserStatusSchema,
   adminVerifyResponderSchema,
   adminAlertStatusSchema,
+  adminListAlertsSchema,
+  adminAlertDetailSchema,
   adminHealthSchema,
 } from './admin.schemas';
 
@@ -25,7 +27,7 @@ export function adminRoutes(
   done: () => void,
 ) {
   // Reporting-shaped reads go to the replica when one is configured.
-  const repository = new AdminRepository(fastify.prisma, fastify.prismaRead);
+  const repository = new AdminRepository(fastify.prisma, fastify.prismaRead, fastify.log);
   const service = new AdminService(repository, fastify);
   const controller = new AdminController(service);
 
@@ -53,8 +55,9 @@ export function adminRoutes(
   fastify.get('/health', { schema: adminHealthSchema }, controller.getHealth);
 
   // Alerts
-  fastify.get('/alerts', controller.listAlerts as any);
-  fastify.get('/alerts/:id', controller.getAlertById as any);
+  // SOS reports: every alert, whatever its status, with its status history.
+  fastify.get<{ Querystring: ListAlertsQuery }>('/alerts', { schema: adminListAlertsSchema }, controller.listAlerts);
+  fastify.get<{ Params: IdParams }>('/alerts/:id', { schema: adminAlertDetailSchema }, controller.getAlertById);
   fastify.patch<{ Params: IdParams; Body: { status: AdminSettableStatus; note?: string } }>(
     '/alerts/:id/status',
     { schema: adminAlertStatusSchema },

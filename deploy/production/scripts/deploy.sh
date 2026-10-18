@@ -82,7 +82,7 @@ ok "TLS certificate present (automatic renewal configured)"
 mkdir -p "${APP_DIR}/data/certbot-www" "${APP_DIR}/backups"
 chmod 700 "${APP_DIR}/backups"
 UPLOADS_DIR="$(env_get UPLOADS_DIR)"
-[[ "$(env_get STORAGE_PROVIDER)" == "local" && -n "${UPLOADS_DIR}" ]] && mkdir -p "${UPLOADS_DIR}"
+mkdir -p "${UPLOADS_DIR:-${APP_DIR}/data/uploads}"
 
 # ─── 3. Images ─────────────────────────────────────────────────
 if [[ "${PULL}" == 1 ]]; then
@@ -93,12 +93,12 @@ else
   "${COMPOSE[@]}" build api admin-portal
 fi
 
-if [[ "$(env_get STORAGE_PROVIDER)" == "local" ]]; then
-  # The app runs as uid 1000 inside the container; make the evidence directory
-  # writable for it (done through Docker, so no sudo is needed).
-  "${COMPOSE[@]}" run --rm --no-deps --user root --entrypoint chown api -R 1000:1000 /app/uploads
-  ok "Evidence directory writable by the app"
-fi
+# The app runs as uid 1000 inside the container; make the evidence directory
+# writable for it (done through Docker, so no sudo is needed). Always done:
+# without S3 credentials the app falls back to this directory whatever
+# STORAGE_PROVIDER says, and refuses to start if it cannot write there.
+"${COMPOSE[@]}" run --rm --no-deps --user root --entrypoint chown api -R 1000:1000 /app/uploads
+ok "Evidence directory writable by the app"
 
 # ─── 4. Database ───────────────────────────────────────────────
 step "Starting the database, Redis and PgBouncer"

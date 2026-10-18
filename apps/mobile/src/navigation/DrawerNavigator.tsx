@@ -27,6 +27,7 @@ import {
   CreditCard,
   Ear,
   History,
+  Info,
 } from 'lucide-react-native';
 
 import MainStack from './MainStack';
@@ -72,6 +73,7 @@ const RECORDS: Item[] = [
   { key: 'sms', label: 'SOS SMS History', icon: MessageSquare, screen: 'SmsHistory' },
   { key: 'alerts', label: 'Alert History', icon: History, screen: 'AlertHistory' },
   { key: 'evidence', label: 'Evidence Library', icon: Archive, screen: 'EvidenceLibrary' },
+  { key: 'about', label: 'About', icon: Info, screen: 'About' },
 ];
 
 function activeScreen(props: DrawerContentComponentProps): string {

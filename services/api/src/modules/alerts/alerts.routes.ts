@@ -31,7 +31,7 @@ export function alertsRoutes(
   _opts: unknown,
   done: (err?: Error) => void,
 ): void {
-  const repo = new AlertsRepository(fastify.prisma);
+  const repo = new AlertsRepository(fastify.prisma, fastify.log);
   const contactsRepo = new ContactsRepository(fastify.prisma);
   const responderRepo = new ResponderRepository(fastify.prisma);
   const service = new AlertsService(repo, contactsRepo, responderRepo, fastify);

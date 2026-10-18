@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AdminService } from './admin.service';
 
-import type { CreateUserInput, UpdateUserInput, AdminActor } from './admin.service';
+import type { CreateUserInput, UpdateUserInput, AdminActor, ListAlertsQuery } from './admin.service';
 import type { AdminSettableStatus } from '@/modules/alerts/alert-status';
 
 function actorOf(req: FastifyRequest): AdminActor {
@@ -86,13 +86,10 @@ export class AdminController {
     return reply.send({ success: true, data });
   };
 
-  listAlerts = async (
-    req: FastifyRequest<{ Querystring: { status?: string; limit?: string | number } }>,
-    reply: FastifyReply,
-  ) => {
-    const limit = req.query.limit ? Number(req.query.limit) : 50;
-    const data = await this.service.listAlerts(req.query.status, limit);
-    return reply.send({ success: true, data });
+  listAlerts = async (req: FastifyRequest<{ Querystring: ListAlertsQuery }>, reply: FastifyReply) => {
+    // `data` stays an array (existing portal callers); paging info alongside.
+    const { data, total, limit, offset } = await this.service.listAlerts(req.query);
+    return reply.send({ success: true, data, total, limit, offset });
   };
 
   getAlertById = async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {

@@ -25,6 +25,7 @@ import ChangePasswordScreen from '../screens/main/ChangePasswordScreen';
 import SubscriptionScreen from '../screens/main/SubscriptionScreen';
 import EmergencyDetectionScreen from '../screens/main/EmergencyDetectionScreen';
 import AlertHistoryScreen from '../screens/main/AlertHistoryScreen';
+import AboutScreen from '../screens/main/AboutScreen';
 import { ChevronLeft, Menu } from 'lucide-react-native';
 import { Theme, useTheme, useThemedStyles } from '../theme';
 import { radius, spacing, type } from '../theme/tokens';
@@ -51,6 +52,7 @@ export type MainStackParamList = {
   Subscription: { trx?: string } | undefined;
   EmergencyDetection: undefined;
   AlertHistory: undefined;
+  About: undefined;
 };
 
 // ─── Header ──────────────────────────────────────────────────────────────────
@@ -252,6 +254,11 @@ export default function MainStack() {
         name="AlertHistory"
         component={AlertHistoryScreen}
         options={{ title: 'Alert History' }}
+      />
+      <Stack.Screen
+        name="About"
+        component={AboutScreen}
+        options={{ title: 'About' }}
       />
     </Stack.Navigator>
   );

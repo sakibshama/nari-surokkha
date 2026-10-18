@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text } from 'react-native';
 import { showAlert } from '../../utils/notify';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainStack';
@@ -13,7 +13,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Location from 'expo-location';
 import { useTheme } from '../../theme';
 import { useLanguage, useT, type TFunction } from '../../i18n';
-import { AppBar, Breathing, Button, Card, EmptyState, FadeIn, Screen, Txt } from '../../components/ui';
+import { AppBar, Breathing, Button, Card, EmptyState, FadeIn, KeyboardAwareTextInput, Screen, Txt } from '../../components/ui';
 import { radius, spacing, type } from '../../theme/tokens';
 import type { Palette } from '../../theme/tokens';
 import api from '../../services/api';
@@ -187,178 +187,176 @@ export default function SafeRouteScreen(_props: Props) {
   );
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Screen>
-        <AppBar title={t('Safe Route')} subtitle={t('Routed around reported-incident hotspots')} />
+    <Screen>
+      <AppBar title={t('Safe Route')} subtitle={t('Routed around reported-incident hotspots')} />
 
-        {/* Search */}
-        <Card elevation="raised" delay={40}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.sm,
-              backgroundColor: colors.inputBg,
-              borderRadius: radius.md,
-              borderWidth: 1.5,
-              borderColor: focused ? colors.accent : colors.border,
-              paddingHorizontal: spacing.md,
-              minHeight: 52,
-            }}
+      {/* Search */}
+      <Card elevation="raised" delay={40}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.sm,
+            backgroundColor: colors.inputBg,
+            borderRadius: radius.md,
+            borderWidth: 1.5,
+            borderColor: focused ? colors.accent : colors.border,
+            paddingHorizontal: spacing.md,
+            minHeight: 52,
+          }}
+        >
+          <Search color={focused ? colors.accent : colors.textMuted} size={18} />
+          <KeyboardAwareTextInput
+            style={{ flex: 1, color: colors.text, fontSize: 15, paddingVertical: 10 }}
+            value={query}
+            onChangeText={setQuery}
+            placeholder={t('Destination — place name or lat, lng')}
+            placeholderTextColor={colors.textMuted}
+            returnKeyType="search"
+            onSubmitEditing={requestRoute}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+          />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, marginBottom: spacing.md }}>
+          <Crosshair color={colors.accentText} size={13} />
+          <Txt variant="xs" tone="muted">{t('Starting from your current location')}</Txt>
+        </View>
+        <Button
+          label={t('Find safe route')}
+          onPress={requestRoute}
+          loading={loading}
+          icon={<MapPin color={colors.onAccent} size={18} />}
+        />
+      </Card>
+
+      {routeData && si && (
+        <Animated.View entering={FadeInDown.duration(400)} style={{ marginTop: spacing.lg, gap: spacing.md }}>
+          {/* Safety score */}
+          <LinearGradient
+            colors={si.grad}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: radius.xl, padding: spacing.lg }, shadows.card]}
           >
-            <Search color={focused ? colors.accent : colors.textMuted} size={18} />
-            <TextInput
-              style={{ flex: 1, color: colors.text, fontSize: 15, paddingVertical: 10 }}
-              value={query}
-              onChangeText={setQuery}
-              placeholder={t('Destination — place name or lat, lng')}
-              placeholderTextColor={colors.textMuted}
-              returnKeyType="search"
-              onSubmitEditing={requestRoute}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-            />
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, marginBottom: spacing.md }}>
-            <Crosshair color={colors.accentText} size={13} />
-            <Txt variant="xs" tone="muted">{t('Starting from your current location')}</Txt>
-          </View>
-          <Button
-            label={t('Find safe route')}
-            onPress={requestRoute}
-            loading={loading}
-            icon={<MapPin color={colors.onAccent} size={18} />}
-          />
-        </Card>
-
-        {routeData && si && (
-          <Animated.View entering={FadeInDown.duration(400)} style={{ marginTop: spacing.lg, gap: spacing.md }}>
-            {/* Safety score */}
-            <LinearGradient
-              colors={si.grad}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: radius.xl, padding: spacing.lg }, shadows.card]}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-                <Text style={{ fontSize: 60, fontWeight: '900', color: '#fff', lineHeight: 64 }}>{num(routeData.safetyScore)}</Text>
-                <Text style={[type.h3, { color: 'rgba(255,255,255,0.75)', marginBottom: 8 }]}>/{num(100)}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
-                  <si.Icon color="#fff" size={28} />
-                </View>
-                <Text style={[type.h3, { color: '#fff', fontWeight: '800' }]}>{t(si.label)}</Text>
-                <Text style={[type.xs, { color: 'rgba(255,255,255,0.85)' }]}>
-                  {t(routeData.incidentsNearby === 1 ? '{n} incident near route' : '{n} incidents near route', { n: routeData.incidentsNearby })}
-                </Text>
-              </View>
-            </LinearGradient>
-
-            {/* Route map */}
-            <Card padded={false} style={{ padding: spacing.sm }}>
-              <Svg width="100%" height={MAP_H} viewBox={`0 0 ${MAP_W} ${MAP_H}`}>
-                <Rect x={0} y={0} width={MAP_W} height={MAP_H} rx={16} fill={colors.surfaceAlt} />
-                <G opacity={0.6}>
-                  {[1, 2, 3].map((i) => (
-                    <Line key={`h${i}`} x1={0} y1={(MAP_H / 4) * i} x2={MAP_W} y2={(MAP_H / 4) * i} stroke={colors.border} strokeWidth={1} />
-                  ))}
-                  {[1, 2, 3].map((i) => (
-                    <Line key={`v${i}`} x1={(MAP_W / 4) * i} y1={0} x2={(MAP_W / 4) * i} y2={MAP_H} stroke={colors.border} strokeWidth={1} />
-                  ))}
-                </G>
-                {proj && (() => {
-                  const p = proj.project;
-                  const wp = routeData.waypoints;
-                  const segs = [];
-                  for (let i = 0; i < wp.length - 1; i++) {
-                    const a = p(wp[i].lat, wp[i].lng);
-                    const b = p(wp[i + 1].lat, wp[i + 1].lng);
-                    const rk = Math.max(wp[i].risk, wp[i + 1].risk);
-                    segs.push(<Line key={`s${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={riskColor(rk, colors)} strokeWidth={5} strokeLinecap="round" />);
-                  }
-                  const o = p(routeData.origin.lat, routeData.origin.lng);
-                  const d = p(routeData.destination.lat, routeData.destination.lng);
-                  return (
-                    <>
-                      {routeData.incidents.map((inc, i) => {
-                        const c = p(inc.lat, inc.lng);
-                        return (
-                          <G key={`i${i}`}>
-                            <Circle cx={c.x} cy={c.y} r={12} fill={HOT} opacity={0.16} />
-                            <Circle cx={c.x} cy={c.y} r={4} fill={HOT} opacity={0.9} />
-                          </G>
-                        );
-                      })}
-                      {segs}
-                      <Circle cx={o.x} cy={o.y} r={9} fill={START} opacity={0.25} />
-                      <Circle cx={o.x} cy={o.y} r={5} fill={START} />
-                      <Circle cx={d.x} cy={d.y} r={9} fill={END} opacity={0.25} />
-                      <Circle cx={d.x} cy={d.y} r={5} fill={END} />
-                    </>
-                  );
-                })()}
-              </Svg>
-              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: spacing.lg, paddingVertical: spacing.sm }}>
-                {[
-                  [START, t('Start')],
-                  [END, t('Destination')],
-                  [HOT, t('Incident')],
-                ].map(([c, l]) => (
-                  <View key={l} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c }} />
-                    <Txt variant="xs" tone="sub">{l}</Txt>
-                  </View>
-                ))}
-              </View>
-              {routeData.routingEngine === 'fallback' && (
-                <Txt variant="xs" tone="warning" center style={{ paddingHorizontal: spacing.sm, paddingBottom: spacing.sm }}>
-                  {t('Live routing unavailable — showing a direct line, still scored against real incidents.')}
-                </Txt>
-              )}
-            </Card>
-
-            {/* Stats */}
-            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              {stat(RouteIcon, colors.accentText, fmtDistance(routeData.distanceMeters, t), t('Distance'), 80)}
-              {stat(Clock, colors.accentText, fmtEta(routeData.durationSeconds, t), t('Walk time'), 140)}
-              {stat(AlertTriangle, si.color, num(routeData.incidentsNearby), t('Near route'), 200)}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+              <Text style={{ fontSize: 60, fontWeight: '900', color: '#fff', lineHeight: 64 }}>{num(routeData.safetyScore)}</Text>
+              <Text style={[type.h3, { color: 'rgba(255,255,255,0.75)', marginBottom: 8 }]}>/{num(100)}</Text>
             </View>
+            <View style={{ alignItems: 'flex-end', gap: 4 }}>
+              <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+                <si.Icon color="#fff" size={28} />
+              </View>
+              <Text style={[type.h3, { color: '#fff', fontWeight: '800' }]}>{t(si.label)}</Text>
+              <Text style={[type.xs, { color: 'rgba(255,255,255,0.85)' }]}>
+                {t(routeData.incidentsNearby === 1 ? '{n} incident near route' : '{n} incidents near route', { n: routeData.incidentsNearby })}
+              </Text>
+            </View>
+          </LinearGradient>
 
-            {/* Actions */}
-            {tracking ? (
-              <Breathing min={0.99} max={1.01} duration={900}>
-                <Button
-                  label={t('Stop tracking')}
-                  variant="danger"
-                  onPress={stopTracking}
-                  icon={<Square color={colors.onDanger} size={16} />}
-                />
-              </Breathing>
-            ) : (
-              <Button
-                label={t('Start journey · share live location')}
-                onPress={startTracking}
-                icon={<Navigation color={colors.onAccent} size={18} />}
-              />
-            )}
-            <Card tone="info" style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
-              <Flag color={colors.infoText} size={14} />
-              <Txt variant="xs" tone="sub" style={{ flex: 1 }}>
-                {t("While tracking, your trusted contacts can follow you and you'll be alerted if you stray far off the route.")}
+          {/* Route map */}
+          <Card padded={false} style={{ padding: spacing.sm }}>
+            <Svg width="100%" height={MAP_H} viewBox={`0 0 ${MAP_W} ${MAP_H}`}>
+              <Rect x={0} y={0} width={MAP_W} height={MAP_H} rx={16} fill={colors.surfaceAlt} />
+              <G opacity={0.6}>
+                {[1, 2, 3].map((i) => (
+                  <Line key={`h${i}`} x1={0} y1={(MAP_H / 4) * i} x2={MAP_W} y2={(MAP_H / 4) * i} stroke={colors.border} strokeWidth={1} />
+                ))}
+                {[1, 2, 3].map((i) => (
+                  <Line key={`v${i}`} x1={(MAP_W / 4) * i} y1={0} x2={(MAP_W / 4) * i} y2={MAP_H} stroke={colors.border} strokeWidth={1} />
+                ))}
+              </G>
+              {proj && (() => {
+                const p = proj.project;
+                const wp = routeData.waypoints;
+                const segs = [];
+                for (let i = 0; i < wp.length - 1; i++) {
+                  const a = p(wp[i].lat, wp[i].lng);
+                  const b = p(wp[i + 1].lat, wp[i + 1].lng);
+                  const rk = Math.max(wp[i].risk, wp[i + 1].risk);
+                  segs.push(<Line key={`s${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={riskColor(rk, colors)} strokeWidth={5} strokeLinecap="round" />);
+                }
+                const o = p(routeData.origin.lat, routeData.origin.lng);
+                const d = p(routeData.destination.lat, routeData.destination.lng);
+                return (
+                  <>
+                    {routeData.incidents.map((inc, i) => {
+                      const c = p(inc.lat, inc.lng);
+                      return (
+                        <G key={`i${i}`}>
+                          <Circle cx={c.x} cy={c.y} r={12} fill={HOT} opacity={0.16} />
+                          <Circle cx={c.x} cy={c.y} r={4} fill={HOT} opacity={0.9} />
+                        </G>
+                      );
+                    })}
+                    {segs}
+                    <Circle cx={o.x} cy={o.y} r={9} fill={START} opacity={0.25} />
+                    <Circle cx={o.x} cy={o.y} r={5} fill={START} />
+                    <Circle cx={d.x} cy={d.y} r={9} fill={END} opacity={0.25} />
+                    <Circle cx={d.x} cy={d.y} r={5} fill={END} />
+                  </>
+                );
+              })()}
+            </Svg>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: spacing.lg, paddingVertical: spacing.sm }}>
+              {[
+                [START, t('Start')],
+                [END, t('Destination')],
+                [HOT, t('Incident')],
+              ].map(([c, l]) => (
+                <View key={l} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: c }} />
+                  <Txt variant="xs" tone="sub">{l}</Txt>
+                </View>
+              ))}
+            </View>
+            {routeData.routingEngine === 'fallback' && (
+              <Txt variant="xs" tone="warning" center style={{ paddingHorizontal: spacing.sm, paddingBottom: spacing.sm }}>
+                {t('Live routing unavailable — showing a direct line, still scored against real incidents.')}
               </Txt>
-            </Card>
-          </Animated.View>
-        )}
+            )}
+          </Card>
 
-        {!routeData && !loading && (
-          <EmptyState
-            icon={<ShieldCheck color={colors.accentText} size={30} />}
-            title={t('Where are you heading?')}
-            message={t("We'll draw the walking route and colour it by how many verified incidents were reported nearby in the last 90 days.")}
-          />
-        )}
-      </Screen>
-    </KeyboardAvoidingView>
+          {/* Stats */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {stat(RouteIcon, colors.accentText, fmtDistance(routeData.distanceMeters, t), t('Distance'), 80)}
+            {stat(Clock, colors.accentText, fmtEta(routeData.durationSeconds, t), t('Walk time'), 140)}
+            {stat(AlertTriangle, si.color, num(routeData.incidentsNearby), t('Near route'), 200)}
+          </View>
+
+          {/* Actions */}
+          {tracking ? (
+            <Breathing min={0.99} max={1.01} duration={900}>
+              <Button
+                label={t('Stop tracking')}
+                variant="danger"
+                onPress={stopTracking}
+                icon={<Square color={colors.onDanger} size={16} />}
+              />
+            </Breathing>
+          ) : (
+            <Button
+              label={t('Start journey · share live location')}
+              onPress={startTracking}
+              icon={<Navigation color={colors.onAccent} size={18} />}
+            />
+          )}
+          <Card tone="info" style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+            <Flag color={colors.infoText} size={14} />
+            <Txt variant="xs" tone="sub" style={{ flex: 1 }}>
+              {t("While tracking, your trusted contacts can follow you and you'll be alerted if you stray far off the route.")}
+            </Txt>
+          </Card>
+        </Animated.View>
+      )}
+
+      {!routeData && !loading && (
+        <EmptyState
+          icon={<ShieldCheck color={colors.accentText} size={30} />}
+          title={t('Where are you heading?')}
+          message={t("We'll draw the walking route and colour it by how many verified incidents were reported nearby in the last 90 days.")}
+        />
+      )}
+    </Screen>
   );
 }

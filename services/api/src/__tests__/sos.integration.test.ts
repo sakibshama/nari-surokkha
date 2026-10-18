@@ -39,6 +39,8 @@ describe('E2E: SOS emergency flow', () => {
     // Best-effort cleanup so a shared local DB doesn't accumulate rows.
     try {
       if (userId) {
+        // Test fixtures only: status history is RESTRICT-protected, clear it first.
+        await app.prisma.alertStatusEvent.deleteMany({ where: { alert: { userId } } }).catch(() => undefined);
         await app.prisma.emergencyAlert.deleteMany({ where: { userId } });
         await app.prisma.trustedContact.deleteMany({ where: { userId } });
         await app.prisma.userSession.deleteMany({ where: { userId } }).catch(() => undefined);

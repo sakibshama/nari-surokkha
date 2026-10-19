@@ -11,6 +11,8 @@ export interface PendingOfflineSos {
   /** When the offline SOS was sent (epoch ms). */
   at: number;
   coords: { latitude: number; longitude: number } | null;
+  /** The SOS press's idempotency id, so the online SOS is not created twice. */
+  clientSosId?: string;
   /** Set once the online SOS was attempted, so it is created at most once. */
   escalated?: boolean;
 }

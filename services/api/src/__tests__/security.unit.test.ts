@@ -81,7 +81,7 @@ describe('alert access (evidence IDOR, responder room joins)', () => {
     };
     await canAccessAlert(prisma as never, 'a1', { id: 'r-user', role: 'responder' });
     const where = prisma.emergencyAlert.findUnique.mock.calls[0][0].select.responderDispatches.where;
-    expect(where).toEqual({ acceptedAt: { not: null }, responder: { userId: 'r-user' } });
+    expect(where).toEqual({ status: { in: ['accepted', 'arrived', 'completed'] }, responder: { userId: 'r-user' } });
   });
 
   it('a non-citizen role can no longer stream someone else\'s evidence', async () => {

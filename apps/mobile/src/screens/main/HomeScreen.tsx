@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { showAlert, toast } from '../../utils/notify';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { DrawerActions } from '@react-navigation/native';
+import { DrawerActions, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import NetInfo from '@react-native-community/netinfo';
@@ -31,7 +31,7 @@ import {
   Menu,
   Navigation,
   Phone,
-  PhoneCall,
+  Newspaper,
   UserRound,
   ShieldAlert,
   Timer,
@@ -50,7 +50,6 @@ import { motionModelLoader } from '../../services/ml/ModelLoader';
 import { sendOfflineSosSms, getCachedContactPhones } from '../../services/offlineSos';
 import { logSms } from '../../services/smsHistory';
 import { sendSosSmsFromDevice } from '../../services/deviceSms';
-import { buildSosText } from '../../services/sosText';
 import { ensureSmsPermission, useSmsPermission } from '../../services/smsPermission';
 import { useTheme } from '../../theme';
 import { useT } from '../../i18n';
@@ -77,11 +76,10 @@ type Action = {
  * for while something is happening, then the everyday ones.
  *
  * Each carries its own colour so the grid reads as nine distinct tools rather
- * than nine identical cards. Only "Call 999" uses the emergency red, and only
- * because it is one.
+ * than nine identical cards.
  */
 const ACTIONS: Action[] = [
-  { id: 'call999', label: 'Call 999', icon: PhoneCall, tint: 'danger' },
+  { id: 'news', label: 'News Feed', icon: Newspaper, tint: 'gov' },
   { id: 'route', label: 'Safe Route', icon: Navigation, tint: 'info' },
   { id: 'fakecall', label: 'Fake Call', icon: Phone, tint: 'warning' },
   { id: 'silent', label: 'Silent Alert', icon: Timer, tint: 'gov' },
@@ -93,8 +91,38 @@ const ACTIONS: Action[] = [
 ];
 
 const SOS_SIZE = 212;
-/** How long the SOS waits for a fresh GPS fix before using the last known one. */
-const GPS_TIMEOUT_MS = 8000;
+/** A warm or last-known fix younger than this is used as-is. */
+const FRESH_FIX_MS = 60_000;
+/** With no recent fix, how long the SOS waits for a new one. */
+const GPS_TIMEOUT_MS = 4000;
+/** The SOS request: past this, a dead connection falls back to SMS. */
+const SOS_REQUEST_TIMEOUT_MS = 10_000;
+
+type Fix = { latitude: number; longitude: number; accuracy: number | null };
+
+function toFix(loc: Location.LocationObject | null): Fix | null {
+  return loc ? { latitude: loc.coords.latitude, longitude: loc.coords.longitude, accuracy: loc.coords.accuracy ?? null } : null;
+}
+
+/**
+ * The best position available within a few seconds: a recent warm fix, a
+ * recent last-known one, a quick new fix, or any last-known position.
+ */
+async function quickFix(warm: Location.LocationObject | null): Promise<Fix | null> {
+  const now = Date.now();
+  if (warm && now - warm.timestamp < FRESH_FIX_MS) return toFix(warm);
+  const last = await withTimeout(Location.getLastKnownPositionAsync({ maxAge: FRESH_FIX_MS }), 1000);
+  if (last) return toFix(last);
+  const fresh = await withTimeout(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }), GPS_TIMEOUT_MS);
+  if (fresh) return toFix(fresh);
+  return toFix(warm ?? (await withTimeout(Location.getLastKnownPositionAsync(), 1000)));
+}
+
+/** Random id for one SOS press (idempotency key; not a secret). */
+function newClientSosId(): string {
+  const hex = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
+  return `${Date.now().toString(16)}-${hex()}${hex()}-${hex()}${hex()}`;
+}
 /**
  * A permission dialog that never answers (another request already holding the
  * system dialog, an activity recreated underneath it) must not freeze the SOS
@@ -119,6 +147,31 @@ export default function HomeScreen({ navigation }: Props) {
   const mlGyroEnabled = useSettingsStore((st) => st.mlGyroEnabled);
   const [loading, setLoading] = useState(false);
   const smsState = useSmsPermission((st) => st.state);
+
+  // Keep a warm GPS fix while Home is on screen, so pressing SOS never waits
+  // for the GPS to start. Balanced accuracy, only on movement: cheap.
+  const warmFix = useRef<Location.LocationObject | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      let sub: Location.LocationSubscription | null = null;
+      let cancelled = false;
+      void (async () => {
+        const perm = await Location.getForegroundPermissionsAsync().catch(() => null);
+        if (cancelled || perm?.status !== 'granted') return;
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 25 },
+          (loc) => {
+            warmFix.current = loc;
+          },
+        ).catch(() => null);
+        if (cancelled) sub?.remove();
+      })();
+      return () => {
+        cancelled = true;
+        sub?.remove();
+      };
+    }, []),
+  );
 
   // The SOS button drives its own press animation through a plain Pressable.
   // Everything else uses PressableScale; this is the one control that must
@@ -187,7 +240,7 @@ export default function HomeScreen({ navigation }: Props) {
     }
     else if (id === 'evidence') navigation.navigate('EvidenceLibrary');
     else if (id === 'profile') navigation.navigate('ProfileSetup');
-    else if (id === 'call999') callEmergency();
+    else if (id === 'news') navigation.navigate('NewsFeed');
   };
 
   const handleSos = async () => {
@@ -214,45 +267,36 @@ export default function HomeScreen({ navigation }: Props) {
     setLoading(true);
     const userName = user?.profile?.fullName?.trim() || '';
     let locationDenied = false;
+    // One id per SOS press: lets the server recognise a retry (or the
+    // automatic online SOS after an offline SMS) instead of creating a second
+    // alert and texting everyone again.
+    const clientSosId = newClientSosId();
     try {
-      // A real GPS fix every time — an SOS must never go out with a fallback
-      // location, or responders are sent to the wrong place.
-      // No location permission must never stop an SOS: without it the alert
-      // still goes out by SMS (without coordinates), and the user is told how
-      // to turn location on afterwards.
-      const perm = await Location.getForegroundPermissionsAsync().catch(() => null);
+      // Speed matters more than a perfect first fix: the alert goes out with
+      // the best position available NOW (the warm fix kept while this screen
+      // is open, or Android's last known one), and live tracking refines it
+      // within seconds. Location permission and connectivity are checked in
+      // parallel. No permission never stops an SOS: it goes out by SMS
+      // without coordinates and the user is told how to fix it.
+      const [perm, netInfo] = await Promise.all([
+        Location.getForegroundPermissionsAsync().catch(() => null),
+        Platform.OS === 'web' ? Promise.resolve(null) : withTimeout(NetInfo.fetch(), 1500),
+      ]);
       const status =
         perm?.status === 'granted'
           ? 'granted'
           : (await withTimeout(Location.requestForegroundPermissionsAsync(), PERMISSION_TIMEOUT_MS))?.status ??
             'denied';
-      step('location permission', status);
       locationDenied = status !== 'granted';
-
-      // A fresh fix, but never wait forever for one: after GPS_TIMEOUT_MS use
-      // the last known position. With no position at all the SOS still goes
-      // out — by SMS, without coordinates — instead of doing nothing.
-      const fix = locationDenied
-        ? null
-        : await Promise.race([
-            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null),
-            new Promise<null>((r) => setTimeout(() => r(null), GPS_TIMEOUT_MS)),
-          ]);
-      const loc =
-        fix ?? (locationDenied ? null : await withTimeout(Location.getLastKnownPositionAsync(), 3000));
-      step(fix ? 'fresh fix' : loc ? 'last known position' : 'no position');
-      const coords = loc ? { latitude: loc.coords.latitude, longitude: loc.coords.longitude } : null;
+      const coords = locationDenied ? null : await quickFix(warmFix.current);
+      step('location', { status, coords: !!coords });
 
       // ─── Offline path (or no position: the API needs one) ───
-      let offline = false;
-      if (Platform.OS !== 'web') {
-        const netInfo = await withTimeout(NetInfo.fetch(), 3000);
-        step('connectivity', netInfo?.isConnected);
-        offline = netInfo?.isConnected === false;
-      }
+      const offline = netInfo?.isConnected === false || netInfo?.isInternetReachable === false;
+      step('connectivity', { offline });
       if (offline || !coords) {
         if (!coords) toast(t('No GPS signal'), t('Sending your SOS by SMS without a location.'), 'info');
-        await triggerOfflineSms(coords ?? undefined, userName);
+        await triggerOfflineSms(coords ?? undefined, userName, clientSosId);
         navigation.navigate('OfflineSos');
         if (locationDenied) promptLocationSettings();
         return;
@@ -260,10 +304,12 @@ export default function HomeScreen({ navigation }: Props) {
 
       // ─── Online path ─────────────────────────────────────────
       step('posting /alerts/sos');
-      const res = await api.post('/alerts/sos', {
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-      });
+      const res = await api.post(
+        '/alerts/sos',
+        { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy ?? undefined, clientSosId },
+        // A dead connection must fall back to SMS fast, not after 20 s.
+        { timeout: SOS_REQUEST_TIMEOUT_MS },
+      );
       const alertData = res.data?.data;
       step('server responded', alertData?.id);
 
@@ -288,15 +334,13 @@ export default function HomeScreen({ navigation }: Props) {
         const outcome = await sendSosSmsFromDevice({
           alertId: alertData.id,
           contactPhones: alertData.contactPhones,
-          message:
-            alertData.deviceSmsMessage ||
-            buildSosText(t, userName, coords),
+          message: alertData.deviceSmsMessage || '',
+          userName,
+          coords,
         });
         step('device sms', outcome);
         if (outcome === 'sim') {
           toast(t('SOS sent'), t('SMS limit reached — your contacts were texted from your SIM.'), 'success');
-        } else if (outcome === 'composer') {
-          toast(t('SOS sent'), t('Tap Send in Messages to text your contacts.'), 'info');
         } else if (outcome === 'server') {
           toast(t('SOS sent'), t('Your contacts and nearby responders are being alerted.'), 'success');
         } else {
@@ -342,14 +386,9 @@ export default function HomeScreen({ navigation }: Props) {
       // No response at all → the server is unreachable (offline, wrong API
       // URL, or CORS on web). Fall back to SMS, and say so.
       if (!err?.response) {
-        let coords: { latitude: number; longitude: number } | undefined;
-        try {
-          const last = await Location.getLastKnownPositionAsync();
-          if (last) coords = { latitude: last.coords.latitude, longitude: last.coords.longitude };
-        } catch {
-          /* ignore */
-        }
-        await triggerOfflineSms(coords, userName);
+        const fix = warmFix.current ?? (await withTimeout(Location.getLastKnownPositionAsync(), 1500));
+        const coords = fix ? { latitude: fix.coords.latitude, longitude: fix.coords.longitude } : undefined;
+        await triggerOfflineSms(coords, userName, clientSosId);
         navigation.navigate('OfflineSos');
         return;
       }
@@ -377,30 +416,22 @@ export default function HomeScreen({ navigation }: Props) {
     );
   };
 
-  /** Offline SOS: auto-send SMS via the SIM (Android) or open the composer. */
+  /** Offline SOS: one silent SMS per contact from the SIM (never the Messages composer). */
   const triggerOfflineSms = async (
     coords: { latitude: number; longitude: number } | undefined,
     userName: string,
+    clientSosId: string,
   ) => {
-    const result = await sendOfflineSosSms({ coords, userName });
+    const result = await sendOfflineSosSms({ coords, userName, clientSosId });
     if (__DEV__) console.log('[SOS] offline sms', result);
-    if (result.opened && result.auto) {
-      showAlert(t('Emergency SMS sent'), t('You are offline — your SOS text went to your trusted contacts over SMS.'), [
+    if (result.opened) {
+      toast(t('Emergency SMS sent'), t('You are offline — your SOS text went to your trusted contacts over SMS.'), 'success');
+    } else {
+      showAlert(t('Offline SOS'), result.reason || t('The SMS could not be sent from this phone.'), [
         { text: t('OK'), style: 'cancel' },
         { text: t('View history'), onPress: () => navigation.navigate('SmsHistory') },
       ]);
-    } else if (result.opened) {
-      showAlert(t('Review & send'), t('Your Messages app opened with the SOS text ready — tap Send to dispatch it.'));
-    } else {
-      showAlert(
-        t('Offline SOS'),
-        `${result.reason || t('Could not open Messages.')} ${t('Please call 999 directly.')}`,
-      );
     }
-  };
-
-  const callEmergency = () => {
-    Linking.openURL('tel:999').catch(() => showAlert(t('Call failed'), t('Please dial 999 manually.')));
   };
 
   const displayName = user?.profile?.fullName?.trim() || t('there');

@@ -55,3 +55,18 @@ test('the old long SOS text needed several parts — the reason it was dropped',
     'SOS EMERGENCY! Nusrat Jahan is in danger and offline. Location: https://maps.google.com/?q=23.8103123,90.4125456 (lat 23.81031, lng 90.41255). Please send help / call 999.';
   assert.ok(smsSegments(old).segments > 1);
 });
+
+test('SIM SOS text is always a single plain SMS part', async () => {
+  const { simSosText, firstLink } = await import('../src/services/sosText');
+  const one = (s: string) => {
+    const seg = smsSegments(s);
+    assert.equal(seg.encoding, 'GSM-7', s);
+    assert.equal(seg.segments, 1, s);
+  };
+  one(simSosText('রহিমা খাতুন', DHAKA));
+  one(simSosText('Rahima Khatun', DHAKA, 'https://api.mystrix-soft.com/t/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG'));
+  one(simSosText('A very very long name that goes on and on and on and on and on', DHAKA, 'https://x.example/' + 'z'.repeat(120)));
+  one(simSosText(undefined, null));
+  assert.match(simSosText('Rahima', DHAKA), /^SOS! Rahima needs help\. Location: https:\/\/maps\.google\.com/);
+  assert.equal(firstLink('নাম SOS. Live: https://api.x.com/t/abc. Map: https://maps.google.com/?q=1,2'), 'https://api.x.com/t/abc');
+});

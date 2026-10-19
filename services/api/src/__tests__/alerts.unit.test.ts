@@ -120,6 +120,34 @@ describe('AlertsService', () => {
       expect(r.deviceSmsMessage).toMatch(/^Rina needs help\. Live: \S+\/t\/\S{12} Map: https:\/\/maps\.google\.com\/\?q=23\.7,90\.4$/);
     });
 
+    it('contacts already texted from the SIM (offline SOS gone online) → no second SMS', async () => {
+      fastifyMock.prisma.subscription = { findUnique: vi.fn().mockResolvedValue({ status: 'active', smsRemaining: 5 }) };
+      const r = await service.triggerManualSos('user-9', { latitude: 23.7, longitude: 90.4, contactsTexted: true });
+      expect(fastifyMock.queues.notifications.add).toHaveBeenCalledWith(
+        'notify_trusted_contacts', expect.objectContaining({ mode: 'push_only' }), { jobId: 'fanout-alert-9' });
+      expect(r.smsViaDevice).toBe(false);
+    });
+
+    it('same clientSosId twice → one alert, contacts notified once', async () => {
+      fastifyMock.prisma.subscription = { findUnique: vi.fn().mockResolvedValue({ status: 'active', smsRemaining: 5 }) };
+      const store = new Map<string, string>();
+      fastifyMock.redis.set = vi.fn(async (k: string, v: string, ...rest: unknown[]) => {
+        if (rest.includes('NX') && store.has(k)) return null;
+        store.set(k, v);
+        return 'OK';
+      });
+      fastifyMock.redis.get = vi.fn(async (k: string) => store.get(k) ?? null);
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue(alert);
+
+      const first = await service.triggerManualSos('user-9', { latitude: 23.7, longitude: 90.4, clientSosId: 'press-1234' });
+      const second = await service.triggerManualSos('user-9', { latitude: 23.7, longitude: 90.4, clientSosId: 'press-1234' });
+
+      expect(alertsRepo.createAlert).toHaveBeenCalledTimes(1);
+      expect(fastifyMock.queues.notifications.add).toHaveBeenCalledTimes(1);
+      expect(second.id).toBe(first.id);
+      expect(second.smsViaDevice).toBe(false);
+    });
+
     it('unreadable subscription fails open (server sends)', async () => {
       fastifyMock.prisma.subscription = { findUnique: vi.fn().mockRejectedValue(new Error('db')) };
       const r = await service.triggerManualSos('user-9', { latitude: 23.7, longitude: 90.4 });
@@ -458,6 +486,47 @@ describe('AlertsService', () => {
     });
   });
 
+  describe('ending an SOS closes its responder dispatches', () => {
+    const open = [
+      { id: 'd1', responderId: 'r1', status: 'pending', responder: { userId: 'u1' } },
+      { id: 'd2', responderId: 'r2', status: 'accepted', responder: { userId: 'u2' } },
+    ];
+    beforeEach(() => {
+      fastifyMock.prisma.responderDispatch.findMany.mockResolvedValue(open);
+      fastifyMock.prisma.responderDispatch.updateMany = vi.fn().mockResolvedValue({ count: 2 });
+      fastifyMock.prisma.responder = { updateMany: vi.fn().mockResolvedValue({ count: 1 }) };
+    });
+
+    it.each([
+      ['cancelSosAlert', 'false_alarm'],
+      ['resolveOwnAlert', 'resolved'],
+    ] as const)('%s → dispatches closed, responders told, alert room hears it', async (method, status) => {
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ id: 'a1', userId: 'user-1', status: 'in_progress' });
+      alertsRepo.updateAlert = vi.fn().mockResolvedValue({ id: 'a1', status });
+
+      await (service as any)[method]('user-1', 'a1');
+
+      expect(fastifyMock.prisma.responderDispatch.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['d1', 'd2'] }, status: { in: ['pending', 'accepted', 'arrived'] } },
+        data: { status: 'closed', closedAt: expect.any(Date) },
+      });
+      expect(fastifyMock.prisma.responder.updateMany).toHaveBeenCalledTimes(1); // only the accepted one was busy
+      expect(fastifyMock.io.to).toHaveBeenCalledWith('user:u1');
+      expect(fastifyMock.io.to).toHaveBeenCalledWith('user:u2');
+      expect(fastifyMock.io.emit).toHaveBeenCalledWith('responder:dispatch_closed',
+        expect.objectContaining({ alertId: 'a1', status: 'closed', alertStatus: status }));
+      expect(fastifyMock.io.to).toHaveBeenCalledWith(['alert:a1', 'admin:global']);
+      expect(fastifyMock.io.emit).toHaveBeenCalledWith('alert_status_update', { alertId: 'a1', status });
+    });
+
+    it('a failing close never fails the cancel', async () => {
+      alertsRepo.getAlertById = vi.fn().mockResolvedValue({ id: 'a1', userId: 'user-1', status: 'confirmed' });
+      alertsRepo.updateAlert = vi.fn().mockResolvedValue({ id: 'a1', status: 'false_alarm' });
+      fastifyMock.prisma.responderDispatch.findMany.mockRejectedValue(new Error('db down'));
+      await expect(service.cancelSosAlert('user-1', 'a1')).resolves.toBeUndefined();
+    });
+  });
+
   describe('clampClientTimestamp', () => {
     const now = Date.parse('2026-10-12T12:00:00.000Z');
     it('accepts ISO strings and epoch milliseconds', () => {
@@ -513,9 +582,9 @@ describe('AlertsService', () => {
       expect(fastifyMock.prisma.responderDispatch.createMany).toHaveBeenCalledTimes(1);
       expect(fastifyMock.prisma.responderDispatch.createMany).toHaveBeenCalledWith({
         data: [
-          { responderId: 'r1', alertId: 'alert-1' },
-          { responderId: 'r2', alertId: 'alert-1' },
-          { responderId: 'r3', alertId: 'alert-1' },
+          { responderId: 'r1', alertId: 'alert-1', distanceMeters: 100 },
+          { responderId: 'r2', alertId: 'alert-1', distanceMeters: 250 },
+          { responderId: 'r3', alertId: 'alert-1', distanceMeters: 900 },
         ],
         skipDuplicates: true,
       });
@@ -556,6 +625,61 @@ describe('AlertsService', () => {
         'responder:dispatch_received',
         expect.objectContaining({ latitude: 23.79, longitude: 90.41 }),
       );
+    });
+
+    it('never dispatches the SOS owner, even if they are a nearby verified responder', async () => {
+      responderRepo.findNearbyResponders.mockResolvedValue([
+        // The SQL excludes the owner; a stale/buggy result is filtered again.
+        { id: 'r-own', userId: 'user-1', distanceMeters: 0 },
+        { id: 'r2', userId: 'u2', distanceMeters: 250 },
+      ]);
+      fastifyMock.prisma.responderDispatch.findMany.mockResolvedValue([{ id: 'd2', responderId: 'r2' }]);
+      fastifyMock.prisma.deviceToken.findMany.mockResolvedValue([{ token: 'ExponentPushToken[x]' }]);
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ status: 'ok' }] }) });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await service.fanOutAlert(payload);
+      vi.unstubAllGlobals();
+
+      // Owner passed to the query so SQL excludes them.
+      expect(responderRepo.findNearbyResponders).toHaveBeenCalledWith(23.7, 90.4, expect.any(Number), expect.any(Number), 'user-1');
+      // No dispatch row for the owner.
+      const rows = fastifyMock.prisma.responderDispatch.createMany.mock.calls[0][0].data;
+      expect(rows.map((r: any) => r.responderId)).toEqual(['r2']);
+      // No socket event to the owner's user room.
+      expect(fastifyMock.io.to).not.toHaveBeenCalledWith('user:user-1');
+      expect(fastifyMock.io.to).toHaveBeenCalledWith('user:u2');
+      expect(fastifyMock.io.emit).toHaveBeenCalledWith('responder:dispatch_received',
+        expect.objectContaining({ dispatchId: 'd2', alertId: 'alert-1', alertUserId: 'user-1' }));
+      // No push to the owner's devices.
+      expect(fastifyMock.prisma.deviceToken.findMany).toHaveBeenCalledWith({
+        where: { userId: { in: ['u2'] }, isActive: true },
+        select: { token: true },
+      });
+    });
+
+    it('does not page anyone when the only nearby responder is the owner', async () => {
+      responderRepo.findNearbyResponders.mockResolvedValue([{ id: 'r-own', userId: 'user-1', distanceMeters: 0 }]);
+      await service.fanOutAlert(payload);
+      expect(fastifyMock.prisma.responderDispatch.createMany).not.toHaveBeenCalled();
+      expect(fastifyMock.io.emit).not.toHaveBeenCalledWith('responder:dispatch_received', expect.anything());
+    });
+
+    it('stores the distance with each dispatch', async () => {
+      responderRepo.findNearbyResponders.mockResolvedValue([{ id: 'r1', userId: 'u1', distanceMeters: 123.6 }]);
+      await service.fanOutAlert(payload);
+      expect(fastifyMock.prisma.responderDispatch.createMany).toHaveBeenCalledWith({
+        data: [{ responderId: 'r1', alertId: 'alert-1', distanceMeters: 124 }],
+        skipDuplicates: true,
+      });
+    });
+
+    it('pages nobody when the SOS ended before the queued fan-out ran', async () => {
+      fastifyMock.prisma.emergencyAlert.findUnique.mockResolvedValue({ status: 'false_alarm' });
+      responderRepo.findNearbyResponders.mockResolvedValue([{ id: 'r1', userId: 'u1', distanceMeters: 100 }]);
+      await service.fanOutAlert(payload);
+      expect(responderRepo.findNearbyResponders).not.toHaveBeenCalled();
+      expect(fastifyMock.prisma.responderDispatch.createMany).not.toHaveBeenCalled();
     });
 
     it('does nothing further when no responders are nearby', async () => {

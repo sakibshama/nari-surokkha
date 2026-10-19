@@ -10,7 +10,13 @@ export class AlertsController {
 
   createSosAlert = async (
     req: FastifyRequest<{
-      Body: { latitude: number; longitude: number; accuracy?: number };
+      Body: {
+        latitude: number;
+        longitude: number;
+        accuracy?: number;
+        clientSosId?: string;
+        contactsTexted?: boolean;
+      };
     }>,
     reply: FastifyReply,
   ) => {

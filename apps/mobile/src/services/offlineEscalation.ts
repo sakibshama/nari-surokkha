@@ -37,11 +37,14 @@ async function write(p: PendingOfflineSos | null): Promise<void> {
 }
 
 /** Remember an offline SOS. A newer one replaces an older, un-escalated one. */
-export async function recordOfflineSos(coords: { latitude: number; longitude: number } | null): Promise<void> {
+export async function recordOfflineSos(
+  coords: { latitude: number; longitude: number } | null,
+  clientSosId?: string,
+): Promise<void> {
   const existing = await read();
   // A resend without a fix keeps the location of the earlier one.
   const keep = existing && !existing.escalated ? existing.coords : null;
-  await write({ at: Date.now(), coords: coords ?? keep });
+  await write({ at: Date.now(), coords: coords ?? keep, clientSosId: clientSosId ?? existing?.clientSosId });
 }
 
 export const clearOfflineSos = (): Promise<void> => write(null);
@@ -79,7 +82,14 @@ async function check(online: boolean): Promise<void> {
     // Mark first: the online SOS is created at most once.
     await write({ ...pending, escalated: true });
     try {
-      const res = await api.post('/alerts/sos', { latitude: coords.latitude, longitude: coords.longitude });
+      // contactsTexted: the contacts already got the SOS by SMS from the SIM —
+      // the server must not text them a second time (push and responders only).
+      const res = await api.post('/alerts/sos', {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        clientSosId: pending.clientSosId,
+        contactsTexted: true,
+      });
       const id: string | undefined = res.data?.data?.id;
       if (!id) throw new Error('No alert id');
       useLocationStore.getState().setSosActive(true, id);

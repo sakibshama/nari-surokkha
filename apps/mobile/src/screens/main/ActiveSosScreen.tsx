@@ -9,6 +9,7 @@ import { Phone, XCircle, Camera, Wifi, Users, MapPin, Shield, ShieldAlert, Video
 import api, { fetchIceServers } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { endSos } from '../../services/sosSession';
+import { formatDistance, type AlertResponder } from '../../services/responderDispatch';
 import { usePreventRemove } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Theme, useTheme, useThemedStyles } from '../../theme';
@@ -199,6 +200,38 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
     };
   }, [alertId]);
 
+  // Community responders who accepted this SOS ("help is coming").
+  const [responders, setResponders] = useState<AlertResponder[]>([]);
+  useEffect(() => {
+    let alive = true;
+    let seq = 0;
+    const load = async () => {
+      const mine = ++seq;
+      try {
+        const res = await api.get(`/alerts/${alertId}/responders`, { timeout: 10000 });
+        if (alive && mine === seq && Array.isArray(res.data?.data)) setResponders(res.data.data);
+      } catch {
+        /* offline / older server: keep what we have, never an error on this screen */
+      }
+    };
+    void load();
+    const onUpdate = (msg: { alertId?: string } | null) => {
+      if (msg?.alertId === alertId) void load();
+    };
+    socketService.on('responder:dispatch_update', onUpdate);
+    socketService.on('responder_accepted', onUpdate);
+    // Catch up on anything missed while the realtime link was down.
+    const unsubConn = socketService.onConnectionChange((up) => {
+      if (up) void load();
+    });
+    return () => {
+      alive = false;
+      socketService.off('responder:dispatch_update', onUpdate);
+      socketService.off('responder_accepted', onUpdate);
+      unsubConn();
+    };
+  }, [alertId]);
+
   // While this SOS is live, Back / swipe / header-back asks first.
   usePreventRemove(sosLive, ({ data }) => {
     if (ending.current) {
@@ -376,6 +409,47 @@ export default function ActiveSosScreen({ navigation, route }: Props) {
           )}
         </FadeIn>
 
+        {/* Responders who accepted */}
+        {responders.length > 0 && (
+          <FadeIn delay={120} style={styles.statusCard}>
+            <Text style={styles.respondersTitle}>
+              {t('{n} responder(s) coming to help', { n: responders.length })}
+            </Text>
+            {responders.map((r, i) => {
+              const distance = formatDistance(r.distanceMeters);
+              const label =
+                r.status === 'arrived'
+                  ? t('On scene')
+                  : r.status === 'completed'
+                    ? t('Completed')
+                    : distance
+                      ? t('On the way · {d}', { d: distance })
+                      : t('On the way');
+              return (
+                <View key={r.dispatchId} style={[styles.statusRow, i < responders.length - 1 && styles.statusRowBorder]}>
+                  <View style={[styles.statusIconBox, { backgroundColor: `${colors.success}22` }]}>
+                    <Shield color={colors.success} size={16} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.statusLabel}>{r.name || t('Community responder')}</Text>
+                    <Text style={styles.responderSub}>{label}</Text>
+                  </View>
+                  {r.phone ? (
+                    <PressableScale
+                      accessibilityRole="button"
+                      accessibilityLabel={t('Call')}
+                      onPress={() => void Linking.openURL(`tel:${r.phone}`).catch(() => {})}
+                      style={styles.responderCall}
+                    >
+                      <Phone color={colors.onFill} size={16} />
+                    </PressableScale>
+                  ) : null}
+                </View>
+              );
+            })}
+          </FadeIn>
+        )}
+
         {/* Call 999 */}
         <FadeIn delay={380} style={{ width: '100%' }}>
           <PressableScale onPress={() => Linking.openURL('tel:999')} style={styles.callWrapper} accessibilityRole="button">
@@ -458,6 +532,16 @@ const makeStyles = ({ colors, shadows }: Theme) =>
     statusIconBox: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
     statusLabel: { ...type.sm, color: colors.text, flex: 1 },
     liveDot: { width: 8, height: 8, borderRadius: 4 },
+    respondersTitle: { ...type.smStrong, color: colors.onFill, marginBottom: spacing.xs },
+    responderSub: { ...type.xs, color: colors.textSub, marginTop: 2 },
+    responderCall: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(255,255,255,0.12)',
+    },
     callWrapper: { width: '100%', borderRadius: radius.xl, marginBottom: spacing.md, ...shadows.card },
     callBtn: {
       flexDirection: 'row',

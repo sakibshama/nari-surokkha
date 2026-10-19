@@ -11,10 +11,10 @@
  * patches/react-native-direct-sms+1.2.9.patch: it splits the text and
  * resolves only when every part was accepted by the network. A build without
  * the patched module counts as "not supported", so callers fall back to the
- * composer instead of believing a text went out.
+ * server instead of believing a text went out.
  *
- * • iOS: not possible (Apple forbids programmatic SMS) → composer.
- * • Expo Go: the native module isn't present → composer.
+ * • iOS: not possible (Apple forbids programmatic SMS) → server SMS.
+ * • Expo Go: the native module isn't present → server SMS.
  *
  * NOTE: Sending SMS with the user's SIM may incur their normal carrier charge.
  */
@@ -80,9 +80,33 @@ export interface DirectSmsResult {
 /**
  * Text every recipient silently from the SIM and wait for the real result.
  * Recipients that fail (or every recipient, when silent SMS is unavailable)
- * come back in `failed` so the caller can use the composer for them.
+ * come back in `failed` so the caller can have the server text them.
  */
-export async function trySendDirectSms(recipients: string[], message: string): Promise<DirectSmsResult> {
+/**
+ * One SOS = one text per contact. The same message to the same people within
+ * DEDUPE_MS (the SOS button and sound detection firing together, a retried
+ * request falling back to SMS twice…) reuses the first send instead of
+ * texting everyone again.
+ */
+const DEDUPE_MS = 3 * 60 * 1000;
+const recent = new Map<string, { at: number; result: Promise<DirectSmsResult> }>();
+
+export function trySendDirectSms(recipients: string[], message: string): Promise<DirectSmsResult> {
+  const key = `${prepareRecipients(recipients).sort().join(',')}|${message}`;
+  const now = Date.now();
+  for (const [k, v] of recent) if (now - v.at > DEDUPE_MS) recent.delete(k);
+  const hit = recent.get(key);
+  if (hit) return hit.result;
+  const result = sendOnce(recipients, message);
+  recent.set(key, { at: now, result });
+  // A failed attempt must not block a retry (e.g. after SMS is allowed).
+  void result.then((r) => {
+    if (r.sent.length === 0) recent.delete(key);
+  });
+  return result;
+}
+
+async function sendOnce(recipients: string[], message: string): Promise<DirectSmsResult> {
   const send = native?.sendDirectSmsMultipart;
   const targets = prepareRecipients(recipients);
   if (!isDirectSmsSupported() || !send || targets.length === 0) {
@@ -90,7 +114,7 @@ export async function trySendDirectSms(recipients: string[], message: string): P
   }
 
   // No SIM / no mobile network on this phone: say so at once, so the caller
-  // falls back to the server (or the composer) instead of waiting for every
+  // falls back to the server instead of waiting for every
   // message to time out.
   const capability = await native?.getSmsCapability?.().catch(() => null);
   if (capability && (!capability.telephony || !capability.simReady)) {

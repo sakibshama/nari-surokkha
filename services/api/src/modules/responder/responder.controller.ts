@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { ResponderStatus } from '@prisma/client';
 import { ResponderService, AvailabilityInput } from './responder.service';
+import type { DispatchAction } from './dispatch-lifecycle';
 
 export interface ApplyResponderDTO {
   nationalId: string;
@@ -15,9 +16,17 @@ export interface UpdateResponderLocationDTO {
 }
 
 export interface RespondDispatchDTO {
-  action: 'accept' | 'reject';
+  action: DispatchAction;
   rejectReason?: string;
 }
+
+const ACTION_MESSAGE: Record<DispatchAction, string> = {
+  accept: 'Dispatch accepted',
+  reject: 'Dispatch declined',
+  arrive: 'Marked as arrived',
+  complete: 'Dispatch completed',
+  withdraw: 'Acceptance withdrawn',
+};
 
 export class ResponderController {
   constructor(private readonly service: ResponderService) {}
@@ -76,8 +85,13 @@ export class ResponderController {
     reply: FastifyReply,
   ) => {
     const user = req.user!;
-    await this.service.respondToDispatch(user.id, req.params.dispatchId, req.body.action, req.body.rejectReason);
-    return reply.send({ message: `Dispatch ${req.body.action}ed successfully` });
+    const dispatch = await this.service.respondToDispatch(
+      user.id,
+      req.params.dispatchId,
+      req.body.action,
+      req.body.rejectReason,
+    );
+    return reply.send({ message: ACTION_MESSAGE[req.body.action], data: dispatch });
   };
 
   getMyDispatches = async (req: FastifyRequest, reply: FastifyReply) => {

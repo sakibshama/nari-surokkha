@@ -90,10 +90,54 @@ export const respondDispatchBodySchema = {
   type: 'object',
   required: ['action'],
   properties: {
-    action: { type: 'string', enum: ['accept', 'reject'] },
-    rejectReason: { type: 'string' },
+    action: { type: 'string', enum: ['accept', 'reject', 'arrive', 'complete', 'withdraw'] },
+    rejectReason: { type: 'string', maxLength: 255 },
   },
   additionalProperties: false,
+};
+
+/** One dispatch as the responder app renders it (see toDispatchView). */
+export const dispatchViewSchema = {
+  type: 'object',
+  additionalProperties: true,
+  required: ['id', 'alertId', 'status', 'alert'],
+  properties: {
+    id: { type: 'string' },
+    alertId: { type: 'string' },
+    status: { type: 'string', enum: ['pending', 'accepted', 'arrived', 'completed', 'declined', 'withdrawn', 'closed'] },
+    dispatchedAt: { type: 'string', format: 'date-time' },
+    acceptedAt: { type: ['string', 'null'], format: 'date-time' },
+    arrivedAt: { type: ['string', 'null'], format: 'date-time' },
+    completedAt: { type: ['string', 'null'], format: 'date-time' },
+    rejectedAt: { type: ['string', 'null'], format: 'date-time' },
+    withdrawnAt: { type: ['string', 'null'], format: 'date-time' },
+    closedAt: { type: ['string', 'null'], format: 'date-time' },
+    distanceMeters: { type: ['integer', 'null'] },
+    alert: {
+      type: 'object',
+      additionalProperties: true,
+      properties: {
+        id: { type: 'string' },
+        userId: { type: 'string' },
+        status: { type: 'string' },
+        precise: { type: 'boolean' },
+        latitude: { type: 'number' },
+        longitude: { type: 'number' },
+        victimName: { type: ['string', 'null'] },
+        victimPhone: { type: ['string', 'null'] },
+        bloodGroup: { type: ['string', 'null'] },
+      },
+    },
+  },
+};
+
+export const respondDispatchResponseSchema = {
+  type: 'object',
+  required: ['message', 'data'],
+  properties: {
+    message: { type: 'string' },
+    data: dispatchViewSchema,
+  },
 };
 
 export const getDispatchesResponseSchema = {
@@ -102,7 +146,7 @@ export const getDispatchesResponseSchema = {
   properties: {
     data: {
       type: 'array',
-      items: { type: 'object', additionalProperties: true },
+      items: dispatchViewSchema,
     },
   },
 };

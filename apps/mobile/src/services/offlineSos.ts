@@ -2,24 +2,19 @@
  * Offline SOS SMS fallback.
  *
  * When the phone has no internet connection, or the online SOS call fails,
- * or the server reports that SMS dispatch failed, we fall back to the
- * device's built-in Messages app. On Android/iOS `expo-sms` opens the
- * native composer prefilled with the emergency text, a Google Maps link,
- * and the trusted contacts as recipients — the user just taps Send, which
- * goes over the cellular network with no data required.
+ * the emergency text goes to the trusted contacts silently from the SIM
+ * (Android, with the SMS permission) — one plain SMS part each, no composer.
  *
  * Trusted contacts are read from the AsyncStorage cache that
  * TrustedContactsScreen keeps up to date (`@trusted_contacts`).
  */
 
-import { AppState } from 'react-native';
-import * as SMS from 'expo-sms';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { trySendDirectSms } from './directSms';
 import { logSms } from './smsHistory';
 import { tStatic } from '../i18n';
-import { buildSosText } from './sosText';
+import { buildSosText, simSosText } from './sosText';
 import { recordOfflineSos } from './offlineEscalation';
 
 const CONTACTS_CACHE_KEY = '@trusted_contacts';
@@ -44,6 +39,8 @@ export interface OfflineSosOptions {
   includeGateway?: boolean;
   /** Remember this SOS so it is sent online when the connection returns (default true). */
   recordForEscalation?: boolean;
+  /** The SOS press's idempotency id (the later online SOS reuses it). */
+  clientSosId?: string;
 }
 
 async function resolveCoords(explicit?: Coords): Promise<Coords | null> {
@@ -73,14 +70,20 @@ export function buildSosMessage(userName: string | undefined, coords: Coords | n
 }
 
 /**
- * Opens the native SMS composer prefilled with the emergency message and
- * trusted-contact recipients. Returns a status describing what happened.
+ * Offline SOS: text the trusted contacts silently from the phone's SIM.
+ *
+ * Exactly one single-part SMS per contact (simSosText), sent once — never the
+ * Messages composer as well: opening Messages with the SOS typed in, on top
+ * of a text that had already gone out, is how contacts got the SOS twice.
+ * If the phone cannot send silently (no SIM, SMS permission off), the result
+ * says so and the SOS goes online as soon as the internet is back
+ * (offlineEscalation.ts).
  */
 export async function sendOfflineSosSms(
   options: OfflineSosOptions = {},
 ): Promise<{ opened: boolean; reason?: string; auto?: boolean }> {
   const coords = await resolveCoords(options.coords);
-  const message = buildSosMessage(options.userName, coords);
+  const message = simSosText(options.userName, coords);
 
   const contactPhones = await getCachedContactPhones();
   const recipients = [
@@ -89,51 +92,33 @@ export async function sendOfflineSosSms(
   ];
 
   // Remember it, so the full online SOS goes out once the internet is back.
-  if (options.recordForEscalation !== false) await recordOfflineSos(coords);
+  if (options.recordForEscalation !== false) await recordOfflineSos(coords, options.clientSosId);
 
   if (recipients.length === 0) {
     await logSms({ channel: 'offline-sim', recipients, message, status: 'failed', reason: 'No trusted contacts saved.' });
     return { opened: false, reason: tStatic('No trusted contacts saved for offline SMS.') };
   }
 
-  // 1. Preferred: silent auto-send via the SIM (Android + SEND_SMS granted).
-  //    Only counts as sent once the network accepted every SMS part.
   const direct = await trySendDirectSms(recipients, message);
   if (direct.sent.length) {
     await logSms({ channel: 'offline-sim', recipients: direct.sent, message, status: 'auto' });
   }
-  if (direct.failed.length === 0) return { opened: true, auto: true };
+  if (direct.failed.length) {
+    await logSms({
+      channel: 'offline-sim',
+      recipients: direct.failed,
+      message,
+      status: 'failed',
+      reason: direct.error || 'SMS could not be sent from this phone.',
+    });
+  }
+  if (direct.sent.length) return { opened: true, auto: true };
+  return { opened: false, reason: smsFailureReason(direct.error) };
+}
 
-  // 2. Fallback for whoever was not texted: the native composer — only while
-  //    the app is on screen. Launching Messages from the background (an SOS
-  //    raised by sound detection with the phone in a pocket) would pull
-  //    another app over whatever the user is doing and wait for a tap nobody
-  //    can see; the escalation outbox sends the SOS online instead.
-  const rest = direct.failed;
-  if (AppState.currentState !== 'active') {
-    const reason = direct.error || 'Silent SMS unavailable while the app is in the background.';
-    await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'failed', reason });
-    return direct.sent.length ? { opened: true, auto: true } : { opened: false, reason: tStatic('The SMS was not sent.') };
-  }
-  const available = await SMS.isAvailableAsync().catch(() => false);
-  if (!available) {
-    const reason = direct.error || 'SMS not available on device.';
-    await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'failed', reason });
-    return direct.sent.length
-      ? { opened: true, auto: true }
-      : { opened: false, reason: tStatic('SMS is not available on this device.') };
-  }
-  try {
-    const { result } = await SMS.sendSMSAsync(rest, message);
-    if (result === 'cancelled') {
-      await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'failed', reason: 'Cancelled in Messages.' });
-      return direct.sent.length ? { opened: true, auto: true } : { opened: false, reason: tStatic('The SMS was not sent.') };
-    }
-    await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'manual' });
-    return { opened: true, auto: false };
-  } catch (err) {
-    const reason = (err as Error)?.message || 'Failed to open SMS composer.';
-    await logSms({ channel: 'offline-sim', recipients: rest, message, status: 'failed', reason });
-    return direct.sent.length ? { opened: true, auto: true } : { opened: false, reason };
-  }
+/** A short, human reason for the user (the raw error goes to the SMS history). */
+function smsFailureReason(error?: string): string {
+  if (error && /permission/i.test(error)) return tStatic('Emergency SMS is off. Allow SMS for Nari Surokkha in Settings.');
+  if (error && /SIM/i.test(error)) return tStatic('No SIM card is ready to send SMS.');
+  return tStatic('The SMS could not be sent from this phone.');
 }

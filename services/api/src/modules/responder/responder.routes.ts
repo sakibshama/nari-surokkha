@@ -12,6 +12,7 @@ import {
   updateStatusResponseSchema,
   respondDispatchParamsSchema,
   respondDispatchBodySchema,
+  respondDispatchResponseSchema,
   getDispatchesResponseSchema,
   verifyDispatchParamsSchema,
   verifyDispatchResponseSchema
@@ -82,9 +83,13 @@ export async function responderRoutes(fastify: FastifyInstance) {
     onRequest: [fastify.authenticate],
     schema: {
       tags: ['Responders'],
-      summary: 'Accept or reject an SOS dispatch',
+      summary: 'Act on an SOS dispatch: accept | reject | arrive | complete | withdraw',
+      description:
+        'One conditional state transition. 409 with code DISPATCH_STATE (wrong state / lost race), ' +
+        'SOS_ENDED (the SOS was cancelled or resolved) or OWN_ALERT.',
       params: respondDispatchParamsSchema,
-      body: respondDispatchBodySchema
+      body: respondDispatchBodySchema,
+      response: { 200: respondDispatchResponseSchema },
     }
   }, controller.respondToDispatch as any);
 

@@ -1,4 +1,11 @@
-import { PrismaClient, Responder, ResponderStatus, ResponderAvailability, ResponderDispatch } from '@prisma/client';
+import { Prisma, PrismaClient, Responder, ResponderStatus, ResponderAvailability, ResponderDispatch, DispatchStatus } from '@prisma/client';
+import { ENGAGED_DISPATCH_STATUSES, VISIBLE_TO_VICTIM_STATUSES } from './dispatch-lifecycle';
+
+/** A dispatch with everything the responder flow needs to decide and render. */
+export type DispatchWithContext = ResponderDispatch & {
+  responder: Responder;
+  alert: Prisma.EmergencyAlertGetPayload<{ include: { user: { include: { profile: true } } } }>;
+};
 
 export class ResponderRepository {
   constructor(private readonly prisma: PrismaClient) {}
@@ -78,7 +85,15 @@ export class ResponderRepository {
     longitude: number,
     radiusMeters: number,
     limit = 20,
+    /**
+     * The alert owner. A user who is also a verified responder must never be
+     * dispatched to their own SOS.
+     */
+    excludeUserId?: string,
   ): Promise<Array<{ id: string; userId: string; distanceMeters: number }>> {
+    const excludeOwner = excludeUserId
+      ? Prisma.sql`AND user_id <> ${excludeUserId}::uuid`
+      : Prisma.empty;
     const result = await this.prisma.$queryRaw<Array<{ id: string; userId: string; distanceMeters: number }>>`
       SELECT id,
              user_id AS "userId",
@@ -90,6 +105,7 @@ export class ResponderRepository {
       WHERE status = 'verified'
         AND availability = 'available'
         AND NOT (latitude = 0 AND longitude = 0)
+        ${excludeOwner}
         -- NOTE: deliberately no "location IS NOT NULL" guard.
         --
         -- It reads as harmless defensive SQL, but it is what makes this query
@@ -121,7 +137,7 @@ export class ResponderRepository {
     });
   }
 
-  async getDispatchById(dispatchId: string): Promise<(ResponderDispatch & { responder: Responder, alert: any }) | null> {
+  async getDispatchById(dispatchId: string): Promise<DispatchWithContext | null> {
     return this.prisma.responderDispatch.findUnique({
       where: { id: dispatchId },
       include: {
@@ -135,13 +151,23 @@ export class ResponderRepository {
     });
   }
 
-  /** A responder's dispatch history — bounded; it grows with their tenure. */
-  async getDispatchesForResponder(responderId: string, limit = 50, cursor?: string): Promise<any[]> {
+  /**
+   * A responder's dispatch history — bounded; it grows with their tenure.
+   * Never includes the responder's own SOS (rows created before the fan-out
+   * excluded the owner are hidden too).
+   */
+  async getDispatchesForResponder(
+    responderId: string,
+    responderUserId: string,
+    limit = 50,
+    cursor?: string,
+  ): Promise<DispatchWithContext[]> {
     return this.prisma.responderDispatch.findMany({
       take: Math.min(limit, 100),
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      where: { responderId },
+      where: { responderId, alert: { userId: { not: responderUserId } } },
       include: {
+        responder: true,
         alert: {
           include: {
             user: { include: { profile: true } }
@@ -152,13 +178,60 @@ export class ResponderRepository {
     });
   }
 
-  async updateDispatchResponse(dispatchId: string, accepted: boolean, rejectReason?: string): Promise<ResponderDispatch> {
-    return this.prisma.responderDispatch.update({
-      where: { id: dispatchId },
-      data: {
-        acceptedAt: accepted ? new Date() : null,
-        rejectedAt: !accepted ? new Date() : null,
-        rejectReason: rejectReason,
+  /**
+   * Conditional state transition: applies `data` only while the dispatch is
+   * still in one of `from`. Returns false when another request got there
+   * first (or the dispatch was closed) — the caller answers 409.
+   */
+  async transitionDispatch(
+    dispatchId: string,
+    from: DispatchStatus[],
+    data: Prisma.ResponderDispatchUpdateManyMutationInput,
+  ): Promise<boolean> {
+    const { count } = await this.prisma.responderDispatch.updateMany({
+      where: { id: dispatchId, status: { in: from } },
+      data,
+    });
+    return count === 1;
+  }
+
+  /**
+   * An on-duty responder who accepted is busy (no new dispatches) until they
+   * complete or withdraw. An offline responder accepting from the list stays
+   * offline, so freeing them later never puts them on duty unasked.
+   */
+  async markBusy(responderId: string): Promise<void> {
+    await this.prisma.responder.updateMany({
+      where: {
+        id: responderId,
+        availability: 'available',
+        // Only while still engaged: if the SOS was closed (and the responder
+        // freed) a moment ago, do not leave them stuck as busy.
+        dispatchedAlerts: { some: { status: { in: ENGAGED_DISPATCH_STATUSES } } },
+      },
+      data: { availability: 'busy' },
+    });
+  }
+
+  /** Responders who accepted an alert, for the victim's SOS screen. */
+  async getAlertResponders(alertId: string) {
+    return this.prisma.responderDispatch.findMany({
+      where: { alertId, status: { in: VISIBLE_TO_VICTIM_STATUSES } },
+      orderBy: { acceptedAt: 'asc' },
+      select: {
+        id: true,
+        status: true,
+        acceptedAt: true,
+        arrivedAt: true,
+        completedAt: true,
+        distanceMeters: true,
+        responder: {
+          select: {
+            id: true,
+            organizationName: true,
+            user: { select: { phone: true, profile: { select: { fullName: true } } } },
+          },
+        },
       },
     });
   }

@@ -39,6 +39,10 @@ export const createSosSchema = {
       // replays them once connectivity returns — without this, a ping taken
       // ten minutes ago would be recorded as the victim's current position.
       timestamp: { type: 'string', format: 'date-time', nullable: true },
+      // One id per SOS press on the phone; a retry with the same id returns the same alert.
+      clientSosId: { type: 'string', minLength: 8, maxLength: 64, pattern: '^[A-Za-z0-9_-]+$' },
+      // The phone already texted the trusted contacts from its SIM: do not SMS them again.
+      contactsTexted: { type: 'boolean' },
     },
     additionalProperties: false,
   },
@@ -354,6 +358,42 @@ export const alertStatusSchema = {
             id: { type: 'string' },
             status: { type: 'string' },
             createdAt: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
+export const alertRespondersSchema = {
+  tags: ['alerts'],
+  summary: 'Community responders who accepted this SOS (accepted / arrived / completed)',
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: { id: { type: 'string', format: 'uuid' } },
+  },
+  response: {
+    200: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              dispatchId: { type: 'string' },
+              responderId: { type: 'string' },
+              status: { type: 'string' },
+              name: { type: ['string', 'null'] },
+              phone: { type: ['string', 'null'] },
+              organizationName: { type: ['string', 'null'] },
+              distanceMeters: { type: ['integer', 'null'] },
+              acceptedAt: { type: ['string', 'null'], format: 'date-time' },
+              arrivedAt: { type: ['string', 'null'], format: 'date-time' },
+              completedAt: { type: ['string', 'null'], format: 'date-time' },
+            },
           },
         },
       },

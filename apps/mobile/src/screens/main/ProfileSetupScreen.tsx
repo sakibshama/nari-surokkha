@@ -152,7 +152,8 @@ export default function ProfileSetupScreen() {
     }
   };
 
-  const isOnline = responderData?.availability === 'available' || responderData?.availability === 'online';
+  // 'busy' = on duty and currently handling an accepted dispatch.
+  const isOnline = ['available', 'online', 'busy'].includes(responderData?.availability);
   const rStatus = responderData?.status as 'pending' | 'verified' | 'rejected' | undefined;
   const initials =
     fullName

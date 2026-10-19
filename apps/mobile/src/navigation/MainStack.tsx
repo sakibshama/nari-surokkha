@@ -26,10 +26,14 @@ import SubscriptionScreen from '../screens/main/SubscriptionScreen';
 import EmergencyDetectionScreen from '../screens/main/EmergencyDetectionScreen';
 import AlertHistoryScreen from '../screens/main/AlertHistoryScreen';
 import AboutScreen from '../screens/main/AboutScreen';
+import NewsFeedScreen from '../screens/main/NewsFeedScreen';
 import { ChevronLeft, Menu } from 'lucide-react-native';
 import { Theme, useTheme, useThemedStyles } from '../theme';
 import { radius, spacing, type } from '../theme/tokens';
 import { socketService } from '../services/socket';
+import { isOwnSos } from '../services/responderDispatch';
+import { useAuthStore } from '../store/authStore';
+import { useLocationStore } from '../store/locationStore';
 import * as Notifications from 'expo-notifications';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
 
@@ -53,6 +57,7 @@ export type MainStackParamList = {
   EmergencyDetection: undefined;
   AlertHistory: undefined;
   About: undefined;
+  NewsFeed: undefined;
 };
 
 // ─── Header ──────────────────────────────────────────────────────────────────
@@ -103,41 +108,63 @@ export default function MainStack() {
 
     // 2. Listen for responder dispatches
     const handleDispatch = async (dispatchData: any) => {
-      if (Platform.OS === 'web') {
-        // --- Web Fallback for Push Notifications ---
-        try {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          if (AudioContextClass) {
-            const ctx = new AudioContextClass();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.type = 'triangle';
-            osc.frequency.setValueAtTime(880, ctx.currentTime);
-            osc.frequency.linearRampToValueAtTime(440, ctx.currentTime + 0.3);
-            gain.gain.setValueAtTime(0.5, ctx.currentTime);
-            gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.5);
+      // Never ask a user to help with their OWN SOS (the server excludes the
+      // owner; this guards stale events and older servers).
+      if (
+        isOwnSos(dispatchData, {
+          userId: useAuthStore.getState().user?.id,
+          activeAlertId: useLocationStore.getState().isSosActive ? useLocationStore.getState().activeAlertId : null,
+        })
+      ) {
+        return;
+      }
+      try {
+        if (Platform.OS === 'web') {
+          // --- Web Fallback for Push Notifications ---
+          try {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            if (AudioContextClass) {
+              const ctx = new AudioContextClass();
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.type = 'triangle';
+              osc.frequency.setValueAtTime(880, ctx.currentTime);
+              osc.frequency.linearRampToValueAtTime(440, ctx.currentTime + 0.3);
+              gain.gain.setValueAtTime(0.5, ctx.currentTime);
+              gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+              osc.start(ctx.currentTime);
+              osc.stop(ctx.currentTime + 0.5);
+            }
+          } catch (e) { console.warn('Web Audio beep failed', e); }
+          
+          const go = window.confirm(`🚨 ${tStatic('EMERGENCY DISPATCH')}\n\n${tStatic('A citizen nearby has triggered an SOS! Tap OK to respond.')}`);
+          if (go) {
+            navigation.navigate('ResponderHub');
           }
-        } catch (e) { console.warn('Web Audio beep failed', e); }
-        
-        const go = window.confirm(`🚨 ${tStatic('EMERGENCY DISPATCH')}\n\n${tStatic('A citizen nearby has triggered an SOS! Tap OK to respond.')}`);
-        if (go) {
-          navigation.navigate('ResponderHub');
+        } else {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: `🚨 ${tStatic('EMERGENCY DISPATCH')}`,
+              body: tStatic('A citizen nearby has triggered an SOS! Tap to respond.'),
+              sound: true,
+              priority: Notifications.AndroidNotificationPriority.MAX,
+              data: {
+                type: 'responder_dispatch',
+                screen: 'ResponderHub',
+                dispatchId: dispatchData?.dispatchId,
+                alertId: dispatchData?.alertId,
+                alertUserId: dispatchData?.alertUserId,
+              },
+            },
+            trigger: null, // trigger immediately
+          });
         }
-      } else {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: `🚨 ${tStatic('EMERGENCY DISPATCH')}`,
-            body: tStatic('A citizen nearby has triggered an SOS! Tap to respond.'),
-            sound: true,
-            priority: Notifications.AndroidNotificationPriority.MAX,
-            data: { screen: 'ResponderHub', dispatchId: dispatchData.id },
-          },
-          trigger: null, // trigger immediately
-        });
+      } catch (e) {
+        // A local notification that cannot be shown must not become an
+        // unhandled rejection; the hub still lists the dispatch.
+        if (__DEV__) console.warn('[Dispatch] could not show the dispatch notification', e);
       }
     };
 
@@ -147,7 +174,7 @@ export default function MainStack() {
 
     // 3. Handle notification taps to navigate automatically
     const sub = Notifications.addNotificationResponseReceivedListener(response => {
-      const data = response.notification.request.content.data;
+      const data = response.notification.request.content.data as any;
       if (data?.screen === 'ResponderHub') {
         navigation.navigate('ResponderHub');
       }
@@ -259,6 +286,11 @@ export default function MainStack() {
         name="About"
         component={AboutScreen}
         options={{ title: 'About' }}
+      />
+      <Stack.Screen
+        name="NewsFeed"
+        component={NewsFeedScreen}
+        options={{ title: 'News Feed' }}
       />
     </Stack.Navigator>
   );

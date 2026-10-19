@@ -6,6 +6,7 @@ import { FastifyInstance } from 'fastify';
 import { AlertsRepository } from './alerts.repository';
 import { ContactsRepository } from '../contacts/contacts.repository';
 import { ResponderRepository } from '../responder/responder.repository';
+import { closeDispatchesForAlert } from '../responder/dispatch-lifecycle';
 import { ForbiddenError } from '@/utils/errors';
 import { EmergencyAlert } from '@prisma/client';
 import { env } from '@/config/env';
@@ -175,6 +176,9 @@ export interface DeviceSmsInstruction {
   deviceSmsMessage?: string;
 }
 
+/** How long a phone's SOS id is remembered for de-duplication. */
+const CLIENT_SOS_TTL_SECONDS = 24 * 3600;
+
 export class AlertsService {
   constructor(
     private readonly repo: AlertsRepository,
@@ -185,7 +189,15 @@ export class AlertsService {
 
   async triggerManualSos(
     userId: string,
-    data: { latitude: number; longitude: number; accuracy?: number },
+    data: {
+      latitude: number;
+      longitude: number;
+      accuracy?: number;
+      /** One id per SOS press on the phone: a retry returns the same alert. */
+      clientSosId?: string;
+      /** The phone already texted the contacts from its SIM (offline SOS). */
+      contactsTexted?: boolean;
+    },
     ipAddress?: string,
   ): Promise<
     EmergencyAlert & {
@@ -194,29 +206,88 @@ export class AlertsService {
       degradedNotifications?: boolean;
     } & DeviceSmsInstruction
   > {
-    // 1. Verify user has at least one trusted contact
-    const contacts = await this.contactsRepo.getContactsByUserId(userId);
+    // 0. Idempotency: the same press sent twice (a timed-out request retried,
+    //    or the automatic online SOS after an offline SMS) is ONE alert, and
+    //    the contacts are notified once.
+    const existing = await this.claimClientSos(userId, data.clientSosId);
+    if (existing) {
+      const contacts = await this.contactsRepo.getContactsByUserId(userId);
+      return { ...existing, contactPhones: contacts.map((c) => c.phone), degradedNotifications: false, smsViaDevice: false };
+    }
+
+    // 1. Contacts and the alert row in parallel (no dependency between them).
+    let contacts: Awaited<ReturnType<typeof this.contactsRepo.getContactsByUserId>>;
+    let alert: EmergencyAlert;
+    try {
+      [contacts, alert] = await Promise.all([
+        this.contactsRepo.getContactsByUserId(userId),
+        this.repo.createAlert({
+          userId,
+          latitude: data.latitude,
+          longitude: data.longitude,
+          accuracy: data.accuracy,
+          status: 'confirmed',
+        }),
+      ]);
+    } catch (err) {
+      // Release the id so the phone's retry can create the alert at once.
+      if (data.clientSosId) {
+        await this.fastify.redis.del(this.clientSosKey(userId, data.clientSosId)).catch(() => undefined);
+      }
+      throw err;
+    }
     if (contacts.length === 0) {
       this.fastify.log.warn('User has no trusted contacts, but allowing SOS for responder dispatch.');
     }
-
-    // 2. Save the alert
-    const alert = await this.repo.createAlert({
-      userId,
-      latitude: data.latitude,
-      longitude: data.longitude,
-      accuracy: data.accuracy,
-      status: 'confirmed',
-    });
+    await this.rememberClientSos(userId, data.clientSosId, alert.id);
 
     alertsTotal.inc({ type: 'manual' });
 
-    const { degradedNotifications, smsViaDevice } = await this.dispatchConfirmedAlert(alert, data, ipAddress);
+    const { degradedNotifications, smsViaDevice } = await this.dispatchConfirmedAlert(
+      alert,
+      { latitude: data.latitude, longitude: data.longitude, accuracy: data.accuracy },
+      ipAddress,
+      { contactsTexted: data.contactsTexted === true },
+    );
 
     const contactPhones = contacts.map(c => c.phone);
-    const device = await this.deviceSmsInstruction(alert, smsViaDevice || degradedNotifications);
+    const device = await this.deviceSmsInstruction(alert, smsViaDevice || (degradedNotifications && !data.contactsTexted));
 
     return { ...alert, contactPhones, degradedNotifications, ...device };
+  }
+
+  private clientSosKey(userId: string, clientSosId: string): string {
+    return `sos:client:${userId}:${clientSosId}`;
+  }
+
+  /**
+   * The alert an earlier request with this clientSosId created, or null when
+   * this request is the first (it then owns the id). Fails open: without
+   * Redis every request simply creates its alert.
+   */
+  private async claimClientSos(userId: string, clientSosId?: string): Promise<EmergencyAlert | null> {
+    if (!clientSosId) return null;
+    const key = this.clientSosKey(userId, clientSosId);
+    try {
+      const claimed = await this.fastify.redis.set(key, 'pending', 'EX', CLIENT_SOS_TTL_SECONDS, 'NX');
+      if (claimed === 'OK') return null;
+      // Another request with the same id is in flight or done: wait briefly for its alert id.
+      for (let i = 0; i < 15; i++) {
+        const value = await this.fastify.redis.get(key);
+        if (value && value !== 'pending') return (await this.repo.getAlertById(value)) ?? null;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    } catch (err) {
+      this.fastify.log.warn({ err }, 'SOS idempotency check unavailable — creating the alert');
+    }
+    return null;
+  }
+
+  private async rememberClientSos(userId: string, clientSosId: string | undefined, alertId: string): Promise<void> {
+    if (!clientSosId) return;
+    await this.fastify.redis
+      .set(this.clientSosKey(userId, clientSosId), alertId, 'EX', CLIENT_SOS_TTL_SECONDS)
+      .catch(() => undefined);
   }
 
   /**
@@ -317,7 +388,7 @@ export class AlertsService {
     alert: EmergencyAlert,
     data: { latitude: number; longitude: number; accuracy?: number },
     ipAddress?: string,
-    opts: { forceServerSms?: boolean } = {},
+    opts: { forceServerSms?: boolean; contactsTexted?: boolean } = {},
   ): Promise<{ degradedNotifications: boolean; smsViaDevice: boolean }> {
     // ── 0. Who sends the contact SMS? ───────────────────────────────────
     // Within the plan's SMS quota the server sends it. Once the quota is used
@@ -325,8 +396,11 @@ export class AlertsService {
     // like the offline fallback; the server still pushes to contacts who have
     // the app. Server-side escalations force server SMS: nobody is answering
     // on the phone.
-    const smsViaDevice = !opts.forceServerSms && !(await this.smsQuotaAvailable(alert.userId));
-    const mode: ContactNotifyMode = smsViaDevice ? 'push_only' : 'all';
+    // When the phone already texted the contacts (offline SOS that went online
+    // later), nobody sends a second SMS: push only.
+    const smsViaDevice =
+      !opts.contactsTexted && !opts.forceServerSms && !(await this.smsQuotaAvailable(alert.userId));
+    const mode: ContactNotifyMode = smsViaDevice || opts.contactsTexted ? 'push_only' : 'all';
 
     // ── 1. Trusted contacts (SMS + push) ────────────────────────────────
     // Bounded: a queue write that cannot complete must not hold the response.
@@ -439,12 +513,28 @@ export class AlertsService {
 
     // ── 2. Nearby responders ────────────────────────────────────────────
     try {
-      const responders = await this.responderRepo.findNearbyResponders(
-        latitude,
-        longitude,
-        RESPONDER_DISPATCH_RADIUS_M,
-        RESPONDER_DISPATCH_LIMIT,
-      );
+      // The job is queued: the SOS may have been cancelled / resolved before
+      // it ran. Never page responders for an SOS that is already over.
+      const current = await this.fastify.prisma.emergencyAlert.findUnique({
+        where: { id: alertId },
+        select: { status: true },
+      });
+      if (current && !ACTIVE_ALERT_STATUSES.includes(current.status)) {
+        this.fastify.log.info({ alertId, status: current.status }, 'SOS ended before dispatch — no responders paged');
+        return;
+      }
+
+      // The owner is excluded in SQL AND here: a user who is also a verified
+      // responder must never be dispatched to their own SOS.
+      const responders = (
+        await this.responderRepo.findNearbyResponders(
+          latitude,
+          longitude,
+          RESPONDER_DISPATCH_RADIUS_M,
+          RESPONDER_DISPATCH_LIMIT,
+          userId,
+        )
+      ).filter((r) => r.userId !== userId);
       respondersDispatched.observe(responders.length);
       if (responders.length === 0) {
         // A persistent zero here means dispatch is silently broken — which is
@@ -460,7 +550,11 @@ export class AlertsService {
       //     skipDuplicates + the unique (alert_id, responder_id) index make a
       //     job retry a no-op instead of a second dispatch.
       await this.fastify.prisma.responderDispatch.createMany({
-        data: responderIds.map((responderId) => ({ responderId, alertId })),
+        data: responders.map((r) => ({
+          responderId: r.id,
+          alertId,
+          distanceMeters: Math.round(r.distanceMeters),
+        })),
         skipDuplicates: true,
       });
 
@@ -484,6 +578,8 @@ export class AlertsService {
         this.fastify.io?.to(`user:${responder.userId}`).emit('responder:dispatch_received', {
           dispatchId,
           alertId,
+          // The SOS owner, so the app can defensively ignore its own SOS.
+          alertUserId: userId,
           latitude: maskedLatitude,
           longitude: maskedLongitude,
           distanceMeters: Math.round(responder.distanceMeters),
@@ -505,7 +601,14 @@ export class AlertsService {
           {
             title: '🚨 EMERGENCY DISPATCH',
             body: 'A citizen nearby has triggered an SOS! Tap to respond.',
-            data: { alertId, latitude: maskedLatitude, longitude: maskedLongitude, screen: 'ResponderHub' },
+            data: {
+              type: 'responder_dispatch',
+              alertId,
+              alertUserId: userId,
+              latitude: maskedLatitude,
+              longitude: maskedLongitude,
+              screen: 'ResponderHub',
+            },
           },
           this.fastify.log,
         );
@@ -691,11 +794,11 @@ export class AlertsService {
       { fromStatus: alert.status, actorKind: 'user', actorId: userId, reason: 'SOS cancelled by user', metadata: { event: 'cancelled' } },
     );
     await invalidateAlertMeta(this.fastify, alertId);
+    // Every responder still on it is told the SOS is over and freed.
+    await closeDispatchesForAlert(this.fastify, alertId, 'false_alarm');
 
-    if (this.fastify.io) {
-      const eventPayload = { alertId, status: 'false_alarm' };
-      this.fastify.io.to(ADMIN_ROOM).emit('alert_status_update', eventPayload);
-    }
+    // The alert room too (accepted responders), not only the admin view.
+    emitToAlert(this.fastify, alertId, 'alert_status_update', { alertId, status: 'false_alarm' });
   }
 
   /** The owner says "I'm safe now". Idempotent once the alert is closed. */
@@ -713,6 +816,7 @@ export class AlertsService {
       { fromStatus: alert.status, actorKind: 'user', actorId: userId, reason: 'Marked safe by user', metadata: { event: 'resolved' } },
     );
     await invalidateAlertMeta(this.fastify, alertId);
+    await closeDispatchesForAlert(this.fastify, alertId, 'resolved');
     await this.repo.createAuditLog({
       userId,
       action: 'updated',

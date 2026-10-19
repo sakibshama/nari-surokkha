@@ -8,6 +8,7 @@ import { AlertsService } from './alerts.service';
 import { AlertsRepository } from './alerts.repository';
 import { ContactsRepository } from '../contacts/contacts.repository';
 import { ResponderRepository } from '../responder/responder.repository';
+import { ResponderService } from '../responder/responder.service';
 import {
   createSosSchema,
   updateLocationSchema,
@@ -16,6 +17,7 @@ import {
   confirmSoftAlertSchema,
   cancelSosAlertSchema,
   resolveAlertSchema,
+  alertRespondersSchema,
   alertStatusSchema,
   safeRouteSchema,
   routeLocationSchema,
@@ -109,6 +111,17 @@ export function alertsRoutes(
       });
       if (!alert) throw new ForbiddenError('Alert not found');
       return reply.send({ success: true, data: alert });
+    });
+
+    // Responders who accepted this SOS — the victim's "help is coming" list.
+    // Same access rule as the status read (owner, admin, accepted responder).
+    const responderService = new ResponderService(responderRepo, fastify);
+    authRequiredRouter.get<{ Params: { id: string } }>('/:id/responders', { schema: alertRespondersSchema }, async (req, reply) => {
+      const user = { id: req.user!.id, role: req.user!.role };
+      if (!(await canAccessAlert(fastify.prisma, req.params.id, user))) {
+        throw new ForbiddenError('Alert not found');
+      }
+      return reply.send({ success: true, data: await responderService.getAlertResponders(req.params.id) });
     });
 
     // "I'm safe now" — the owner ends their own alert.

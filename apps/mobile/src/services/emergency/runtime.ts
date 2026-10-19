@@ -153,7 +153,8 @@ export const softAlerts = new SoftAlertManager({
       alertId: result.alertId,
       contactPhones: result.contactPhones,
       message,
-      allowComposer: AppState.currentState === 'active',
+      userName: userName(),
+      coords: c ?? null,
     });
   },
   isSosActive: () => useLocationStore.getState().isSosActive,

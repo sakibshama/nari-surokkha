@@ -43,6 +43,22 @@ enum UserStatus {
   pending_verification
 }
 
+/// Lifecycle of one responder dispatch.
+///   pending  → accepted | declined | closed
+///   accepted → arrived | completed | withdrawn | closed
+///   arrived  → completed | withdrawn | closed
+/// declined, completed, withdrawn and closed are final. `closed` = the SOS
+/// ended (cancelled / resolved / closed by an admin) before the responder did.
+enum DispatchStatus {
+  pending
+  accepted
+  arrived
+  completed
+  declined
+  withdrawn
+  closed
+}
+
 enum AlertStatus {
   created
   confirmed
@@ -550,6 +566,16 @@ model ResponderDispatch {
   rejectReason String?   @map("reject_reason") @db.VarChar(255)
   verifiedAt   DateTime? @map("verified_at") @db.Timestamptz
   verifiedBy   String?   @map("verified_by") @db.Uuid // police user id
+  // Lifecycle (20261019000000_responder_dispatch_lifecycle). Every transition
+  // is a conditional UPDATE ... WHERE status = <expected>, so races end in a
+  // clean 409 instead of a double transition.
+  status         DispatchStatus @default(pending)
+  arrivedAt      DateTime?      @map("arrived_at") @db.Timestamptz
+  completedAt    DateTime?      @map("completed_at") @db.Timestamptz
+  withdrawnAt    DateTime?      @map("withdrawn_at") @db.Timestamptz
+  closedAt       DateTime?      @map("closed_at") @db.Timestamptz
+  /// Distance from the responder to the alert when dispatched (metres).
+  distanceMeters Int?           @map("distance_meters")
 
   responder Responder      @relation(fields: [responderId], references: [id])
   alert     EmergencyAlert @relation(fields: [alertId], references: [id])
@@ -559,6 +585,7 @@ model ResponderDispatch {
   @@unique([alertId, responderId], map: "idx_responder_dispatches_unique")
   @@index([responderId])
   @@index([alertId])
+  @@index([responderId, status], map: "idx_responder_dispatches_responder_status")
   @@map("responder_dispatches")
 }
 

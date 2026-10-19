@@ -1,5 +1,5 @@
 diff --git a/node_modules/react-native-direct-sms/android/build.gradle b/node_modules/react-native-direct-sms/android/build.gradle
-index 970bb32..4c4f893 100755
+index 970bb32..4c4f893
 --- a/node_modules/react-native-direct-sms/android/build.gradle
 +++ b/node_modules/react-native-direct-sms/android/build.gradle
 @@ -1,156 +1,31 @@
@@ -171,7 +171,7 @@ index 970bb32..4c4f893 100755
 +    implementation 'com.facebook.react:react-native:+'  // resolved to react-android by the RN Gradle plugin
  }
 diff --git a/node_modules/react-native-direct-sms/android/src/main/AndroidManifest.xml b/node_modules/react-native-direct-sms/android/src/main/AndroidManifest.xml
-index e497838..a81c10d 100755
+index e497838..a81c10d
 --- a/node_modules/react-native-direct-sms/android/src/main/AndroidManifest.xml
 +++ b/node_modules/react-native-direct-sms/android/src/main/AndroidManifest.xml
 @@ -1,5 +1,4 @@
@@ -182,10 +182,10 @@ index e497838..a81c10d 100755
      <uses-permission android:name="android.permission.SEND_SMS"/>
  </manifest>
 diff --git a/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java b/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java
-index 90cda30..d16f65c 100755
+index 90cda30..6184e01
 --- a/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java
 +++ b/node_modules/react-native-direct-sms/android/src/main/java/com/reactlibrary/DirectSmsModule.java
-@@ -1,31 +1,337 @@
+@@ -1,31 +1,345 @@
  package com.reactlibrary;
  
 +import com.facebook.react.bridge.Arguments;
@@ -457,6 +457,14 @@ index 90cda30..d16f65c 100755
 +        private final Runnable timeout = new Runnable() {
 +            @Override
 +            public void run() {
++                // Some OEM radios report only one "sent" result for a
++                // multi-part message. Parts were accepted and none failed:
++                // the message went out — reporting a failure here is what
++                // made callers send it a second time.
++                if (okParts > 0) {
++                    settle(null, null);
++                    return;
++                }
 +                settle("E_SMS_TIMEOUT", "No send confirmation within " + (SEND_TIMEOUT_MS / 1000) + " s ("
 +                        + okParts + "/" + parts.size() + " parts sent)");
 +            }

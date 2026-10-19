@@ -6,6 +6,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@
 import { bumpTokenVersion } from '@/utils/token-version';
 import { env } from '@/config/env';
 import { emitToAlert } from '@/utils/alert-rooms';
+import { closeDispatchesForAlert } from '@/modules/responder/dispatch-lifecycle';
 import { invalidateAlertMeta } from '@/modules/alerts/alert-location.buffer';
 import type { AdminSettableStatus } from '@/modules/alerts/alert-status';
 
@@ -373,6 +374,10 @@ export class AdminService {
     );
     // The cached authorisation record carries status (location pings).
     await invalidateAlertMeta(this.fastify, id);
+    // Ended by an admin: close every responder dispatch still open for it.
+    if (status !== 'in_progress') {
+      await closeDispatchesForAlert(this.fastify, id, status);
+    }
     await this.repo.createAuditLog({
       userId: actor.id,
       action: status === 'closed' ? 'case_closed' : 'updated',

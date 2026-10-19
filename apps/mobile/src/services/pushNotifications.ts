@@ -4,15 +4,32 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
+import { isOwnSos } from './responderDispatch';
+import { useAuthStore } from '../store/authStore';
+import { useLocationStore } from '../store/locationStore';
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    // A responder dispatch for the user's OWN SOS is never shown (the server
+    // excludes the owner; this guards stale pushes and older servers).
+    const data = (notification?.request?.content?.data ?? {}) as Record<string, unknown>;
+    const own =
+      data.type === 'responder_dispatch' &&
+      isOwnSos(
+        { alertId: data.alertId as string | undefined, alertUserId: data.alertUserId as string | undefined },
+        {
+          userId: useAuthStore.getState().user?.id,
+          activeAlertId: useLocationStore.getState().isSosActive ? useLocationStore.getState().activeAlertId : null,
+        },
+      );
+    return {
+      shouldShowAlert: !own,
+      shouldPlaySound: !own,
+      shouldSetBadge: !own,
+      shouldShowBanner: !own,
+      shouldShowList: !own,
+    };
+  },
 });
 
 const PUSH_TOKEN_KEY = '@push_token';

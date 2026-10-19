@@ -57,3 +57,42 @@ export function smsSegments(text: string): SmsSegments {
   const units = text.length; // UTF-16 code units
   return { encoding: 'UCS-2', units, segments: units <= 70 ? 1 : Math.ceil(units / 67) };
 }
+
+/** Keep only characters every phone can send in one plain (GSM-7) SMS part. */
+function gsmOnly(text: string): string {
+  let out = '';
+  for (const ch of text) if (GSM_BASIC.includes(ch) && ch !== '\n' && ch !== '\r') out += ch;
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+/** The first http(s) link in a text (e.g. the live-tracking link in the server's template). */
+export function firstLink(text: string | undefined | null): string | null {
+  const m = /(https?:\/\/[^\s]+)/.exec(text ?? '');
+  return m ? m[1].replace(/[).,;]+$/, '') : null;
+}
+
+/**
+ * The SOS text sent from the phone's SIM: ALWAYS exactly one SMS part.
+ *
+ * A Bangla (UCS-2) SOS with a link needed 2–3 parts, and many phones and
+ * Bangladeshi carriers deliver those parts as separate messages — the
+ * contact saw "2–3 SMS" for one SOS. Plain-alphabet text fits 160
+ * characters in a single part, so the SIM SMS is kept in English with the
+ * link, and the name is shortened (or dropped) to make it fit.
+ *
+ * @param link  the live-tracking link if the server gave one, else a map link is used
+ */
+export function simSosText(name: string | undefined, coords: SosCoords | null, link?: string | null): string {
+  const where = link || (coords ? mapsLink(coords) : null);
+  const tail = where ? ` Location: ${where}` : ' Location unknown, please call.';
+  const build = (who: string) => (who ? `SOS! ${who} needs help.${tail}` : `SOS! I need help.${tail}`);
+  let who = gsmOnly(name ?? '');
+  let text = build(who);
+  while (smsSegments(text).segments > 1 && who.length > 0) {
+    who = who.slice(0, Math.max(0, who.length - 4)).trim();
+    text = build(who);
+  }
+  // A link so long that even the bare text needs two parts: use the map link.
+  if (smsSegments(text).segments > 1 && coords && where !== mapsLink(coords)) return simSosText(name, coords, null);
+  return text;
+}

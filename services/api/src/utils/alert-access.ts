@@ -1,10 +1,12 @@
 /**
  * Who may see an alert's live data (room, evidence): its owner, an admin, or a
- * responder whose dispatch for that alert was ACCEPTED. A merely-dispatched
+ * responder whose dispatch for that alert is accepted / arrived / completed
+ * (not one who withdrew). A merely-dispatched
  * responder only gets the masked summary from /responders/dispatches.
  */
 
 import type { PrismaClient } from '@prisma/client';
+import { VISIBLE_TO_VICTIM_STATUSES } from '@/modules/responder/dispatch-lifecycle';
 
 export function isAdminRole(role: string): boolean {
   return role === 'admin' || role === 'superadmin';
@@ -21,7 +23,9 @@ export async function canAccessAlert(
     select: {
       userId: true,
       responderDispatches: {
-        where: { acceptedAt: { not: null }, responder: { userId: user.id } },
+        // Accepted and still on it (or done) — a responder who withdrew, or
+        // declined, no longer sees the live data.
+        where: { status: { in: VISIBLE_TO_VICTIM_STATUSES }, responder: { userId: user.id } },
         select: { id: true },
         take: 1,
       },

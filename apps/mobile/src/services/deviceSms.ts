@@ -8,28 +8,29 @@
  * link. This module sends it, in this order:
  *
  *   1. silently from the SIM (Android with SEND_SMS)            → done
- *   2. the Messages composer, only if the app is on screen      → user taps Send
- *   3. ask the server to send it after all (POST /sms-fallback) → done
+ *   2. ask the server to send it after all (POST /sms-fallback) → done
  *
- * Step 3 means an SOS is never left un-texted just because the phone could
+ * Step 2 means an SOS is never left un-texted just because the phone could
  * not send it (no permission, iOS in the background, app not visible).
  */
 
-import { AppState } from 'react-native';
-import * as SMS from 'expo-sms';
 import api from './api';
 import { trySendDirectSms } from './directSms';
 import { getCachedContactPhones } from './offlineSos';
 import { logSms } from './smsHistory';
+import { firstLink, simSosText, type SosCoords } from './sosText';
 
-export type DeviceSmsOutcome = 'sim' | 'composer' | 'server' | 'failed';
+export type DeviceSmsOutcome = 'sim' | 'server' | 'failed';
 
 export interface DeviceSmsRequest {
   alertId: string;
   /** From the server response; falls back to the cached trusted contacts. */
   contactPhones?: string[];
+  /** The server's text; only its live-tracking link is reused (see below). */
   message: string;
-  /** Allow opening the Messages composer (only meaningful while the app is visible). */
+  userName?: string;
+  coords?: SosCoords | null;
+  /** @deprecated The Messages composer is never opened any more. */
   allowComposer?: boolean;
 }
 
@@ -65,31 +66,21 @@ export async function sendSosSmsFromDevice(req: DeviceSmsRequest): Promise<Devic
     return askServer(req.alertId, recipients, req.message);
   }
 
+  // One single-part SMS per contact: the server's template (often Bangla,
+  // with two links) would split into 2–3 parts that many phones show as
+  // separate messages. Keep its live-tracking link, drop the rest.
+  const message = simSosText(req.userName, req.coords ?? null, firstLink(req.message));
+
   // 1. Silent send from the SIM — counted only once the network accepted it.
-  const direct = await trySendDirectSms(recipients, req.message);
+  const direct = await trySendDirectSms(recipients, message);
   if (direct.sent.length) {
-    await logSms({ channel: 'quota-sim', status: 'auto', recipients: direct.sent, message: req.message, reason: REASON });
+    await logSms({ channel: 'quota-sim', status: 'auto', recipients: direct.sent, message, reason: REASON });
   }
   if (direct.failed.length === 0) return 'sim';
-  const rest = direct.failed;
 
-  // 2. Composer for whoever was not texted — only when the user is looking at the app.
-  const visible = AppState.currentState === 'active';
-  if ((req.allowComposer ?? visible) && visible) {
-    try {
-      if (await SMS.isAvailableAsync()) {
-        const { result } = await SMS.sendSMSAsync(rest, req.message);
-        if (result !== 'cancelled') {
-          await logSms({ channel: 'quota-sim', status: 'manual', recipients: rest, message: req.message, reason: REASON });
-          return 'composer';
-        }
-      }
-    } catch {
-      /* fall through to the server */
-    }
-  }
-
-  // 3. The phone could not send it: the server sends it after all.
-  const viaServer = await askServer(req.alertId, rest, req.message);
+  // 2. The phone could not text everyone: the server sends to them instead.
+  //    (Never the Messages composer: the SOS must not need a tap, and opening
+  //    it after a silent send is what produced duplicate texts.)
+  const viaServer = await askServer(req.alertId, direct.failed, message);
   return viaServer === 'failed' && direct.sent.length ? 'sim' : viaServer;
 }
